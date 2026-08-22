@@ -140,3 +140,84 @@ CREATE TABLE pharos.report_group_config (
                                                     )
 );
 
+
+-- Drop table
+
+-- DROP TABLE pharos.rule_hit;
+
+CREATE TABLE pharos.rule_hit (
+                                 rpt_grp_id int4 NOT NULL,
+                                 bucket_id int4 NOT NULL,
+                                 rule_id text NOT NULL,
+                                 attempt_id int8 NOT NULL,
+                                 activity_type text NULL,
+                                 batch_id int4 NULL,
+                                 created_timestamp timestamptz NULL,
+                                 efile_batch_id text NULL,
+                                 exclusion_reason_id text NULL,
+                                 external_txn_key int8 NULL,
+                                 galactic_id text NULL,
+                                 is_reported bool NULL,
+                                 modified_timestamp timestamptz NULL,
+                                 mtcn text NULL,
+                                 objective_aggregation_key text NULL,
+                                 reporting_timestamp timestamp NULL,
+                                 rpt_grp_name text NULL,
+                                 rule_currency_amount numeric NULL,
+                                 rule_iso_currency_code text NULL,
+                                 send_date date NULL,
+                                 "source" text NULL,
+                                 transaction_date timestamp NULL,
+                                 transaction_side text NULL,
+                                 reported_batch_id text NULL,
+                                 CONSTRAINT rule_hit_pkey PRIMARY KEY (
+                                                                       rpt_grp_id,
+                                                                       bucket_id,
+                                                                       rule_id,
+                                                                       attempt_id
+                                     )
+);
+
+CREATE INDEX created_timestamp_rule_hit_idx
+    ON pharos.rule_hit USING btree (created_timestamp);
+
+CREATE INDEX efilebatchid_rule_hit_idx
+    ON pharos.rule_hit USING btree (efile_batch_id);
+
+CREATE INDEX idx_rule_hit_galactic_id
+    ON pharos.rule_hit USING btree (galactic_id);
+
+CREATE INDEX modified_timestamp_rule_hit_idx
+    ON pharos.rule_hit USING btree (modified_timestamp);
+
+CREATE INDEX reporting_timestamp_rule_hit_idx
+    ON pharos.rule_hit USING btree (reporting_timestamp);
+
+CREATE INDEX txn_sur_key_rule_hit_idx
+    ON pharos.rule_hit USING btree (external_txn_key);
+
+-- Drop table
+
+-- DROP TABLE pharos.rule_hit_reconciliation;
+
+CREATE TABLE pharos.rule_hit_reconciliation (
+                                                rpt_grp_id int4 NOT NULL,
+                                                run_date int4 NOT NULL,
+                                                seq_no int4 NOT NULL,
+                                                created_timestamp timestamptz NULL,
+                                                data_selection_end_date timestamp NULL,
+                                                data_selection_start_date timestamp NULL,
+                                                distinct_rule_hits_count_iwra int4 NULL,
+                                                distinct_rule_hits_count_pharos int4 NULL,
+                                                missed_rule_hits_count_pharos int4 NULL,
+                                                modified_timestamp timestamptz NULL,
+                                                rpt_grp_name text NULL,
+                                                rule_hit_publish_count_iwra int4 NULL,
+                                                CONSTRAINT rule_hit_reconciliation_pkey PRIMARY KEY (
+                                                                                                     rpt_grp_id,
+                                                                                                     run_date,
+                                                                                                     seq_no
+                                                    )
+);
+
+
