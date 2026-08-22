@@ -23,4 +23,9 @@ public record BatchQueueItemResponse(
     long reconciliationImbalance,
     long reportedTransactions,
     long excludedTransactions,
-    long totalIssues) {}
+    long totalIssues,
+    @Schema(
+            description =
+                "For NOT_YET_REPORTED batches only: distinct transactions seen in journey evidence so far",
+            example = "0")
+        long discoveredTransactions) {}

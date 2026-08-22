@@ -101,10 +101,16 @@ class ComplianceDashboardApplicationTest {
 
     assertNotNull(response);
     assertTrue(response.batchesRan() > 0);
+    assertTrue(response.batchesNotYetReported() >= 0);
     assertEquals(
-        response.batchesRan() - response.batchesNeedingAttention(), response.successfulBatches());
+        response.batchesRan()
+            - response.batchesNeedingAttention()
+            - response.batchesNotYetReported(),
+        response.successfulBatches());
     assertTrue(response.batchesNeedingAttention() >= 0);
-    assertTrue(response.batchesNeedingAttention() <= response.batchesRan());
+    assertTrue(
+        response.batchesNeedingAttention() + response.batchesNotYetReported()
+            <= response.batchesRan());
     assertTrue(response.transformationFailureBatches() <= response.batchesNeedingAttention());
     assertTrue(response.missingAttemptBatches() <= response.batchesNeedingAttention());
     assertTrue(response.filtrationFailureBatches() <= response.batchesNeedingAttention());

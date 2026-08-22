@@ -44,12 +44,18 @@ public interface BatchExplorerRepository
       @Param("batchId") String batchId,
       @Param("sequenceNumber") int sequenceNumber);
 
+  @Query(value = BatchExplorerNativeQueries.BATCH_DETAILS_NOT_YET_REPORTED, nativeQuery = true)
+  Optional<NotYetReportedBatchDetailsProjection> getNotYetReportedBatchDetails(
+      @Param("reportGroupId") int reportGroupId, @Param("batchId") String batchId);
+
   interface BatchSummaryProjection {
     long getAllBatches();
 
     long getSuccessfulBatches();
 
     long getAttentionBatches();
+
+    long getNotYetReportedBatches();
 
     String getReportGroupName();
   }
@@ -84,6 +90,10 @@ public interface BatchExplorerRepository
     long getExcludedTransactions();
 
     long getTotalIssues();
+
+    long getDiscoveredTransactions();
+
+    String getStatusBucket();
 
     long getMatchingCount();
   }
@@ -130,6 +140,26 @@ public interface BatchExplorerRepository
     long getTransformerOutput();
 
     long getExcludedTransactions();
+
+    boolean getJourneyAvailable();
+
+    boolean getExclusionsAvailable();
+  }
+
+  interface NotYetReportedBatchDetailsProjection {
+    int getReportGroupId();
+
+    String getReportGroupName();
+
+    String getBatchId();
+
+    LocalDateTime getStartedAt();
+
+    LocalDateTime getLastActivityAt();
+
+    long getDiscoveredTransactions();
+
+    long getStalledTransactions();
 
     boolean getJourneyAvailable();
 

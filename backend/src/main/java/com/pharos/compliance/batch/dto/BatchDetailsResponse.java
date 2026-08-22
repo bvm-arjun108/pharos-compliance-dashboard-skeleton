@@ -37,4 +37,14 @@ public record BatchDetailsResponse(
     long excludedTransactions,
     boolean journeyAvailable,
     boolean ruleHitsAvailable,
-    boolean exclusionsAvailable) {}
+    boolean exclusionsAvailable,
+    @Schema(
+            description =
+                "For NOT_YET_REPORTED batches only: distinct transactions seen in journey evidence so far",
+            example = "0")
+        long discoveredTransactions,
+    @Schema(
+            description =
+                "For NOT_YET_REPORTED batches only: of the discovered transactions, how many have permanently stalled (an error state the pipeline will not retry, e.g. attempt never received) rather than simply still being in progress",
+            example = "0")
+        long stalledTransactions) {}

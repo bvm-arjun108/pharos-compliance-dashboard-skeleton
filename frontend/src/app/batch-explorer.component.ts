@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 
-type BatchStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION';
+type BatchStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED';
 type BatchIssueType =
   | 'ALL'
   | 'TRANSFORMATION'
@@ -47,6 +47,7 @@ interface BatchExplorerSummary {
   allBatches: number;
   successfulBatches: number;
   attentionBatches: number;
+  notYetReportedBatches: number;
 }
 
 interface BatchQueueItem {
@@ -68,6 +69,7 @@ interface BatchQueueItem {
   reportedTransactions: number;
   excludedTransactions: number;
   totalIssues: number;
+  discoveredTransactions: number;
 }
 
 interface BatchExplorerResponse {
@@ -120,6 +122,24 @@ interface BatchDetailsResponse {
   journeyAvailable: boolean;
   ruleHitsAvailable: boolean;
   exclusionsAvailable: boolean;
+  discoveredTransactions: number;
+  stalledTransactions: number;
+}
+
+interface ReportConfigSummary {
+  reportGroupId: number;
+  reportGroupName: string | null;
+  reportSelectionVersionId: number;
+  transformerVersionId: string;
+  countryName: string;
+  reportType: string | null;
+  active: boolean;
+  mappingServiceName: string | null;
+  modifiedAt: string | null;
+}
+
+interface ReportConfigExplorerResponse {
+  configurations: ReportConfigSummary[];
 }
 
 @Component({
@@ -144,6 +164,8 @@ export class BatchExplorerComponent implements OnInit {
   readonly queueError = signal<string | null>(null);
   readonly detailError = signal<string | null>(null);
   readonly activeEvidence = signal<EvidenceSection | null>(null);
+  readonly reportConfigSummary = signal<ReportConfigSummary | null>(null);
+  readonly reportConfigLoading = signal(false);
 
   readonly fromDate = signal('');
   readonly toDate = signal('');
@@ -206,7 +228,9 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   selectStatus(status: BatchStatus): void {
-    this.updateRoute({ status, issueType: status === 'SUCCESSFUL' ? 'ALL' : this.issueType(), page: 0 });
+    const issueType =
+      status === 'SUCCESSFUL' || status === 'NOT_YET_REPORTED' ? 'ALL' : this.issueType();
+    this.updateRoute({ status, issueType, page: 0 });
   }
 
   selectBatch(batch: BatchQueueItem): void {
@@ -225,6 +249,12 @@ export class BatchExplorerComponent implements OnInit {
         batchId: this.batchId().trim() || null,
         country: this.country()
       }
+    });
+  }
+
+  openReportConfig(reportGroupId: number): void {
+    void this.router.navigate(['/report-config'], {
+      queryParams: { reportGroupId }
     });
   }
 
@@ -291,6 +321,9 @@ export class BatchExplorerComponent implements OnInit {
     if (this.status() === 'ATTENTION') {
       return 'Batches Needing Attention';
     }
+    if (this.status() === 'NOT_YET_REPORTED') {
+      return 'Not Yet Reported Batches';
+    }
     return 'Batch Explorer';
   }
 
@@ -317,6 +350,9 @@ export class BatchExplorerComponent implements OnInit {
     }
     if (this.status() === 'ATTENTION') {
       return 'Batches needing attention';
+    }
+    if (this.status() === 'NOT_YET_REPORTED') {
+      return 'Batches not yet reported';
     }
     return 'All batches';
   }
@@ -368,6 +404,7 @@ export class BatchExplorerComponent implements OnInit {
     return `${((details.transactionAttemptsFound / details.selectedTransactions) * 100).toFixed(1)}%`;
   }
 
+
   hasEvidence(details: BatchDetailsResponse): boolean {
     return details.journeyAvailable || details.ruleHitsAvailable || details.exclusionsAvailable;
   }
@@ -390,6 +427,7 @@ export class BatchExplorerComponent implements OnInit {
     this.queueError.set(null);
     this.selectedBatch.set(null);
     this.selectedDetails.set(null);
+    this.reportConfigSummary.set(null);
 
     let params = new HttpParams()
       .set('fromDate', this.fromDate())
@@ -442,6 +480,25 @@ export class BatchExplorerComponent implements OnInit {
         this.detailError.set('The selected batch preview could not be loaded.');
       }
     });
+    this.loadReportConfigSummary(batch.reportGroupId);
+  }
+
+  private loadReportConfigSummary(reportGroupId: number): void {
+    this.reportConfigLoading.set(true);
+    this.reportConfigSummary.set(null);
+    const params = new HttpParams().set('reportGroupId', reportGroupId).set('status', 'ALL');
+    this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs', { params }).subscribe({
+      next: response => {
+        if (this.selectedBatch()?.reportGroupId === reportGroupId) {
+          this.reportConfigSummary.set(response.configurations[0] ?? null);
+          this.reportConfigLoading.set(false);
+        }
+      },
+      error: () => {
+        this.reportConfigLoading.set(false);
+        this.reportConfigSummary.set(null);
+      }
+    });
   }
 
   private readRouteState(params: ParamMap): void {
@@ -466,7 +523,9 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   private parseStatus(value: string | null): BatchStatus {
-    return value === 'SUCCESSFUL' || value === 'ATTENTION' ? value : 'ALL';
+    return value === 'SUCCESSFUL' || value === 'ATTENTION' || value === 'NOT_YET_REPORTED'
+      ? value
+      : 'ALL';
   }
 
   private parseIssueType(value: string | null): BatchIssueType {

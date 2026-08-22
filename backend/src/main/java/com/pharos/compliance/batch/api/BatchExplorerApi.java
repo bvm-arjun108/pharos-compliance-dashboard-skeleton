@@ -101,7 +101,7 @@ public interface BatchExplorerApi {
       operationId = "getBatchPreview",
       summary = "Get the diagnostic preview for one batch",
       description =
-          "Uses the report-group, batch, and sequence composite identity. Journey and exclusion evidence are reported conditionally; downstream final-reported count remains unavailable until its authoritative source is integrated.")
+          "Uses the report-group, batch, and sequence composite identity. A sequenceNumber of 0 is a sentinel for batches with journey evidence but no reconciliation record yet (NOT_YET_REPORTED); real sequence numbers start at 1. Journey and exclusion evidence are reported conditionally; downstream final-reported count remains unavailable until its authoritative source is integrated.")
   @ApiResponses({
     @ApiResponse(
         responseCode = "200",
@@ -126,5 +126,9 @@ public interface BatchExplorerApi {
   Mono<BatchDetailsResponse> getBatchDetails(
       @PathVariable("reportGroupId") @Min(1) int reportGroupId,
       @PathVariable("batchId") @NotBlank String batchId,
-      @PathVariable("sequenceNumber") @Min(1) int sequenceNumber);
+      @Parameter(
+              description =
+                  "Reconciliation sequence number, or 0 for a NOT_YET_REPORTED batch with no reconciliation record yet")
+          @PathVariable("sequenceNumber")
+          @Min(0) int sequenceNumber);
 }

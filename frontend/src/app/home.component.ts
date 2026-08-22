@@ -67,7 +67,7 @@ interface ReportGroupAttention {
 }
 
 type ReportPeriod = 'TODAY' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'CUSTOM';
-type ExplorerStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION';
+type ExplorerStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED';
 type ExplorerIssueType = 'ALL' | 'TRANSFORMATION' | 'MISSING_ATTEMPTS' | 'FILTRATION' | 'RECONCILIATION';
 type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
 
@@ -196,7 +196,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           }
         </button>
 
-        <article class="kpi-card kpi-card--pending">
+        <button class="kpi-card kpi-card--pending kpi-card--link" type="button" (click)="openBatchExplorer('NOT_YET_REPORTED')" [disabled]="dashboardLoading() || !!dashboardError()">
           <div class="kpi-card__topline">
             <span>Not Yet Reported</span>
             <span class="kpi-card__icon" aria-hidden="true">…</span>
@@ -210,7 +210,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             <strong>{{ details.batchesNotYetReported | number:'1.0-0' }}</strong>
             <small>Selected but not yet transformed — no reconciliation record yet</small>
           }
-        </article>
+        </button>
 
         <article class="kpi-card kpi-card--transactions">
           <div class="kpi-card__topline">

@@ -6,4 +6,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record BatchExplorerSummaryResponse(
     @Schema(example = "10") long allBatches,
     @Schema(example = "2") long successfulBatches,
-    @Schema(example = "8") long attentionBatches) {}
+    @Schema(example = "8") long attentionBatches,
+    @Schema(
+            description = "Batches with journey evidence but no reconciliation record yet",
+            example = "1")
+        long notYetReportedBatches) {}

@@ -2,6 +2,43 @@ package com.pharos.compliance.batch.repository;
 
 final class BatchExplorerNativeQueries {
 
+  /**
+   * Batches that have journey evidence (transactions were selected) but no matching row in
+   * report_transformation_reconciliation yet — i.e. selected but not yet transformed/reported.
+   * report_group_config has no seq_no concept for these, so they carry a synthetic seq_no of 0,
+   * which is otherwise unused (real sequence numbers start at 1).
+   */
+  private static final String NOT_YET_REPORTED_CTE =
+      """
+      , not_yet_reported_batches AS (
+          SELECT
+              j.rpt_grp_id,
+              j.batch_id,
+              (SELECT rgc.rpt_grp_name
+               FROM pharos.report_group_config rgc
+               WHERE rgc.rpt_grp_id = j.rpt_grp_id
+                 AND rgc.rpt_config_active_flag = TRUE
+               ORDER BY rgc.modified_timestamp DESC NULLS LAST
+               LIMIT 1) AS rpt_grp_name,
+              MIN(j.created_timestamp) AS started_at,
+              MAX(j.modified_timestamp) AS last_activity_at,
+              COUNT(DISTINCT j.identifier)::bigint AS discovered_transactions
+          FROM pharos.record_transformation_journey j
+          WHERE j.created_timestamp >= :fromTimestamp
+            AND j.created_timestamp < :toTimestampExclusive
+            AND (:batchId = '' OR LOWER(j.batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
+            AND (:reportGroupId IS NULL OR j.rpt_grp_id = :reportGroupId)
+            AND (:filterByCountry = FALSE OR j.rpt_grp_id IN (:reportGroupIds))
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pharos.report_transformation_reconciliation r
+                WHERE r.rpt_grp_id = j.rpt_grp_id
+                  AND r.batch_id = j.batch_id
+            )
+          GROUP BY j.rpt_grp_id, j.batch_id
+      )
+      """;
+
   private static final String BATCH_METRICS_CTE =
       """
       WITH batch_metrics AS (
@@ -45,18 +82,48 @@ final class BatchExplorerNativeQueries {
 
   static final String BATCH_SUMMARY =
       BATCH_METRICS_CTE
+          + NOT_YET_REPORTED_CTE
           + """
           SELECT
-              COUNT(*) AS "allBatches",
-              COUNT(*) FILTER (WHERE total_issues = 0) AS "successfulBatches",
-              COUNT(*) FILTER (WHERE total_issues > 0) AS "attentionBatches",
-              MAX(rpt_grp_name) AS "reportGroupName"
-          FROM enriched_batch_metrics
+              (SELECT COUNT(*) FROM enriched_batch_metrics)
+                  + (SELECT COUNT(*) FROM not_yet_reported_batches) AS "allBatches",
+              (SELECT COUNT(*) FROM enriched_batch_metrics WHERE total_issues = 0)
+                  AS "successfulBatches",
+              (SELECT COUNT(*) FROM enriched_batch_metrics WHERE total_issues > 0)
+                  AS "attentionBatches",
+              (SELECT COUNT(*) FROM not_yet_reported_batches) AS "notYetReportedBatches",
+              COALESCE(
+                  (SELECT MAX(rpt_grp_name) FROM enriched_batch_metrics),
+                  (SELECT MAX(rpt_grp_name) FROM not_yet_reported_batches)
+              ) AS "reportGroupName"
           """;
 
   static final String BATCH_QUEUE =
       BATCH_METRICS_CTE
+          + NOT_YET_REPORTED_CTE
           + """
+          , combined_queue AS (
+              SELECT
+                  rpt_grp_id, batch_id, seq_no, rpt_grp_name, rpt_from_date, rpt_to_date,
+                  created_timestamp::timestamptz AS started_at,
+                  modified_timestamp::timestamptz AS completed_at,
+                  transformation_failures, missing_attempts, filtration_errors,
+                  reconciliation_imbalance, transformer_output, excluded_transactions,
+                  total_issues, 0::bigint AS discovered_transactions,
+                  'RECONCILED' AS status_bucket
+              FROM enriched_batch_metrics
+
+              UNION ALL
+
+              SELECT
+                  rpt_grp_id, batch_id, 0 AS seq_no, rpt_grp_name,
+                  NULL::text AS rpt_from_date, NULL::text AS rpt_to_date,
+                  started_at, NULL::timestamptz AS completed_at,
+                  0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint,
+                  0::bigint AS total_issues, discovered_transactions,
+                  'NOT_YET_REPORTED' AS status_bucket
+              FROM not_yet_reported_batches
+          )
           SELECT
               rpt_grp_id AS "reportGroupId",
               rpt_grp_name AS "reportGroupName",
@@ -64,8 +131,8 @@ final class BatchExplorerNativeQueries {
               seq_no AS "sequenceNumber",
               rpt_from_date AS "reportingPeriodFrom",
               rpt_to_date AS "reportingPeriodTo",
-              created_timestamp AS "startedAt",
-              modified_timestamp AS "completedAt",
+              started_at AS "startedAt",
+              completed_at AS "completedAt",
               transformation_failures AS "transformationFailures",
               missing_attempts AS "missingAttempts",
               filtration_errors AS "filtrationErrors",
@@ -73,25 +140,29 @@ final class BatchExplorerNativeQueries {
               transformer_output AS "reportedTransactions",
               excluded_transactions AS "excludedTransactions",
               total_issues AS "totalIssues",
+              discovered_transactions AS "discoveredTransactions",
+              status_bucket AS "statusBucket",
               COUNT(*) OVER () AS "matchingCount"
-          FROM enriched_batch_metrics
+          FROM combined_queue
           WHERE (:status = 'ALL'
-                 OR (:status = 'SUCCESSFUL' AND total_issues = 0)
-                 OR (:status = 'ATTENTION' AND total_issues > 0))
+                 OR (:status = 'SUCCESSFUL' AND status_bucket = 'RECONCILED' AND total_issues = 0)
+                 OR (:status = 'ATTENTION' AND status_bucket = 'RECONCILED' AND total_issues > 0)
+                 OR (:status = 'NOT_YET_REPORTED' AND status_bucket = 'NOT_YET_REPORTED'))
             AND (:issueType = 'ALL'
-                 OR (:issueType = 'TRANSFORMATION' AND transformation_failures > 0)
-                 OR (:issueType = 'MISSING_ATTEMPTS' AND missing_attempts > 0)
-                 OR (:issueType = 'FILTRATION' AND filtration_errors > 0)
-                 OR (:issueType = 'RECONCILIATION' AND reconciliation_imbalance > 0))
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'TRANSFORMATION' AND transformation_failures > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'MISSING_ATTEMPTS' AND missing_attempts > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'FILTRATION' AND filtration_errors > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'RECONCILIATION' AND reconciliation_imbalance > 0))
             AND (:metricFocus = 'DEFAULT'
-                 OR (:metricFocus = 'REPORTED' AND transformer_output > 0)
-                 OR (:metricFocus = 'EXCLUDED' AND excluded_transactions > 0))
+                 OR (status_bucket = 'RECONCILED' AND :metricFocus = 'REPORTED' AND transformer_output > 0)
+                 OR (status_bucket = 'RECONCILED' AND :metricFocus = 'EXCLUDED' AND excluded_transactions > 0))
           ORDER BY
               CASE WHEN :metricFocus = 'REPORTED' THEN transformer_output END DESC NULLS LAST,
               CASE WHEN :metricFocus = 'EXCLUDED' THEN excluded_transactions END DESC NULLS LAST,
+              CASE WHEN status_bucket = 'NOT_YET_REPORTED' THEN 1 ELSE 0 END,
               CASE WHEN total_issues > 0 THEN 0 ELSE 1 END,
               total_issues DESC,
-              modified_timestamp DESC NULLS LAST,
+              completed_at DESC NULLS LAST,
               batch_id
           LIMIT :size OFFSET :offset
           """;
@@ -147,6 +218,42 @@ final class BatchExplorerNativeQueries {
       WHERE reconciliation.rpt_grp_id = :reportGroupId
         AND reconciliation.batch_id = :batchId
         AND reconciliation.seq_no = :sequenceNumber
+      """;
+
+  static final String BATCH_DETAILS_NOT_YET_REPORTED =
+      """
+      SELECT
+          j.rpt_grp_id AS "reportGroupId",
+          (SELECT rgc.rpt_grp_name
+           FROM pharos.report_group_config rgc
+           WHERE rgc.rpt_grp_id = j.rpt_grp_id
+             AND rgc.rpt_config_active_flag = TRUE
+           ORDER BY rgc.modified_timestamp DESC NULLS LAST
+           LIMIT 1) AS "reportGroupName",
+          j.batch_id AS "batchId",
+          MIN(j.created_timestamp) AS "startedAt",
+          MAX(j.modified_timestamp) AS "lastActivityAt",
+          COUNT(DISTINCT j.identifier)::bigint AS "discoveredTransactions",
+          COUNT(DISTINCT j.identifier) FILTER (
+              WHERE UPPER(COALESCE(j.status, '')) = 'ERROR' AND j.processing_complete IS TRUE
+          )::bigint AS "stalledTransactions",
+          BOOL_OR(TRUE) AS "journeyAvailable",
+          EXISTS (
+              SELECT 1
+              FROM pharos.rule_hit_exclusion_audit exclusion_audit
+              WHERE exclusion_audit.rpt_grp_id = j.rpt_grp_id
+                AND exclusion_audit.processing_batch_id = j.batch_id
+          ) AS "exclusionsAvailable"
+      FROM pharos.record_transformation_journey j
+      WHERE j.rpt_grp_id = :reportGroupId
+        AND j.batch_id = :batchId
+        AND NOT EXISTS (
+            SELECT 1
+            FROM pharos.report_transformation_reconciliation r
+            WHERE r.rpt_grp_id = j.rpt_grp_id
+              AND r.batch_id = j.batch_id
+        )
+      GROUP BY j.rpt_grp_id, j.batch_id
       """;
 
   private BatchExplorerNativeQueries() {}

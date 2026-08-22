@@ -13,6 +13,7 @@ import com.pharos.compliance.batch.repository.BatchExplorerRepository;
 import com.pharos.compliance.batch.repository.BatchExplorerRepository.BatchDetailsProjection;
 import com.pharos.compliance.batch.repository.BatchExplorerRepository.BatchQueueProjection;
 import com.pharos.compliance.batch.repository.BatchExplorerRepository.BatchSummaryProjection;
+import com.pharos.compliance.batch.repository.BatchExplorerRepository.NotYetReportedBatchDetailsProjection;
 import com.pharos.compliance.batch.service.BatchExplorerService;
 import com.pharos.compliance.common.exception.InvalidDateRangeException;
 import com.pharos.compliance.common.exception.InvalidRequestException;
@@ -158,19 +159,12 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
   @Override
   public Mono<BatchDetailsResponse> getBatchDetails(
       int reportGroupId, String batchId, int sequenceNumber) {
-    Mono<BatchDetailsProjection> details =
-        onJdbcScheduler(
-            () ->
-                batchExplorerRepository
-                    .getBatchDetails(reportGroupId, batchId, sequenceNumber)
-                    .orElseThrow(
-                        () ->
-                            new ResourceNotFoundException(
-                                "Batch was not found for the supplied report group and sequence")));
-    Mono<CountryCatalogSnapshot> catalog = onJdbcScheduler(countryCatalog::getSnapshot);
+    Mono<BatchDetailsResponse> details =
+        sequenceNumber == 0
+            ? getNotYetReportedBatchDetails(reportGroupId, batchId)
+            : getReconciledBatchDetails(reportGroupId, batchId, sequenceNumber);
 
-    return Mono.zip(details, catalog)
-        .map(tuple -> toDetailsResponse(tuple.getT1(), tuple.getT2()))
+    return details
         .doOnSubscribe(
             ignored ->
                 LOGGER.info(
@@ -186,6 +180,37 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
                     batchId,
                     sequenceNumber,
                     response.totalIssues()));
+  }
+
+  private Mono<BatchDetailsResponse> getReconciledBatchDetails(
+      int reportGroupId, String batchId, int sequenceNumber) {
+    Mono<BatchDetailsProjection> details =
+        onJdbcScheduler(
+            () ->
+                batchExplorerRepository
+                    .getBatchDetails(reportGroupId, batchId, sequenceNumber)
+                    .orElseThrow(
+                        () ->
+                            new ResourceNotFoundException(
+                                "Batch was not found for the supplied report group and sequence")));
+    Mono<CountryCatalogSnapshot> catalog = onJdbcScheduler(countryCatalog::getSnapshot);
+    return Mono.zip(details, catalog).map(tuple -> toDetailsResponse(tuple.getT1(), tuple.getT2()));
+  }
+
+  private Mono<BatchDetailsResponse> getNotYetReportedBatchDetails(
+      int reportGroupId, String batchId) {
+    Mono<NotYetReportedBatchDetailsProjection> details =
+        onJdbcScheduler(
+            () ->
+                batchExplorerRepository
+                    .getNotYetReportedBatchDetails(reportGroupId, batchId)
+                    .orElseThrow(
+                        () ->
+                            new ResourceNotFoundException(
+                                "Batch was not found for the supplied report group and batch id")));
+    Mono<CountryCatalogSnapshot> catalog = onJdbcScheduler(countryCatalog::getSnapshot);
+    return Mono.zip(details, catalog)
+        .map(tuple -> toDetailsResponseNotYetReported(tuple.getT1(), tuple.getT2()));
   }
 
   private BatchExplorerResponse toExplorerResponse(
@@ -207,7 +232,10 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     long matchingBatches = queue.isEmpty() ? 0 : queue.getFirst().getMatchingCount();
     return new BatchExplorerResponse(
         new BatchExplorerSummaryResponse(
-            summary.getAllBatches(), summary.getSuccessfulBatches(), summary.getAttentionBatches()),
+            summary.getAllBatches(),
+            summary.getSuccessfulBatches(),
+            summary.getAttentionBatches(),
+            summary.getNotYetReportedBatches()),
         batches,
         matchingBatches,
         page,
@@ -237,14 +265,22 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         batch.getReportingPeriodTo(),
         batch.getStartedAt(),
         batch.getCompletedAt(),
-        batch.getTotalIssues() == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION,
+        queueItemStatus(batch),
         batch.getTransformationFailures(),
         batch.getMissingAttempts(),
         batch.getFiltrationErrors(),
         batch.getReconciliationImbalance(),
         batch.getReportedTransactions(),
         batch.getExcludedTransactions(),
-        batch.getTotalIssues());
+        batch.getTotalIssues(),
+        batch.getDiscoveredTransactions());
+  }
+
+  private BatchStatus queueItemStatus(BatchQueueProjection batch) {
+    if ("NOT_YET_REPORTED".equals(batch.getStatusBucket())) {
+      return BatchStatus.NOT_YET_REPORTED;
+    }
+    return batch.getTotalIssues() == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION;
   }
 
   private BatchDetailsResponse toDetailsResponse(
@@ -290,7 +326,49 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         batch.getExcludedTransactions(),
         batch.getJourneyAvailable(),
         false,
-        batch.getExclusionsAvailable());
+        batch.getExclusionsAvailable(),
+        0,
+        0);
+  }
+
+  private BatchDetailsResponse toDetailsResponseNotYetReported(
+      NotYetReportedBatchDetailsProjection batch, CountryCatalogSnapshot catalog) {
+    CountryDefinition country = catalog.getForReportGroup(batch.getReportGroupId());
+    return new BatchDetailsResponse(
+        batch.getReportGroupId(),
+        batch.getReportGroupName(),
+        batch.getBatchId(),
+        0,
+        country.code(),
+        country.name(),
+        null,
+        null,
+        batch.getStartedAt(),
+        null,
+        0,
+        "IN_PROGRESS",
+        BatchStatus.NOT_YET_REPORTED,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        false,
+        0,
+        null,
+        0,
+        batch.getJourneyAvailable(),
+        false,
+        batch.getExclusionsAvailable(),
+        batch.getDiscoveredTransactions(),
+        batch.getStalledTransactions());
   }
 
   private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {

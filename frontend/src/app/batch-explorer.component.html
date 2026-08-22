@@ -110,6 +110,11 @@
           <button type="button" role="tab" class="attention-tab" [class.active]="status() === 'ATTENTION'" [attr.aria-selected]="status() === 'ATTENTION'" (click)="selectStatus('ATTENTION')">
             Attention <span>{{ result.summary.attentionBatches }}</span>
           </button>
+          @if (result.summary.notYetReportedBatches > 0) {
+            <button type="button" role="tab" class="pending-tab" [class.active]="status() === 'NOT_YET_REPORTED'" [attr.aria-selected]="status() === 'NOT_YET_REPORTED'" (click)="selectStatus('NOT_YET_REPORTED')">
+              Not Yet Reported <span>{{ result.summary.notYetReportedBatches }}</span>
+            </button>
+          }
         </div>
       }
 
@@ -128,33 +133,41 @@
                 class="queue-item"
                 [class.selected]="batchKey(selectedBatch()) === batchKey(batch)"
                 [class.queue-item--success]="batch.status === 'SUCCESSFUL'"
+                [class.queue-item--pending]="batch.status === 'NOT_YET_REPORTED'"
                 (click)="selectBatch(batch)"
               >
-                <span class="queue-status-icon" aria-hidden="true">{{ batch.status === 'SUCCESSFUL' ? '✓' : '!' }}</span>
+                <span class="queue-status-icon" aria-hidden="true">{{ batch.status === 'SUCCESSFUL' ? '✓' : batch.status === 'NOT_YET_REPORTED' ? '…' : '!' }}</span>
                 <span class="queue-item__content">
-                  <span class="queue-item__status">{{ batch.status === 'SUCCESSFUL' ? 'Successful' : 'Needs attention' }}</span>
+                  <span class="queue-item__status">{{ batch.status === 'SUCCESSFUL' ? 'Successful' : batch.status === 'NOT_YET_REPORTED' ? 'Not yet reported' : 'Needs attention' }}</span>
                   <strong>{{ batch.batchId }}</strong>
                   <small>{{ batch.reportGroupName || 'Report group ' + batch.reportGroupId }} · {{ batch.countryName }}</small>
-                  <span class="queue-item__meta">
-                    @if (batch.status === 'SUCCESSFUL') {
-                      <b class="success-text">No detected issues</b>
-                    } @else {
-                      <b>{{ batch.totalIssues | number:'1.0-0' }} issues</b>
-                    }
-                    <time>{{ batch.completedAt | date:'MMM d, h:mm a' }}</time>
-                  </span>
-                  @if (metricFocus() === 'REPORTED') {
-                    <span class="queue-volume-focus"><b>{{ batch.reportedTransactions | number:'1.0-0' }}</b> transformer output</span>
-                  } @else if (metricFocus() === 'EXCLUDED') {
-                    <span class="queue-volume-focus"><b>{{ batch.excludedTransactions | number:'1.0-0' }}</b> excluded transactions</span>
-                  }
-                  @if (batch.totalIssues > 0) {
-                    <span class="queue-issue-tags">
-                      @if (batch.missingAttempts > 0) { <i>Missing {{ batch.missingAttempts }}</i> }
-                      @if (batch.transformationFailures > 0) { <i>Transform {{ batch.transformationFailures }}</i> }
-                      @if (batch.filtrationErrors > 0) { <i>Filter {{ batch.filtrationErrors }}</i> }
-                      @if (batch.reconciliationImbalance > 0) { <i>Recon {{ batch.reconciliationImbalance }}</i> }
+                  @if (batch.status === 'NOT_YET_REPORTED') {
+                    <span class="queue-item__meta">
+                      <b>{{ batch.discoveredTransactions | number:'1.0-0' }} transactions discovered</b>
+                      <time>Started {{ batch.startedAt | date:'MMM d, h:mm a' }}</time>
                     </span>
+                  } @else {
+                    <span class="queue-item__meta">
+                      @if (batch.status === 'SUCCESSFUL') {
+                        <b class="success-text">No detected issues</b>
+                      } @else {
+                        <b>{{ batch.totalIssues | number:'1.0-0' }} issues</b>
+                      }
+                      <time>{{ batch.completedAt | date:'MMM d, h:mm a' }}</time>
+                    </span>
+                    @if (metricFocus() === 'REPORTED') {
+                      <span class="queue-volume-focus"><b>{{ batch.reportedTransactions | number:'1.0-0' }}</b> transformer output</span>
+                    } @else if (metricFocus() === 'EXCLUDED') {
+                      <span class="queue-volume-focus"><b>{{ batch.excludedTransactions | number:'1.0-0' }}</b> excluded transactions</span>
+                    }
+                    @if (batch.totalIssues > 0) {
+                      <span class="queue-issue-tags">
+                        @if (batch.missingAttempts > 0) { <i>Missing {{ batch.missingAttempts }}</i> }
+                        @if (batch.transformationFailures > 0) { <i>Transform {{ batch.transformationFailures }}</i> }
+                        @if (batch.filtrationErrors > 0) { <i>Filter {{ batch.filtrationErrors }}</i> }
+                        @if (batch.reconciliationImbalance > 0) { <i>Recon {{ batch.reconciliationImbalance }}</i> }
+                      </span>
+                    }
                   }
                 </span>
                 <span class="queue-chevron" aria-hidden="true">›</span>
@@ -171,6 +184,52 @@
       } @else if (detailError(); as error) {
         <div class="preview-empty preview-empty--error">{{ error }}</div>
       } @else if (selectedDetails(); as details) {
+        @if (details.status === 'NOT_YET_REPORTED') {
+          <header class="preview-header">
+            <div>
+              <div class="preview-title-line">
+                <h2>{{ details.batchId }}</h2>
+                <span class="status-pill status-pill--pending">Not yet reported</span>
+              </div>
+              <p><button type="button" class="report-group-link" (click)="openReportConfig(details.reportGroupId)">{{ details.reportGroupName || 'Report group ' + details.reportGroupId }}</button> · {{ details.countryName }}</p>
+              <div class="preview-meta">
+                <span>Started {{ details.startedAt | date:'MMM d, h:mm a' }}</span>
+              </div>
+            </div>
+          </header>
+
+          <section class="pending-banner" aria-labelledby="pending-summary-heading">
+            <span class="pending-banner__icon" aria-hidden="true">…</span>
+            <div>
+              <h3 id="pending-summary-heading">Selection in progress</h3>
+              <p>Selected, but not yet transformed or reconciled — no reportable, excluded, or issue counts exist for this batch yet.</p>
+            </div>
+          </section>
+
+          <section class="preview-section" aria-labelledby="pending-progress-heading">
+            <h3 id="pending-progress-heading">Transaction status</h3>
+            <div class="evidence-values evidence-values--three">
+              <div><span>Discovered</span><strong>{{ details.discoveredTransactions | number:'1.0-0' }}</strong></div>
+              <div><span>Not stalled</span><strong>{{ (details.discoveredTransactions - details.stalledTransactions) | number:'1.0-0' }}</strong></div>
+              <div><span>Stalled — won't be retried</span><strong [class.issue-number]="details.stalledTransactions > 0">{{ details.stalledTransactions | number:'1.0-0' }}</strong></div>
+            </div>
+            @if (details.stalledTransactions > 0) {
+              <p class="pending-stalled-note">Stalled transactions hit a permanent error (e.g. a matching attempt was never received) and will not be retried automatically.</p>
+            }
+          </section>
+
+          @if (details.exclusionsAvailable) {
+            <section class="available-evidence" aria-labelledby="pending-evidence-heading">
+              <div>
+                <h3 id="pending-evidence-heading">Additional record-level evidence</h3>
+                <p>Exclusion audit records exist for this batch even though it has not been reconciled yet.</p>
+              </div>
+              <div class="evidence-links">
+                <button type="button" (click)="openBatchControlRoom('exclusions')">Exclusions <span>→</span></button>
+              </div>
+            </section>
+          }
+        } @else {
         <header class="preview-header">
           <div>
             <div class="preview-title-line">
@@ -179,7 +238,7 @@
                 {{ details.status === 'SUCCESSFUL' ? 'Successful' : 'Needs attention' }}
               </span>
             </div>
-            <p>{{ details.reportGroupName || 'Report group ' + details.reportGroupId }} · {{ details.countryName }} · {{ reportPeriodLabel(details) }}</p>
+            <p><button type="button" class="report-group-link" (click)="openReportConfig(details.reportGroupId)">{{ details.reportGroupName || 'Report group ' + details.reportGroupId }}</button> · {{ details.countryName }} · {{ reportPeriodLabel(details) }}</p>
             <div class="preview-meta">
               <span>Completed {{ details.completedAt | date:'h:mm a' }}</span>
               <span>Duration {{ formatDuration(details.durationSeconds) }}</span>
@@ -354,6 +413,28 @@
             </div>
           </section>
         }
+        }
+
+        <section class="report-config-summary" aria-labelledby="report-config-heading">
+          <div class="report-config-summary__heading">
+            <h3 id="report-config-heading">Report configuration</h3>
+            <button type="button" class="report-config-summary__link" (click)="openReportConfig(details.reportGroupId)">
+              View full configuration <span aria-hidden="true">→</span>
+            </button>
+          </div>
+          @if (reportConfigLoading()) {
+            <p class="report-config-summary__empty">Loading configuration…</p>
+          } @else if (reportConfigSummary(); as config) {
+            <div class="evidence-values evidence-values--four">
+              <div><span>Report type</span><strong>{{ config.reportType || 'Not set' }}</strong></div>
+              <div><span>Status</span><strong [class.success-text]="config.active" [class.attention-text]="!config.active">{{ config.active ? 'Active' : 'Inactive' }}</strong></div>
+              <div><span>Mapping service</span><strong>{{ config.mappingServiceName || 'Not set' }}</strong></div>
+              <div><span>Versions</span><strong>Sel {{ config.reportSelectionVersionId }} · Xform {{ config.transformerVersionId }}</strong></div>
+            </div>
+          } @else {
+            <p class="report-config-summary__empty">No report_group_config record found for this report group.</p>
+          }
+        </section>
       } @else {
         <div class="preview-empty">Select a batch to see its diagnostic preview.</div>
       }
