@@ -1,0 +1,362 @@
+<section class="batch-explorer-page">
+  <div class="explorer-context">
+    <button type="button" class="breadcrumb-link" (click)="goToDashboard()">Dashboard</button>
+    <span aria-hidden="true">/</span>
+    @if (reportGroupContextName(); as reportGroupName) {
+      <span>{{ reportGroupName }}</span>
+      <span aria-hidden="true">/</span>
+    }
+    <strong>Batch Explorer</strong>
+  </div>
+
+  <header class="explorer-heading">
+    <div>
+      <h1>{{ explorerTitle() }}</h1>
+      @if (response(); as result) {
+        <p>{{ result.matchingBatches | number:'1.0-0' }} of {{ result.summary.allBatches | number:'1.0-0' }} batches match the current selection</p>
+      } @else {
+        <p>Prioritize, preview, and investigate batch execution results.</p>
+      }
+    </div>
+    <div class="context-chip">
+      <span aria-hidden="true">◎</span>
+      {{ countryContext() }} · {{ fromDate() | date:'MMM d':'UTC' }}–{{ toDate() | date:'MMM d, y':'UTC' }}
+    </div>
+  </header>
+
+  @if (reportGroupContextName(); as reportGroupName) {
+    <section class="drilldown-context" aria-label="Active dashboard drilldown">
+      <div class="drilldown-context__identity">
+        <span>Report group drilldown</span>
+        <strong>{{ reportGroupName }}</strong>
+        <small>ID {{ reportGroupId() }}</small>
+      </div>
+      <div class="drilldown-context__focus">
+        <span>Showing</span>
+        <strong>{{ drilldownFocusLabel() }}</strong>
+        <small>{{ fromDate() | date:'MMM d, y':'UTC' }} – {{ toDate() | date:'MMM d, y':'UTC' }}</small>
+      </div>
+      <button type="button" class="clear-drilldown" (click)="clearDrilldown()">
+        Clear drilldown <span aria-hidden="true">×</span>
+      </button>
+    </section>
+  }
+
+  <form class="explorer-toolbar" (submit)="applyFilters($event)">
+    <label class="explorer-search">
+      <span class="sr-only">Search batch ID</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
+      <input type="search" placeholder="Search batch ID" [value]="batchId()" (input)="setBatchId($event)" />
+    </label>
+
+    <label>
+      <span class="sr-only">Country</span>
+      @if (filterOptions().countries.length > 0) {
+        <select [ngModel]="country()" (ngModelChange)="setCountryValue($event)" [ngModelOptions]="{standalone: true}">
+          <option value="ALL">All countries</option>
+          @for (option of filterOptions().countries; track option.code) {
+            <option [value]="option.code">{{ option.name }}</option>
+          }
+        </select>
+      } @else {
+        <select disabled aria-label="Country options loading"><option>Loading countries…</option></select>
+      }
+    </label>
+
+    <label>
+      <span class="sr-only">Issue driver</span>
+      <select [value]="issueType()" (change)="setIssueType($event)">
+        <option value="ALL">All issue drivers</option>
+        <option value="TRANSFORMATION">Transformation failure</option>
+        <option value="MISSING_ATTEMPTS">Missing attempts</option>
+        <option value="FILTRATION">Filtration error</option>
+        <option value="RECONCILIATION">Reconciliation imbalance</option>
+      </select>
+    </label>
+
+    <label>
+      <span class="sr-only">Transaction metric</span>
+      <select [value]="metricFocus()" (change)="setMetricFocus($event)">
+        <option value="DEFAULT">All transaction volumes</option>
+        <option value="REPORTED">Reported transactions &gt; 0</option>
+        <option value="EXCLUDED">Excluded transactions &gt; 0</option>
+      </select>
+    </label>
+
+    <button type="submit" class="toolbar-apply">Apply</button>
+    <button type="button" class="toolbar-clear" (click)="clearFilters()">Clear search</button>
+  </form>
+
+  <div class="investigation-workspace" [attr.aria-busy]="queueLoading() || detailLoading()">
+    <aside class="batch-queue" aria-labelledby="batch-queue-heading">
+      <div class="queue-heading">
+        <div>
+          <p>Investigation queue</p>
+          <h2 id="batch-queue-heading">Batch work queue</h2>
+        </div>
+        @if (response(); as result) {
+          <span>{{ result.matchingBatches | number:'1.0-0' }}</span>
+        }
+      </div>
+
+      @if (response(); as result) {
+        <div class="queue-tabs" role="tablist" aria-label="Batch status">
+          <button type="button" role="tab" [class.active]="status() === 'ALL'" [attr.aria-selected]="status() === 'ALL'" (click)="selectStatus('ALL')">
+            All <span>{{ result.summary.allBatches }}</span>
+          </button>
+          <button type="button" role="tab" [class.active]="status() === 'SUCCESSFUL'" [attr.aria-selected]="status() === 'SUCCESSFUL'" (click)="selectStatus('SUCCESSFUL')">
+            Successful <span>{{ result.summary.successfulBatches }}</span>
+          </button>
+          <button type="button" role="tab" class="attention-tab" [class.active]="status() === 'ATTENTION'" [attr.aria-selected]="status() === 'ATTENTION'" (click)="selectStatus('ATTENTION')">
+            Attention <span>{{ result.summary.attentionBatches }}</span>
+          </button>
+        </div>
+      }
+
+      <div class="queue-list">
+        @if (queueLoading()) {
+          <div class="explorer-message"><span class="loading-ring"></span>Loading batch queue…</div>
+        } @else if (queueError(); as error) {
+          <div class="explorer-message explorer-message--error">{{ error }}</div>
+        } @else if (response(); as result) {
+          @if (result.batches.length === 0) {
+            <div class="explorer-message">No batches match these filters.</div>
+          } @else {
+            @for (batch of result.batches; track batchKey(batch)) {
+              <button
+                type="button"
+                class="queue-item"
+                [class.selected]="batchKey(selectedBatch()) === batchKey(batch)"
+                [class.queue-item--success]="batch.status === 'SUCCESSFUL'"
+                (click)="selectBatch(batch)"
+              >
+                <span class="queue-status-icon" aria-hidden="true">{{ batch.status === 'SUCCESSFUL' ? '✓' : '!' }}</span>
+                <span class="queue-item__content">
+                  <span class="queue-item__status">{{ batch.status === 'SUCCESSFUL' ? 'Successful' : 'Needs attention' }}</span>
+                  <strong>{{ batch.batchId }}</strong>
+                  <small>{{ batch.reportGroupName || 'Report group ' + batch.reportGroupId }} · {{ batch.countryName }}</small>
+                  <span class="queue-item__meta">
+                    @if (batch.status === 'SUCCESSFUL') {
+                      <b class="success-text">No detected issues</b>
+                    } @else {
+                      <b>{{ batch.totalIssues | number:'1.0-0' }} issues</b>
+                    }
+                    <time>{{ batch.completedAt | date:'MMM d, h:mm a' }}</time>
+                  </span>
+                  @if (metricFocus() === 'REPORTED') {
+                    <span class="queue-volume-focus"><b>{{ batch.reportedTransactions | number:'1.0-0' }}</b> transformer output</span>
+                  } @else if (metricFocus() === 'EXCLUDED') {
+                    <span class="queue-volume-focus"><b>{{ batch.excludedTransactions | number:'1.0-0' }}</b> excluded transactions</span>
+                  }
+                  @if (batch.totalIssues > 0) {
+                    <span class="queue-issue-tags">
+                      @if (batch.missingAttempts > 0) { <i>Missing {{ batch.missingAttempts }}</i> }
+                      @if (batch.transformationFailures > 0) { <i>Transform {{ batch.transformationFailures }}</i> }
+                      @if (batch.filtrationErrors > 0) { <i>Filter {{ batch.filtrationErrors }}</i> }
+                      @if (batch.reconciliationImbalance > 0) { <i>Recon {{ batch.reconciliationImbalance }}</i> }
+                    </span>
+                  }
+                </span>
+                <span class="queue-chevron" aria-hidden="true">›</span>
+              </button>
+            }
+          }
+        }
+      </div>
+    </aside>
+
+    <section class="batch-preview" aria-live="polite">
+      @if (detailLoading()) {
+        <div class="preview-empty"><span class="loading-ring"></span>Loading selected batch…</div>
+      } @else if (detailError(); as error) {
+        <div class="preview-empty preview-empty--error">{{ error }}</div>
+      } @else if (selectedDetails(); as details) {
+        <header class="preview-header">
+          <div>
+            <div class="preview-title-line">
+              <h2>{{ details.batchId }}</h2>
+              <span class="status-pill" [class.status-pill--success]="details.status === 'SUCCESSFUL'">
+                {{ details.status === 'SUCCESSFUL' ? 'Successful' : 'Needs attention' }}
+              </span>
+            </div>
+            <p>{{ details.reportGroupName || 'Report group ' + details.reportGroupId }} · {{ details.countryName }} · {{ reportPeriodLabel(details) }}</p>
+            <div class="preview-meta">
+              <span>Completed {{ details.completedAt | date:'h:mm a' }}</span>
+              <span>Duration {{ formatDuration(details.durationSeconds) }}</span>
+              <span>Sequence {{ details.sequenceNumber }}</span>
+            </div>
+          </div>
+          <button type="button" class="control-room-button" (click)="openBatchControlRoom()">
+            Open Batch Control Room <span aria-hidden="true">→</span>
+          </button>
+        </header>
+
+        <section class="preview-section" aria-labelledby="issue-summary-heading">
+          <h3 id="issue-summary-heading">Issue summary</h3>
+          <div class="preview-issue-grid">
+            <button
+              type="button"
+              [class.zero]="details.transformationFailures === 0"
+              (click)="openIssueEvidence('transformation-evidence')"
+              aria-label="View transformation failure evidence"
+            >
+              <span>Transformation failures</span>
+              <strong>{{ details.transformationFailures | number:'1.0-0' }}</strong>
+              <small>View evidence <b aria-hidden="true">→</b></small>
+            </button>
+            <button
+              type="button"
+              [class.zero]="details.missingAttempts === 0"
+              (click)="openIssueEvidence('missing-attempt-evidence')"
+              aria-label="View missing attempt evidence"
+            >
+              <span>Missing attempts</span>
+              <strong>{{ details.missingAttempts | number:'1.0-0' }}</strong>
+              <small>View evidence <b aria-hidden="true">→</b></small>
+            </button>
+            <button
+              type="button"
+              [class.zero]="details.filtrationErrors === 0"
+              (click)="openIssueEvidence('filtration-evidence')"
+              aria-label="View filtration error evidence"
+            >
+              <span>Filtration errors</span>
+              <strong>{{ details.filtrationErrors | number:'1.0-0' }}</strong>
+              <small>View evidence <b aria-hidden="true">→</b></small>
+            </button>
+            <button
+              type="button"
+              [class.zero]="details.reconciliationImbalance === 0"
+              (click)="openIssueEvidence('reconciliation-evidence')"
+              aria-label="View reconciliation imbalance evidence"
+            >
+              <span>Reconciliation imbalance</span>
+              <strong>{{ details.reconciliationImbalance | number:'1.0-0' }}</strong>
+              <small>View evidence <b aria-hidden="true">→</b></small>
+            </button>
+          </div>
+        </section>
+
+        <div class="evidence-grid">
+          <section
+            id="transformation-evidence"
+            tabindex="-1"
+            class="evidence-panel"
+            [class.evidence-panel--active]="activeEvidence() === 'transformation-evidence'"
+            aria-labelledby="transformation-evidence-heading"
+          >
+            <div class="evidence-panel__heading">
+              <h3 id="transformation-evidence-heading">Transformation evidence</h3>
+              <span [class.bad]="details.transformationFailures > 0">{{ details.transformationFailures === 0 ? 'No failures' : 'Failures found' }}</span>
+            </div>
+            <p>Transformation attempts and outcomes are shown independently from downstream reporting.</p>
+            <div class="evidence-values evidence-values--four">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_ELIGIBLE')" aria-label="View expected eligible transaction evidence"><span>Expected eligible</span><strong>{{ details.expectedTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_ELIGIBLE')" aria-label="View actual eligible transaction evidence"><span>Actual eligible</span><strong>{{ details.actualTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('TRANSFORMED')" aria-label="View transformed transaction evidence"><span>Transformed</span><strong>{{ details.transformedActivities | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Failed</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+            </div>
+          </section>
+
+          <section
+            id="missing-attempt-evidence"
+            tabindex="-1"
+            class="evidence-panel"
+            [class.evidence-panel--active]="activeEvidence() === 'missing-attempt-evidence'"
+            aria-labelledby="missing-attempt-evidence-heading"
+          >
+            <div class="evidence-panel__heading">
+              <h3 id="missing-attempt-evidence-heading">Missing attempt evidence</h3>
+              <span [class.bad]="details.missingAttempts > 0">{{ details.missingAttempts === 0 ? 'Complete' : 'Gap found' }}</span>
+            </div>
+            <p>Aggregate reconciliation evidence; transaction-level missing-attempt records are not available in Phase 1.</p>
+            <div class="evidence-values evidence-values--four">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SELECTED')" aria-label="View selected transaction evidence"><span>Transactions selected</span><strong>{{ details.selectedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ATTEMPTS_FOUND')" aria-label="View transaction attempt evidence"><span>Attempts found</span><strong>{{ details.transactionAttemptsFound | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ATTEMPTS_FOUND')" aria-label="View transaction attempt coverage report"><span>Coverage</span><strong>{{ attemptCoverage(details) }}</strong><small>View report →</small></button></div>
+            </div>
+          </section>
+
+          <section
+            id="filtration-evidence"
+            tabindex="-1"
+            class="evidence-panel"
+            [class.evidence-panel--active]="activeEvidence() === 'filtration-evidence'"
+            aria-labelledby="filtration-evidence-heading"
+          >
+            <div class="evidence-panel__heading">
+              <h3 id="filtration-evidence-heading">Filtration error evidence</h3>
+              <span [class.bad]="details.filtrationErrors > 0">{{ details.filtrationErrors === 0 ? 'Balanced' : 'Variance found' }}</span>
+            </div>
+            <p>Expected and actual reportable transaction totals are compared after filtration.</p>
+            <div class="evidence-values evidence-values--four">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_REPORTABLE')" aria-label="View expected reportable transaction evidence"><span>Expected reportable</span><strong>{{ details.expectedReportableTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_REPORTABLE')" aria-label="View actual reportable transaction evidence"><span>Actual reportable</span><strong>{{ details.actualReportableTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Excluded</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTRATION_VARIANCE')" aria-label="View filtration variance transaction report"><span>Variance</span><strong [class.issue-number]="details.filtrationErrors > 0">{{ details.filtrationErrors | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+            </div>
+          </section>
+
+          <section
+            id="reconciliation-evidence"
+            tabindex="-1"
+            class="evidence-panel"
+            [class.evidence-panel--active]="activeEvidence() === 'reconciliation-evidence'"
+            aria-labelledby="reconciliation-evidence-heading"
+          >
+            <div class="evidence-panel__heading">
+              <h3 id="reconciliation-evidence-heading">Reconciliation imbalance evidence</h3>
+              <span [class.bad]="details.reconciliationImbalance > 0">{{ details.reconciliationImbalance === 0 ? 'Balanced' : 'Imbalance' }}</span>
+            </div>
+            <p>Expected and actual activities eligible for transformation are reconciled independently.</p>
+            <div class="evidence-values evidence-values--three">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_ELIGIBLE')" aria-label="View expected eligible transaction evidence"><span>Expected eligible</span><strong>{{ details.expectedTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_ELIGIBLE')" aria-label="View actual eligible transaction evidence"><span>Actual eligible</span><strong>{{ details.actualTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('RECONCILIATION_VARIANCE')" aria-label="View reconciliation variance transaction report"><span>Variance</span><strong [class.issue-number]="details.reconciliationImbalance > 0">{{ details.reconciliationImbalance | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+            </div>
+          </section>
+
+          <section class="evidence-panel evidence-panel--wide" aria-labelledby="downstream-reporting-heading">
+            <div class="evidence-panel__heading">
+              <h3 id="downstream-reporting-heading">Downstream reporting</h3>
+              <span class="neutral">Source pending</span>
+            </div>
+            <p>Transformer output is not treated as final downstream reporting confirmation.</p>
+            <div class="evidence-values evidence-values--three">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('TRANSFORMER_OUTPUT')" aria-label="View transformer output transaction evidence"><span>Transformer output</span><strong>{{ details.transformerOutput | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Excluded</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><span>Final reported</span><strong class="not-available">Not available</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="operational-context" aria-labelledby="operational-context-heading">
+          <h3 id="operational-context-heading">Operational context</h3>
+          <div>
+            <span>Started<strong>{{ details.startedAt | date:'MMM d, h:mm a' }}</strong></span>
+            <span>Completed<strong>{{ details.completedAt | date:'MMM d, h:mm a' }}</strong></span>
+            <span>Batch status<strong class="success-text">{{ details.operationalStatus }}</strong></span>
+            <span>Reporting status<strong [class.success-text]="details.status === 'SUCCESSFUL'" [class.attention-text]="details.status === 'ATTENTION'">{{ details.status }}</strong></span>
+          </div>
+        </section>
+
+        @if (hasEvidence(details)) {
+          <section class="available-evidence" aria-labelledby="available-evidence-heading">
+            <div>
+              <h3 id="available-evidence-heading">Additional record-level evidence</h3>
+              <p>Journey is latest-state evidence, not an event history.</p>
+            </div>
+            <div class="evidence-links">
+              @if (details.journeyAvailable) { <button type="button" (click)="openBatchControlRoom('journey')">Journey <span>→</span></button> }
+              @if (details.ruleHitsAvailable) { <button type="button" (click)="openBatchControlRoom('rule-hits')">Rule Hits <span>→</span></button> }
+              @if (details.exclusionsAvailable) { <button type="button" (click)="openBatchControlRoom('exclusions')">Exclusions <span>→</span></button> }
+            </div>
+          </section>
+        }
+      } @else {
+        <div class="preview-empty">Select a batch to see its diagnostic preview.</div>
+      }
+    </section>
+  </div>
+</section>

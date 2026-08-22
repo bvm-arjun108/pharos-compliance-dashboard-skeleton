@@ -1,0 +1,158 @@
+<section class="transaction-report-page">
+  @if (!hasBatchContext()) {
+    <div class="transaction-empty-state">
+      <p>Transaction investigation</p>
+      <h1>Transaction Evidence</h1>
+      <span>Open a reconciliation batch and select an evidence count to see its available transaction records.</span>
+      <a routerLink="/batches/explorer">Open Batch Explorer <b aria-hidden="true">→</b></a>
+    </div>
+  } @else {
+    <div class="transaction-breadcrumb">
+      <button type="button" (click)="goBack()">Batch Explorer</button>
+      <span aria-hidden="true">/</span>
+      <span>{{ batchId() }}</span>
+      <span aria-hidden="true">/</span>
+      <strong>Transaction report</strong>
+    </div>
+
+    @if (loading()) {
+      <div class="transaction-message"><span class="loading-ring"></span>Building transaction evidence report…</div>
+    } @else if (error(); as errorMessage) {
+      <div class="transaction-message transaction-message--error">{{ errorMessage }}</div>
+    } @else if (report(); as result) {
+      <header class="transaction-report-heading">
+        <div>
+          <p>Transaction evidence report</p>
+          <h1>{{ result.metricLabel }}</h1>
+          <span>{{ result.context.reportGroupName || 'Report group ' + result.context.reportGroupId }} · {{ result.context.countryName }}</span>
+        </div>
+        <button type="button" (click)="goBack()">← Back to batch</button>
+      </header>
+
+      <section class="transaction-context-strip" aria-label="Transaction report context">
+        <div><span>Batch ID</span><strong>{{ result.context.batchId }}</strong></div>
+        <div><span>Report group</span><strong>{{ result.context.reportGroupId }}</strong></div>
+        <div><span>Sequence</span><strong>{{ result.context.sequenceNumber }}</strong></div>
+        <div><span>Report period</span><strong>{{ result.context.reportingPeriodFrom | date:'MMM d, y':'UTC' }} – {{ result.context.reportingPeriodTo | date:'MMM d, y':'UTC' }}</strong></div>
+      </section>
+
+      <section class="transaction-report-kpis" aria-label="Transaction evidence summary">
+        <article>
+          <span>Batch aggregate</span>
+          <strong>{{ result.aggregateCount | number:'1.0-0' }}</strong>
+          <small>{{ result.metricLabel }}</small>
+        </article>
+        <article>
+          <span>Available records</span>
+          <strong>{{ result.availableRecordCount | number:'1.0-0' }}</strong>
+          <small>Authoritative rows found</small>
+        </article>
+        <article>
+          <span>Evidence coverage</span>
+          <strong>{{ coverage(result) }}</strong>
+          <small>Available rows ÷ aggregate</small>
+        </article>
+        <article [class.aggregate-only]="result.evidenceLevel === 'AGGREGATE_ONLY'">
+          <span>Evidence quality</span>
+          <strong class="evidence-quality">{{ evidenceLevelLabel(result.evidenceLevel) }}</strong>
+          <small>Phase 1 source coverage</small>
+        </article>
+      </section>
+
+      <section class="evidence-disclosure" [class.evidence-disclosure--warning]="result.evidenceLevel === 'AGGREGATE_ONLY' || result.evidenceLevel === 'PARTIAL_RECORD_LEVEL'">
+        <span aria-hidden="true">{{ result.evidenceLevel === 'RECORD_LEVEL' ? '✓' : 'i' }}</span>
+        <div>
+          <strong>{{ evidenceLevelLabel(result.evidenceLevel) }}</strong>
+          <p>{{ result.evidenceMessage }}</p>
+        </div>
+      </section>
+
+      <section class="transaction-table-panel" aria-labelledby="transaction-records-heading">
+        <header>
+          <div>
+            <p>Available evidence</p>
+            <h2 id="transaction-records-heading">Transaction records</h2>
+          </div>
+          <span>{{ result.matchingRecordCount | number:'1.0-0' }} matching</span>
+        </header>
+
+        <form class="transaction-toolbar" (submit)="applyFilters($event)">
+          <label class="transaction-search">
+            <span class="sr-only">Search identifier, MTCN, or rule ID</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
+            <input type="search" placeholder="Search identifier, MTCN, or rule ID" [value]="search()" (input)="setSearch($event)" />
+          </label>
+          <label>
+            <span class="sr-only">Evidence source</span>
+            <select [value]="source()" (change)="setSource($event)">
+              <option value="ALL">All evidence sources</option>
+              <option value="JOURNEY">Latest journey</option>
+              <option value="EXCLUSION_AUDIT">Exclusion audit</option>
+            </select>
+          </label>
+          <label>
+            <span class="sr-only">Outcome</span>
+            <select [value]="outcome()" (change)="setOutcome($event)">
+              <option value="ALL">All outcomes</option>
+              <option value="SUCCESS">Success</option>
+              <option value="ERROR">Error</option>
+              <option value="PENDING">Pending</option>
+              <option value="EXCLUDED">Excluded</option>
+            </select>
+          </label>
+          <button type="submit" class="transaction-apply">Apply</button>
+          <button type="button" class="transaction-clear" (click)="clearFilters()">Clear</button>
+        </form>
+
+        @if (result.transactions.length === 0) {
+          <div class="transaction-no-records">
+            <span aria-hidden="true">⌁</span>
+            <strong>No transaction rows are available for this selection.</strong>
+            <p>The aggregate remains valid; the report does not manufacture transaction identifiers when the Phase 1 source has none.</p>
+          </div>
+        } @else {
+          <div class="transaction-table-scroll">
+            <table class="transaction-table">
+              <thead>
+                <tr>
+                  <th scope="col">Transaction</th>
+                  <th scope="col">Outcome</th>
+                  <th scope="col">Stage / status</th>
+                  <th scope="col">Evidence source</th>
+                  <th scope="col">Investigation detail</th>
+                  <th scope="col">Last updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (record of result.transactions; track record.recordKey) {
+                  <tr>
+                    <th scope="row">
+                      <strong>{{ record.identifier }}</strong>
+                      <small>{{ record.mtcn ? 'MTCN ' + record.mtcn : 'MTCN unavailable' }}</small>
+                    </th>
+                    <td><span class="outcome-pill" [class.outcome-pill--success]="record.outcome === 'SUCCESS'" [class.outcome-pill--error]="record.outcome === 'ERROR'" [class.outcome-pill--excluded]="record.outcome === 'EXCLUDED'">{{ record.outcome }}</span></td>
+                    <td><strong>{{ record.stage || 'Not available' }}</strong><small>{{ record.status || 'Status unavailable' }}</small></td>
+                    <td><span class="source-pill">{{ sourceLabel(record.source) }}</span></td>
+                    <td>
+                      <strong>{{ recordDetail(record) }}</strong>
+                      @if (record.ruleId) { <small>Rule {{ record.ruleId }}</small> }
+                      @if (record.reportedBatchId) { <small>Previously reported in {{ record.reportedBatchId }}</small> }
+                    </td>
+                    <td><time>{{ record.modifiedAt | date:'MMM d, y, h:mm a' }}</time></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+        <footer class="transaction-pagination">
+          <span>{{ pageRange(result) }}</span>
+          <div>
+            <button type="button" (click)="previousPage()" [disabled]="page() === 0">← Previous</button>
+            <button type="button" (click)="nextPage(result)" [disabled]="(page() + 1) * size() >= result.matchingRecordCount">Next →</button>
+          </div>
+        </footer>
+      </section>
+    }
+  }
+</section>

@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: pharos-compliance-dashboard
+  main:
+    keep-alive: true
+  threads:
+    virtual:
+      enabled: true
+  reactor:
+    context-propagation: auto
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: pharos
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+common:
+  postgres:
+    url: ${DB_URL:jdbc:postgresql://localhost:5439/pharosRBT}
+    driver: ${DB_DRIVER:org.postgresql.Driver}
+    username: ${DB_USER:pharosRBT}
+    password: ${DB_PASSWORD:pharosRBT}
+    connectionTimeout: ${DB_CONNECTION_TIMEOUT:120000}
+    maximumPoolSize: ${DB_MAX_POOL_SIZE:10}
+    minimumIdle: ${DB_MIN_IDLE:1}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+
+server:
+  port: 8085
+  shutdown: graceful
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    display-request-duration: true
+    doc-expansion: none
+    operations-sorter: method
+    tags-sorter: alpha
+
+logging:
+  include-application-name: false
+  level:
+    com.pharos.compliance: INFO
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([${spring.application.name:pharos},trace=%X{traceId:-},span=%X{spanId:-}]){cyan} %clr([%-18.18thread]){magenta} %clr(%logger{32}){blue} %clr(:){faint} %msg%n%wEx"

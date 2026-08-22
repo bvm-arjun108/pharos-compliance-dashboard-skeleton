@@ -1,0 +1,275 @@
+<section class="report-config-page">
+  <header class="config-page-heading">
+    <div>
+      <p class="config-eyebrow">Configuration workspace</p>
+      <div class="config-title-line">
+        <h1>Report Config</h1>
+        <span>Read only</span>
+      </div>
+      <p>Find a report group and inspect its active mapping, rules, processing behavior, and reconciliation strategy.</p>
+    </div>
+    @if (response(); as result) {
+      <div class="config-count-context">
+        <strong>{{ result.configurations.length }}</strong>
+        <span>matching report groups</span>
+      </div>
+    }
+  </header>
+
+  @if (response(); as result) {
+    <section class="config-summary" aria-label="Configuration summary">
+      <article>
+        <span>Report groups</span>
+        <strong>{{ result.summary.totalConfigurations }}</strong>
+        <small>Latest configuration per group</small>
+      </article>
+      <article class="summary-active">
+        <span>Active configs</span>
+        <strong>{{ result.summary.activeConfigurations }}</strong>
+        <small>Enabled for processing</small>
+      </article>
+      <article>
+        <span>Countries</span>
+        <strong>{{ result.summary.representedCountries }}</strong>
+        <small>Represented in this selection</small>
+      </article>
+      <article>
+        <span>Objective reports</span>
+        <strong>{{ result.summary.objectiveConfigurations }}</strong>
+        <small>{{ result.summary.totalConfigurations - result.summary.objectiveConfigurations }} subjective</small>
+      </article>
+    </section>
+  }
+
+  <form class="config-toolbar" (submit)="applyFilters($event)">
+    <label class="config-search">
+      <span>Report Group ID</span>
+      <div>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
+        <input
+          type="search"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="10"
+          autocomplete="off"
+          placeholder="Enter report group ID"
+          [value]="reportGroupId()"
+          (input)="setReportGroupId($event)"
+        />
+      </div>
+    </label>
+
+    <label>
+      <span>Country</span>
+      @if (filterOptions().countries.length > 0) {
+        <select [ngModel]="country()" (ngModelChange)="setCountry($event)" [ngModelOptions]="{standalone: true}">
+          <option value="ALL">All countries</option>
+          @for (option of filterOptions().countries; track option.code) {
+            <option [value]="option.code">{{ option.name }}</option>
+          }
+        </select>
+      } @else {
+        <select disabled><option>Loading countries…</option></select>
+      }
+    </label>
+
+    <label>
+      <span>Status</span>
+      <select [value]="status()" (change)="setStatus($event)">
+        <option value="ALL">All statuses</option>
+        <option value="ACTIVE">Active</option>
+        <option value="INACTIVE">Inactive</option>
+      </select>
+    </label>
+
+    <label>
+      <span>Report type</span>
+      <select [value]="reportType()" (change)="setReportType($event)">
+        <option value="ALL">All report types</option>
+        @for (type of filterOptions().reportTypes; track type) {
+          <option [value]="type">{{ type }}</option>
+        }
+      </select>
+    </label>
+
+    <button type="submit" class="config-apply">Apply filters</button>
+    <button type="button" class="config-clear" (click)="clearFilters()">Reset</button>
+  </form>
+
+  <section class="config-workspace" [attr.aria-busy]="listLoading() || detailLoading()">
+    <aside class="config-directory" aria-labelledby="config-directory-heading">
+      <div class="directory-heading">
+        <div>
+          <p>Configuration directory</p>
+          <h2 id="config-directory-heading">Report groups</h2>
+        </div>
+        @if (response(); as result) { <span>{{ result.configurations.length }}</span> }
+      </div>
+
+      <div class="directory-list">
+        @if (listLoading()) {
+          <div class="config-message"><span class="config-spinner"></span>Loading configurations…</div>
+        } @else if (listError(); as error) {
+          <div class="config-message config-message--error">{{ error }}</div>
+        } @else if (response(); as result) {
+          @if (result.configurations.length === 0) {
+            <div class="config-message">No report groups match these filters.</div>
+          } @else {
+            @for (config of result.configurations; track configKey(config)) {
+              <button
+                type="button"
+                class="directory-item"
+                [class.selected]="configKey(selectedConfig()) === configKey(config)"
+                (click)="selectConfig(config)"
+              >
+                <span class="country-code">{{ config.countryCode }}</span>
+                <span class="directory-item__body">
+                  <span class="directory-item__topline">
+                    <b [class.inactive]="!config.active">{{ config.active ? 'Active' : 'Inactive' }}</b>
+                    <small>{{ config.reportType || 'Type not set' }}</small>
+                  </span>
+                  <strong>{{ config.reportGroupName || 'Report group ' + config.reportGroupId }}</strong>
+                  <span class="directory-item__id">ID {{ config.reportGroupId }}</span>
+                  <span class="directory-item__meta">
+                    <i>Selection v{{ config.reportSelectionVersionId }}</i>
+                    <i>Transformer v{{ config.transformerVersionId }}</i>
+                  </span>
+                </span>
+                <span class="directory-chevron" aria-hidden="true">›</span>
+              </button>
+            }
+          }
+        }
+      </div>
+    </aside>
+
+    <article class="config-inspector" aria-live="polite">
+      @if (detailLoading()) {
+        <div class="inspector-empty"><span class="config-spinner"></span>Loading configuration…</div>
+      } @else if (detailError(); as error) {
+        <div class="inspector-empty config-message--error">{{ error }}</div>
+      } @else if (selectedDetails(); as details) {
+        <header class="inspector-header">
+          <div>
+            <div class="inspector-title-line">
+              <h2>{{ details.identity.reportGroupName || 'Report group ' + details.identity.reportGroupId }}</h2>
+              <span [class.inactive]="!details.identity.active">{{ details.identity.active ? 'Active' : 'Inactive' }}</span>
+            </div>
+            <p>{{ details.identity.countryName }} · {{ details.identity.regionName || 'Region not configured' }} · Report group {{ details.identity.reportGroupId }}</p>
+          </div>
+          <div class="version-stack">
+            <span>Selection <strong>v{{ details.versioning.reportSelectionVersionId }}</strong></span>
+            <span>Transformer <strong>v{{ details.versioning.transformerVersionId }}</strong></span>
+          </div>
+        </header>
+
+        <section class="inspector-section" aria-labelledby="identity-heading">
+          <div class="section-heading">
+            <div><p>Identity & coverage</p><h3 id="identity-heading">Where this report applies</h3></div>
+            <time>Modified {{ details.versioning.modifiedAt | date:'MMM d, y, h:mm a' }}</time>
+          </div>
+          <dl class="definition-grid definition-grid--five">
+            <div><dt>Country</dt><dd>{{ details.identity.countryName }} ({{ details.identity.countryCode }})</dd></div>
+            <div><dt>Three-letter code</dt><dd>{{ configuredValue(details.identity.threeLetterCountryCode) }}</dd></div>
+            <div><dt>Region</dt><dd>{{ configuredValue(details.identity.regionName) }}</dd></div>
+            <div><dt>Report type</dt><dd>{{ configuredValue(details.identity.reportType) }}</dd></div>
+            <div><dt>Currency</dt><dd>{{ configuredValue(details.identity.reportCurrency) }}</dd></div>
+          </dl>
+        </section>
+
+        <section class="inspector-section" aria-labelledby="behavior-heading">
+          <div class="section-heading"><div><p>Processing behavior</p><h3 id="behavior-heading">Runtime capabilities</h3></div></div>
+          <div class="behavior-grid">
+            <div [class.enabled]="details.processingBehavior.databaseLookupEnabled"><span>Database lookup</span><strong>{{ booleanLabel(details.processingBehavior.databaseLookupEnabled) }}</strong></div>
+            <div [class.enabled]="details.processingBehavior.partialReport"><span>Partial report</span><strong>{{ booleanLabel(details.processingBehavior.partialReport) }}</strong></div>
+            <div [class.enabled]="details.processingBehavior.blankReport"><span>Blank report</span><strong>{{ booleanLabel(details.processingBehavior.blankReport) }}</strong></div>
+            <div [class.enabled]="details.processingBehavior.nonTransactionalReport"><span>Non-transactional</span><strong>{{ booleanLabel(details.processingBehavior.nonTransactionalReport) }}</strong></div>
+          </div>
+        </section>
+
+        <div class="inspector-columns">
+          <section class="inspector-section" aria-labelledby="mapping-heading">
+            <div class="section-heading"><div><p>Transformation mapping</p><h3 id="mapping-heading">Service & documents</h3></div></div>
+            <dl class="stacked-definitions">
+              <div><dt>Mapping project</dt><dd>{{ configuredValue(details.mapping.projectKey) }}</dd></div>
+              <div><dt>Mapping service</dt><dd>{{ configuredValue(details.mapping.serviceName) }}</dd></div>
+              <div class="document-types">
+                <dt>Document subtypes</dt>
+                <dd>
+                  <span>Ack <b>{{ configuredValue(details.mapping.acknowledgementDocumentSubtype) }}</b></span>
+                  <span>Output <b>{{ configuredValue(details.mapping.outputFileDocumentSubtype) }}</b></span>
+                  <span>Submission <b>{{ configuredValue(details.mapping.submissionDocumentSubtype) }}</b></span>
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="inspector-section" aria-labelledby="rules-heading">
+            <div class="section-heading"><div><p>Rule wiring</p><h3 id="rules-heading">Selection & rule IDs</h3></div></div>
+            <dl class="stacked-definitions">
+              <div><dt>Inbound rule</dt><dd>{{ configuredValue(details.rules.inboundRuleId) }}</dd></div>
+              <div><dt>Outbound rule</dt><dd>{{ configuredValue(details.rules.outboundRuleId) }}</dd></div>
+              <div><dt>Report selection</dt><dd>{{ configuredValue(details.rules.reportSelection) }}</dd></div>
+            </dl>
+          </section>
+        </div>
+
+        <section class="inspector-section" aria-labelledby="columns-heading">
+          <div class="section-heading"><div><p>Data contract</p><h3 id="columns-heading">Configured columns</h3></div></div>
+          <div class="column-contracts">
+            <div>
+              <span>Reportable activity columns</span>
+              @if (csvValues(details.rules.reportableActivityColumns).length > 0) {
+                <p>@for (column of csvValues(details.rules.reportableActivityColumns); track column) { <i>{{ column }}</i> }</p>
+              } @else { <small>Not configured</small> }
+            </div>
+            <div>
+              <span>Rule-hit columns</span>
+              @if (csvValues(details.rules.ruleHitColumns).length > 0) {
+                <p>@for (column of csvValues(details.rules.ruleHitColumns); track column) { <i>{{ column }}</i> }</p>
+              } @else { <small>Not configured</small> }
+            </div>
+          </div>
+        </section>
+
+        <section class="inspector-section strategy-section" aria-labelledby="strategy-heading">
+          <div class="section-heading"><div><p>Strategy metadata</p><h3 id="strategy-heading">Exclusion & reconciliation</h3></div></div>
+          <div class="strategy-grid">
+            @for (card of strategyCards(details); track card.id) {
+              <details class="strategy-card" [class.strategy-card--empty]="!card.configured">
+                <summary>
+                  <span class="strategy-summary-copy">
+                    <strong>{{ card.title }}</strong>
+                    <small>{{ card.preview }}</small>
+                  </span>
+                  <span class="strategy-status" [class.strategy-status--empty]="!card.configured">
+                    {{ card.configured ? 'Configured' : 'Not configured' }}
+                  </span>
+                  <svg class="strategy-chevron" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m6.5 8 3.5 3.5L13.5 8" />
+                  </svg>
+                </summary>
+                <div class="strategy-card__body">
+                  @if (card.configured) {
+                    <dl>
+                      @for (entry of card.entries; track $index) {
+                        <div><dt>{{ entry.label }}</dt><dd>{{ entry.value }}</dd></div>
+                      }
+                    </dl>
+                  } @else {
+                    <div class="strategy-empty-state">
+                      <span aria-hidden="true">—</span>
+                      <p>{{ card.emptyMessage }}</p>
+                    </div>
+                  }
+                </div>
+              </details>
+            }
+          </div>
+        </section>
+      } @else {
+        <div class="inspector-empty">Select a report group to inspect its configuration.</div>
+      }
+    </article>
+  </section>
+</section>

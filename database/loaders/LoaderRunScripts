@@ -1,0 +1,12 @@
+uv run --project database/loaders python3 database/loaders/load_record_transformation_journey.py --dry-run
+uv run --project database/loaders python3 database/loaders/load_report_transformation_reconciliation.py --dry-run
+uv run --project database/loaders python3 database/loaders/load_rule_hit_exclusion_audit.py --dry-run
+uv run --project database/loaders python3 database/loaders/load_report_group_config.py --dry-run
+
+uv run --project database/loaders python3 database/loaders/load_record_transformation_journey.py
+
+uv run --project database/loaders python3 database/loaders/load_report_transformation_reconciliation.py
+
+uv run --project database/loaders python3 database/loaders/load_rule_hit_exclusion_audit.py
+
+uv run --project database/loaders python3 database/loaders/load_report_group_config.py

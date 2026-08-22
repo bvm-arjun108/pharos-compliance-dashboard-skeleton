@@ -1,0 +1,284 @@
+:host { display: block; }
+
+.transaction-report-page {
+  margin: -38px -40px -72px;
+  min-height: calc(100vh - 146px);
+  padding: 22px clamp(20px, 2.5vw, 42px) 48px;
+  color: #252522;
+  background: #f4f3ef;
+}
+
+.transaction-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #85837b;
+  font-size: 11px;
+}
+
+.transaction-breadcrumb button {
+  padding: 0;
+  color: #5f5e58;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+}
+
+.transaction-breadcrumb button:hover,
+.transaction-breadcrumb button:focus-visible { color: #111; text-decoration: underline; }
+.transaction-breadcrumb strong { color: #33332f; }
+
+.transaction-report-heading {
+  display: flex;
+  margin-top: 20px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.transaction-report-heading p,
+.transaction-table-panel > header p,
+.transaction-empty-state > p {
+  margin: 0 0 6px;
+  color: #696860;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.transaction-report-heading h1,
+.transaction-empty-state h1 {
+  margin: 0;
+  color: #151513;
+  font-size: clamp(30px, 3.5vw, 48px);
+  letter-spacing: -.045em;
+  line-height: .98;
+}
+
+.transaction-report-heading > div > span {
+  display: block;
+  margin-top: 9px;
+  color: #68675f;
+  font-size: 13px;
+}
+
+.transaction-report-heading > button {
+  min-height: 38px;
+  padding: 0 15px;
+  color: #252522;
+  background: #fff;
+  border: 1px solid #cfcdc4;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.transaction-report-heading > button:hover { border-color: #8b897f; }
+
+.transaction-context-strip {
+  display: grid;
+  margin-top: 22px;
+  overflow: hidden;
+  grid-template-columns: minmax(270px, 1.6fr) repeat(2, minmax(110px, .55fr)) minmax(230px, 1.25fr);
+  background: #232421;
+  border: 1px solid #3d3e3a;
+  border-top: 4px solid #ffdd00;
+  border-radius: 10px;
+}
+
+.transaction-context-strip > div {
+  display: flex;
+  min-width: 0;
+  min-height: 65px;
+  padding: 12px 17px;
+  justify-content: center;
+  flex-direction: column;
+  border-right: 1px solid #444540;
+}
+
+.transaction-context-strip > div:last-child { border-right: 0; }
+.transaction-context-strip span { color: #a5a69f; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.transaction-context-strip strong { margin-top: 4px; overflow: hidden; color: #f5f5f1; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+.transaction-report-kpis {
+  display: grid;
+  margin-top: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.transaction-report-kpis article {
+  display: flex;
+  min-height: 105px;
+  padding: 16px 17px;
+  justify-content: center;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #d8d6ce;
+  border-radius: 9px;
+  box-shadow: 0 7px 18px rgba(42, 40, 32, .045);
+}
+
+.transaction-report-kpis article.aggregate-only { border-color: #d4aa76; background: #fffaf3; }
+.transaction-report-kpis span { color: #74736b; font-size: 10px; font-weight: 700; }
+.transaction-report-kpis strong { margin-top: 5px; color: #20201d; font-size: 25px; letter-spacing: -.035em; }
+.transaction-report-kpis strong.evidence-quality { font-size: 18px; }
+.transaction-report-kpis small { margin-top: 3px; color: #96948b; font-size: 9px; }
+
+.evidence-disclosure {
+  display: flex;
+  margin-top: 13px;
+  padding: 12px 15px;
+  align-items: flex-start;
+  gap: 11px;
+  color: #2e5e45;
+  background: #edf5ef;
+  border: 1px solid #c9ddcf;
+  border-radius: 8px;
+}
+
+.evidence-disclosure--warning { color: #735021; background: #fff8ed; border-color: #e4cda9; }
+.evidence-disclosure > span { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border: 1px solid currentColor; border-radius: 50%; font-size: 11px; font-weight: 900; }
+.evidence-disclosure strong { font-size: 11px; }
+.evidence-disclosure p { margin: 3px 0 0; color: #66645d; font-size: 10px; line-height: 1.45; }
+
+.transaction-table-panel {
+  margin-top: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #d5d3cb;
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(38, 36, 29, .07);
+}
+
+.transaction-table-panel > header {
+  display: flex;
+  min-height: 67px;
+  padding: 13px 17px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #dedcd4;
+}
+
+.transaction-table-panel > header h2 { margin: 0; color: #22221f; font-size: 18px; letter-spacing: -.025em; }
+.transaction-table-panel > header > span { display: inline-flex; min-height: 27px; padding: 0 10px; align-items: center; color: #55544e; background: #f1f0eb; border-radius: 999px; font-size: 10px; font-weight: 800; }
+
+.transaction-toolbar {
+  display: grid;
+  padding: 12px 14px;
+  grid-template-columns: minmax(250px, 1.4fr) minmax(175px, .75fr) minmax(160px, .7fr) auto auto;
+  gap: 9px;
+  background: #f8f7f3;
+  border-bottom: 1px solid #dfddd5;
+}
+
+.transaction-toolbar input,
+.transaction-toolbar select,
+.transaction-toolbar button {
+  width: 100%;
+  height: 38px;
+  color: #2e2e2a;
+  background: #fff;
+  border: 1px solid #cfcdc4;
+  border-radius: 6px;
+  outline: none;
+  font-size: 11px;
+}
+
+.transaction-toolbar input,
+.transaction-toolbar select { padding: 0 12px; }
+.transaction-toolbar input:focus,
+.transaction-toolbar select:focus { border-color: #af9700; box-shadow: 0 0 0 2px rgba(255, 221, 0, .18); }
+
+.transaction-search { position: relative; }
+.transaction-search svg { position: absolute; top: 10px; left: 11px; width: 17px; height: 17px; fill: none; stroke: #8b8a82; stroke-linecap: round; stroke-width: 1.8; }
+.transaction-search input { padding-left: 36px; }
+.transaction-toolbar .transaction-apply { width: auto; padding: 0 18px; color: #111; background: #ffdd00; border-color: #e4c700; font-weight: 900; }
+.transaction-toolbar .transaction-clear { width: auto; padding: 0 15px; background: transparent; font-weight: 750; }
+
+.transaction-table-scroll { overflow-x: auto; }
+.transaction-table { width: 100%; min-width: 1020px; border-collapse: collapse; font-size: 10px; }
+.transaction-table thead { color: #f2f2ef; background: #2c2d29; }
+.transaction-table th,
+.transaction-table td { padding: 12px 14px; border-bottom: 1px solid #e3e1d9; text-align: left; vertical-align: middle; }
+.transaction-table thead th { font-size: 9px; letter-spacing: .045em; text-transform: uppercase; }
+.transaction-table tbody tr:nth-child(even) { background: #faf9f5; }
+.transaction-table tbody tr:hover { background: #fffce9; }
+.transaction-table tbody th { min-width: 205px; color: #292925; }
+.transaction-table tbody strong,
+.transaction-table tbody small { display: block; }
+.transaction-table tbody small { max-width: 300px; margin-top: 4px; overflow: hidden; color: #85837a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-table time { color: #62615b; white-space: nowrap; }
+
+.outcome-pill,
+.source-pill { display: inline-flex; min-height: 23px; padding: 0 8px; align-items: center; color: #665620; background: #f4edce; border: 1px solid #ded29b; border-radius: 5px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.outcome-pill--success { color: #356449; background: #e6f1e9; border-color: #c4dccb; }
+.outcome-pill--error { color: #864047; background: #f4e5e7; border-color: #e2c8cb; }
+.outcome-pill--excluded { color: #684b25; background: #f5eadb; border-color: #e1ccb0; }
+.source-pill { color: #51514c; background: #efeee9; border-color: #d9d7cf; white-space: nowrap; }
+
+.transaction-pagination {
+  display: flex;
+  min-height: 50px;
+  padding: 8px 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  background: #f8f7f3;
+  border-top: 1px solid #dfddd5;
+}
+
+.transaction-pagination > span { color: #74726a; font-size: 10px; font-weight: 750; }
+.transaction-pagination > div { display: flex; gap: 7px; }
+.transaction-pagination button { min-height: 31px; padding: 0 11px; color: #353530; background: #fff; border: 1px solid #cfcdc4; border-radius: 6px; font-size: 10px; font-weight: 800; }
+.transaction-pagination button:hover:not(:disabled) { border-color: #9b998f; }
+.transaction-pagination button:disabled { color: #aaa89f; background: #f0efea; cursor: not-allowed; }
+
+.transaction-no-records,
+.transaction-message,
+.transaction-empty-state {
+  display: flex;
+  min-height: 290px;
+  padding: 34px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  color: #74726a;
+  text-align: center;
+}
+
+.transaction-no-records > span { display: grid; width: 46px; height: 46px; margin-bottom: 13px; place-items: center; color: #807b5c; background: #f2f0e5; border-radius: 50%; font-size: 25px; }
+.transaction-no-records strong { color: #34342f; font-size: 14px; }
+.transaction-no-records p { max-width: 590px; margin: 7px 0 0; font-size: 11px; line-height: 1.5; }
+.transaction-message--error { color: #8c3f46; }
+
+.transaction-empty-state { min-height: 560px; }
+.transaction-empty-state > span { max-width: 600px; margin-top: 14px; font-size: 14px; line-height: 1.5; }
+.transaction-empty-state a { display: inline-flex; min-height: 42px; margin-top: 22px; padding: 0 17px; align-items: center; gap: 10px; color: #151513; background: #ffdd00; border-radius: 7px; font-size: 12px; font-weight: 900; text-decoration: none; }
+
+@media (max-width: 1100px) {
+  .transaction-report-page { margin: -24px -20px -72px; }
+  .transaction-context-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transaction-context-strip > div:nth-child(2) { border-right: 0; }
+  .transaction-context-strip > div:nth-child(-n + 2) { border-bottom: 1px solid #444540; }
+  .transaction-report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transaction-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transaction-search { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .transaction-report-page { padding-inline: 14px; }
+  .transaction-report-heading { align-items: flex-start; flex-direction: column; }
+  .transaction-report-heading > button { width: 100%; }
+  .transaction-context-strip,
+  .transaction-report-kpis,
+  .transaction-toolbar { grid-template-columns: 1fr; }
+  .transaction-context-strip > div { border-right: 0; border-bottom: 1px solid #444540; }
+  .transaction-context-strip > div:last-child { border-bottom: 0; }
+  .transaction-search { grid-column: auto; }
+  .transaction-toolbar .transaction-apply,
+  .transaction-toolbar .transaction-clear { width: 100%; }
+}
