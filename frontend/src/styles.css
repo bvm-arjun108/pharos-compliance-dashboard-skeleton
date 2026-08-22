@@ -431,7 +431,7 @@ main {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: minmax(155px, .62fr) minmax(170px, .7fr) minmax(235px, .95fr) minmax(420px, 1.75fr);
+  grid-template-columns: minmax(155px, .62fr) minmax(170px, .7fr) minmax(170px, .7fr) minmax(235px, .95fr) minmax(420px, 1.75fr);
   align-items: stretch;
   gap: 14px;
 }
@@ -541,6 +541,22 @@ main {
   background: #686861;
 }
 
+.kpi-card--pending {
+  background: #f5efe1;
+  border-color: #ddccaa;
+  border-left-color: #a3823f;
+}
+
+.kpi-card--pending .kpi-card__topline > span:first-child,
+.kpi-card--pending > strong { color: #6b5324; }
+
+.kpi-card--pending > small { color: #7c6a45; }
+
+.kpi-card--pending .kpi-card__icon {
+  color: #fff;
+  background: #a3823f;
+}
+
 .transaction-totals {
   display: grid;
   margin-top: 17px;
@@ -595,6 +611,35 @@ button.issue-kpi:focus-visible { outline: 2px solid #865057; outline-offset: 2px
   line-height: 1;
   letter-spacing: -.03em;
 }
+
+.issue-overlap-note {
+  display: flex;
+  margin-top: 10px;
+  padding: 8px 10px;
+  align-items: flex-start;
+  gap: 9px;
+  background: rgba(255, 255, 255, .45);
+  border: 1px dashed #c79ba0;
+  border-radius: 6px;
+  color: #76575b;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.issue-overlap-note__badge {
+  display: grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: #fff;
+  background: #865057;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.issue-overlap-note strong { color: #63343a; }
 
 .attention-summary-link {
   display: block;

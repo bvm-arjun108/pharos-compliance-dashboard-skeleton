@@ -9,6 +9,12 @@ import java.util.List;
 public record DashboardDetailsResponse(
     @Schema(example = "30") long batchesRan,
     @Schema(example = "7") long successfulBatches,
+    @Schema(
+            description =
+                "Batches with journey evidence but no report_transformation_reconciliation row yet"
+                    + " (still at the SELECTION stage) — not yet reported",
+            example = "2")
+        long batchesNotYetReported,
     @Schema(example = "23") long batchesNeedingAttention,
     @Schema(example = "20") long transformationFailureBatches,
     @Schema(example = "8") long missingAttemptBatches,

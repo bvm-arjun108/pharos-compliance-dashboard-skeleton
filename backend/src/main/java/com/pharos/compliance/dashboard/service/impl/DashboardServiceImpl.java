@@ -139,7 +139,10 @@ public class DashboardServiceImpl implements DashboardService {
       LocalDate toDate) {
     return new DashboardDetailsResponse(
         counts.getBatchesRan(),
-        counts.getBatchesRan() - counts.getBatchesNeedingAttention(),
+        counts.getBatchesRan()
+            - counts.getBatchesNeedingAttention()
+            - counts.getBatchesNotYetReported(),
+        counts.getBatchesNotYetReported(),
         counts.getBatchesNeedingAttention(),
         counts.getTransformationFailureBatches(),
         counts.getMissingAttemptBatches(),

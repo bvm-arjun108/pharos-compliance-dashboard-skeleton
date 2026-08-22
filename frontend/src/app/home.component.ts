@@ -22,6 +22,7 @@ interface BatchFilterOptionsResponse {
 interface DashboardDetailsResponse {
   batchesRan: number;
   successfulBatches: number;
+  batchesNotYetReported: number;
   batchesNeedingAttention: number;
   transformationFailureBatches: number;
   missingAttemptBatches: number;
@@ -175,7 +176,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             <small>{{ dashboardError() }}</small>
           } @else if (dashboardDetails(); as details) {
             <strong>{{ details.batchesRan | number:'1.0-0' }}</strong>
-            <small>Distinct batches completed in the selected period</small>
+            <small>Distinct batches selected or completed in the selected period</small>
           }
         </button>
 
@@ -194,6 +195,22 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             <small>Distinct batches completed without a detected attention condition</small>
           }
         </button>
+
+        <article class="kpi-card kpi-card--pending">
+          <div class="kpi-card__topline">
+            <span>Not Yet Reported</span>
+            <span class="kpi-card__icon" aria-hidden="true">…</span>
+          </div>
+          @if (dashboardLoading()) {
+            <span class="kpi-loading">Loading…</span>
+          } @else if (dashboardError()) {
+            <strong class="kpi-error">Unavailable</strong>
+            <small>{{ dashboardError() }}</small>
+          } @else if (dashboardDetails(); as details) {
+            <strong>{{ details.batchesNotYetReported | number:'1.0-0' }}</strong>
+            <small>Selected but not yet transformed — no reconciliation record yet</small>
+          }
+        </article>
 
         <article class="kpi-card kpi-card--transactions">
           <div class="kpi-card__topline">
@@ -254,6 +271,13 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                 <strong>{{ details.reconciliationFailureBatches | number:'1.0-0' }}</strong>
               </button>
             </div>
+
+            @if (issueBreakdownSum(details) > details.batchesNeedingAttention) {
+              <div class="issue-overlap-note">
+                <span class="issue-overlap-note__badge">{{ issueBreakdownSum(details) | number:'1.0-0' }}</span>
+                <span>issue occurrences across only <strong>{{ details.batchesNeedingAttention | number:'1.0-0' }}</strong> distinct batches — a batch can have more than one issue type, so the categories above don't sum to the total.</span>
+              </div>
+            }
           }
         </article>
       </div>
@@ -664,6 +688,15 @@ export class HomeComponent implements OnInit {
 
   overallAttentionRate(details: DashboardDetailsResponse): number {
     return details.batchesRan === 0 ? 0 : (details.batchesNeedingAttention * 100) / details.batchesRan;
+  }
+
+  issueBreakdownSum(details: DashboardDetailsResponse): number {
+    return (
+      details.transformationFailureBatches +
+      details.missingAttemptBatches +
+      details.filtrationFailureBatches +
+      details.reconciliationFailureBatches
+    );
   }
 
   trendTitle(granularity: TrendGranularity): string {

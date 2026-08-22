@@ -4,35 +4,67 @@ final class DashboardNativeQueries {
 
   static final String DASHBOARD_COUNTS =
       """
+      WITH rtr_scope AS (
+          SELECT *
+          FROM pharos.report_transformation_reconciliation
+          WHERE created_timestamp >= :fromTimestamp
+            AND created_timestamp < :toTimestampExclusive
+            AND (:batchId = '' OR LOWER(batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
+            AND (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
+      ),
+      rtr_aggregates AS (
+          SELECT
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) AS batches_ran,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(activity_transformation_failed, 0) > 0
+                     OR COALESCE(txn_missing_attempt_count, 0) > 0
+                     OR COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
+                     OR COALESCE(expected_activity_eligible_for_transformation, 0)
+                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
+              ) AS batches_needing_attention,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(activity_transformation_failed, 0) > 0
+              ) AS transformation_failure_batches,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(txn_missing_attempt_count, 0) > 0
+              ) AS missing_attempt_batches,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
+              ) AS filtration_failure_batches,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(expected_activity_eligible_for_transformation, 0)
+                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
+              ) AS reconciliation_failure_batches,
+              COALESCE(SUM(actual_reportable_txn), 0) AS total_reported_transactions,
+              COALESCE(SUM(excluded_txn), 0) AS total_excluded_transactions
+          FROM rtr_scope
+      ),
+      not_yet_reported AS (
+          SELECT COUNT(DISTINCT (j.rpt_grp_id, j.batch_id)) AS batches_not_yet_reported
+          FROM pharos.record_transformation_journey j
+          WHERE j.created_timestamp >= :fromTimestamp
+            AND j.created_timestamp < :toTimestampExclusive
+            AND (:batchId = '' OR LOWER(j.batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
+            AND (:filterByCountry = FALSE OR j.rpt_grp_id IN (:reportGroupIds))
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pharos.report_transformation_reconciliation r
+                WHERE r.rpt_grp_id = j.rpt_grp_id
+                  AND r.batch_id = j.batch_id
+            )
+      )
       SELECT
-          COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) AS "batchesRan",
-          COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-              WHERE COALESCE(activity_transformation_failed, 0) > 0
-                 OR COALESCE(txn_missing_attempt_count, 0) > 0
-                 OR COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-                 OR COALESCE(expected_activity_eligible_for_transformation, 0)
-                    <> COALESCE(actual_activity_eligible_for_transformation, 0)
-          ) AS "batchesNeedingAttention",
-          COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-              WHERE COALESCE(activity_transformation_failed, 0) > 0
-          ) AS "transformationFailureBatches",
-          COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-              WHERE COALESCE(txn_missing_attempt_count, 0) > 0
-          ) AS "missingAttemptBatches",
-          COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-              WHERE COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-          ) AS "filtrationFailureBatches",
-          COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-              WHERE COALESCE(expected_activity_eligible_for_transformation, 0)
-                    <> COALESCE(actual_activity_eligible_for_transformation, 0)
-          ) AS "reconciliationFailureBatches",
-          COALESCE(SUM(actual_reportable_txn), 0) AS "totalReportedTransactions",
-          COALESCE(SUM(excluded_txn), 0) AS "totalExcludedTransactions"
-      FROM pharos.report_transformation_reconciliation
-      WHERE created_timestamp >= :fromTimestamp
-        AND created_timestamp < :toTimestampExclusive
-        AND (:batchId = '' OR LOWER(batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
-        AND (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
+          a.batches_ran + n.batches_not_yet_reported AS "batchesRan",
+          n.batches_not_yet_reported AS "batchesNotYetReported",
+          a.batches_needing_attention AS "batchesNeedingAttention",
+          a.transformation_failure_batches AS "transformationFailureBatches",
+          a.missing_attempt_batches AS "missingAttemptBatches",
+          a.filtration_failure_batches AS "filtrationFailureBatches",
+          a.reconciliation_failure_batches AS "reconciliationFailureBatches",
+          a.total_reported_transactions AS "totalReportedTransactions",
+          a.total_excluded_transactions AS "totalExcludedTransactions"
+      FROM rtr_aggregates a
+      CROSS JOIN not_yet_reported n
       """;
 
   static final String REPORT_GROUP_ATTENTION =

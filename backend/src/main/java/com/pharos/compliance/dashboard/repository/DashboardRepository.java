@@ -45,6 +45,8 @@ public interface DashboardRepository
   interface DashboardCountsProjection {
     long getBatchesRan();
 
+    long getBatchesNotYetReported();
+
     long getBatchesNeedingAttention();
 
     long getTransformationFailureBatches();
