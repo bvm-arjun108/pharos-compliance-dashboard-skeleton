@@ -175,6 +175,7 @@ export class BatchExplorerComponent implements OnInit {
   readonly issueType = signal<BatchIssueType>('ALL');
   readonly reportGroupId = signal<number | null>(null);
   readonly metricFocus = signal<BatchMetricFocus>('DEFAULT');
+  readonly deepLinkSequenceNumber = signal<number | null>(null);
   readonly page = signal(0);
   readonly size = signal(50);
 
@@ -447,10 +448,19 @@ export class BatchExplorerComponent implements OnInit {
       next: response => {
         this.response.set(response);
         this.queueLoading.set(false);
-        const firstBatch = response.batches[0] ?? null;
-        this.selectedBatch.set(firstBatch);
-        if (firstBatch) {
-          this.loadBatchDetails(firstBatch);
+        const requestedKey =
+          this.reportGroupId() !== null &&
+          this.batchId().trim() &&
+          this.deepLinkSequenceNumber() !== null
+            ? `${this.reportGroupId()}:${this.batchId().trim()}:${this.deepLinkSequenceNumber()}`
+            : null;
+        const matchedBatch = requestedKey
+          ? (response.batches.find(batch => this.batchKey(batch) === requestedKey) ?? null)
+          : null;
+        const targetBatch = matchedBatch ?? response.batches[0] ?? null;
+        this.selectedBatch.set(targetBatch);
+        if (targetBatch) {
+          this.loadBatchDetails(targetBatch);
         }
       },
       error: () => {
@@ -512,6 +522,7 @@ export class BatchExplorerComponent implements OnInit {
     this.reportGroupId.set(this.parseReportGroupId(params.get('reportGroupId')));
     this.metricFocus.set(this.parseMetricFocus(params.get('metricFocus')));
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
+    this.deepLinkSequenceNumber.set(this.parseReportGroupId(params.get('sequenceNumber')));
   }
 
   private updateRoute(queryParams: Record<string, string | number | null>): void {

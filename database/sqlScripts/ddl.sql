@@ -22,6 +22,18 @@ CREATE TABLE "pharosRBT".pharos.record_transformation_journey (
                                                                       PRIMARY KEY (rpt_grp_id, batch_id, identifier)
 );
 
+-- Backs the identifier-first transaction bridge (journey.identifier vs rule_hit.external_txn_key)
+-- without weakening its validated semantics: this indexes exactly the rows the bridge's own
+-- "identifier ~ '^[0-9]+$'" guard already accepts, so the planner can use it instead of scanning
+-- every journey row in the batch per rule_hit row.
+CREATE INDEX record_transformation_journey_identifier_bigint_idx
+    ON pharos.record_transformation_journey (rpt_grp_id, batch_id, ((identifier)::bigint))
+    WHERE identifier ~ '^[0-9]+$';
+
+-- Backs the mtcn fallback path of the same bridge (used only when the identifier match misses).
+CREATE INDEX record_transformation_journey_mtcn_idx
+    ON pharos.record_transformation_journey (rpt_grp_id, batch_id, mtcn);
+
 
 -- "pharosRBT".pharos.report_transformation_reconciliation definition
 
@@ -90,6 +102,12 @@ CREATE TABLE "pharosRBT".pharos.rule_hit_exclusion_audit (
                                                              CONSTRAINT rule_hit_exclusion_audit_pkey
                                                                  PRIMARY KEY (bucket_id, rpt_grp_id, rule_id, attempt_id)
 );
+
+-- The transaction evidence report filters this table by (rpt_grp_id, processing_batch_id), which
+-- shares no leading column with the PK (bucket_id first) — without this index every lookup is a
+-- full table scan regardless of how small the matching batch is.
+CREATE INDEX rule_hit_exclusion_audit_batch_idx
+    ON pharos.rule_hit_exclusion_audit (rpt_grp_id, processing_batch_id);
 
 
 -- DROP TABLE pharos.report_group_config;
@@ -183,6 +201,12 @@ CREATE INDEX created_timestamp_rule_hit_idx
 
 CREATE INDEX efilebatchid_rule_hit_idx
     ON pharos.rule_hit USING btree (efile_batch_id);
+
+-- Composite covering index for the evidence report's WHERE (rpt_grp_id, efile_batch_id) lookup;
+-- the single-column index above still works via efile_batch_id's own selectivity, but this avoids
+-- the extra Filter step at scale.
+CREATE INDEX rule_hit_rptgrp_efilebatchid_idx
+    ON pharos.rule_hit (rpt_grp_id, efile_batch_id);
 
 CREATE INDEX idx_rule_hit_galactic_id
     ON pharos.rule_hit USING btree (galactic_id);

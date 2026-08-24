@@ -19,7 +19,14 @@ type TransactionMetric =
   | 'FILTRATION_VARIANCE'
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
-type TransactionEvidenceSource = 'ALL' | 'JOURNEY' | 'EXCLUSION_AUDIT';
+type TransactionEvidenceSource = 'ALL' | 'JOURNEY' | 'EXCLUSION_AUDIT' | 'RULE_HIT';
+type TransactionStage =
+  | 'ALL'
+  | 'SELECTION'
+  | 'TRANSACTION_JOIN'
+  | 'TRANSFORMATION'
+  | 'EXCLUSION'
+  | 'RULE_HIT';
 type TransactionOutcome = 'ALL' | 'SUCCESS' | 'ERROR' | 'PENDING' | 'EXCLUDED';
 type TransactionEvidenceLevel =
   | 'RECORD_LEVEL'
@@ -55,7 +62,42 @@ interface TransactionEvidenceRecord {
   reportingTimestamp: string | null;
   modifiedAt: string | null;
   processingComplete: boolean | null;
+  currencyAmount: number | null;
+  currencyCode: string | null;
+  transactionDate: string | null;
+  transactionSide: string | null;
+  txnSource: string | null;
+  activityType: string | null;
+  sendDate: string | null;
+  galacticId: string | null;
+  bucketId: number | null;
+  attemptId: number | null;
 }
+
+interface TransactionOutcomeBreakdown {
+  successCount: number;
+  errorCount: number;
+  pendingCount: number;
+  excludedCount: number;
+  totalCount: number;
+}
+
+interface TransactionStageBreakdown {
+  stage: string;
+  successCount: number;
+  errorCount: number;
+  pendingCount: number;
+  excludedCount: number;
+  totalCount: number;
+}
+
+const PIPELINE_STAGE_ORDER = [
+  'SELECTION',
+  'TRANSACTION_JOIN',
+  'TRANSFORMATION',
+  'EXCLUSION',
+  'RULE_HIT'
+];
 
 interface TransactionReportResponse {
   context: TransactionReportContext;
@@ -66,9 +108,12 @@ interface TransactionReportResponse {
   matchingRecordCount: number;
   evidenceLevel: TransactionEvidenceLevel;
   evidenceMessage: string;
+  outcomeBreakdown: TransactionOutcomeBreakdown;
+  stageBreakdown: TransactionStageBreakdown[];
   transactions: TransactionEvidenceRecord[];
   search: string;
   source: TransactionEvidenceSource;
+  stage: TransactionStage;
   outcome: TransactionOutcome;
   page: number;
   size: number;
@@ -98,9 +143,11 @@ export class TransactionReportComponent implements OnInit {
   readonly metric = signal<TransactionMetric>('ALL');
   readonly search = signal('');
   readonly source = signal<TransactionEvidenceSource>('ALL');
+  readonly stage = signal<TransactionStage>('ALL');
   readonly outcome = signal<TransactionOutcome>('ALL');
   readonly page = signal(0);
-  readonly size = signal(100);
+  readonly size = signal(25);
+  readonly expandedRecordKey = signal<string | null>(null);
 
   ngOnInit(): void {
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
@@ -118,8 +165,8 @@ export class TransactionReportComponent implements OnInit {
     this.search.set((event.target as HTMLInputElement).value);
   }
 
-  setSource(event: Event): void {
-    this.source.set((event.target as HTMLSelectElement).value as TransactionEvidenceSource);
+  setStage(event: Event): void {
+    this.stage.set((event.target as HTMLSelectElement).value as TransactionStage);
   }
 
   setOutcome(event: Event): void {
@@ -130,14 +177,14 @@ export class TransactionReportComponent implements OnInit {
     event.preventDefault();
     this.updateRoute({
       search: this.search().trim() || null,
-      source: this.source(),
+      stage: this.stage(),
       outcome: this.outcome(),
       page: 0
     });
   }
 
   clearFilters(): void {
-    this.updateRoute({ search: null, source: 'ALL', outcome: 'ALL', page: 0 });
+    this.updateRoute({ search: null, stage: 'ALL', outcome: 'ALL', page: 0 });
   }
 
   previousPage(): void {
@@ -150,6 +197,37 @@ export class TransactionReportComponent implements OnInit {
     if ((this.page() + 1) * this.size() < report.matchingRecordCount) {
       this.updateRoute({ page: this.page() + 1 });
     }
+  }
+
+  goToPage(pageNumber: number): void {
+    this.updateRoute({ page: pageNumber - 1 });
+  }
+
+  totalPages(report: TransactionReportResponse): number {
+    return Math.max(1, Math.ceil(report.matchingRecordCount / this.size()));
+  }
+
+  pageNumbers(report: TransactionReportResponse): (number | '…')[] {
+    const total = this.totalPages(report);
+    const current = this.page() + 1;
+    const delta = 2;
+    const rangeStart = Math.max(2, current - delta);
+    const rangeEnd = Math.min(total - 1, current + delta);
+
+    const pages: (number | '…')[] = [1];
+    if (rangeStart > 2) {
+      pages.push('…');
+    }
+    for (let i = rangeStart; i <= rangeEnd; i++) {
+      pages.push(i);
+    }
+    if (rangeEnd < total - 1) {
+      pages.push('…');
+    }
+    if (total > 1) {
+      pages.push(total);
+    }
+    return pages;
   }
 
   pageRange(report: TransactionReportResponse): string {
@@ -169,11 +247,69 @@ export class TransactionReportComponent implements OnInit {
     void this.router.navigate(['/batches/explorer']);
   }
 
-  coverage(report: TransactionReportResponse): string {
-    if (report.aggregateCount === 0) {
-      return report.availableRecordCount === 0 ? 'N/A' : '100%';
-    }
-    return `${Math.min(100, (report.availableRecordCount / report.aggregateCount) * 100).toFixed(1)}%`;
+  openBatchView(): void {
+    // The batch explorer's fromDate/toDate filter is matched against the reconciliation row's
+    // created_timestamp (when the batch was processed), not its reporting period — the two can be
+    // weeks apart. A deliberately wide range keeps this deep link working regardless of either
+    // date, since batchId + reportGroupId + sequenceNumber already pin down the exact batch.
+    void this.router.navigate(['/batches/explorer'], {
+      queryParams: {
+        reportGroupId: this.reportGroupId(),
+        batchId: this.batchId(),
+        sequenceNumber: this.sequenceNumber(),
+        fromDate: '2000-01-01',
+        toDate: '2099-12-31'
+      }
+    });
+  }
+
+  outcomeShare(report: TransactionReportResponse, count: number): number {
+    return report.outcomeBreakdown.totalCount === 0
+      ? 0
+      : (count / report.outcomeBreakdown.totalCount) * 100;
+  }
+
+  outcomeSummary(report: TransactionReportResponse): string {
+    const breakdown = report.outcomeBreakdown;
+    return `${breakdown.successCount} success, ${breakdown.errorCount} error, ${breakdown.pendingCount} pending, ${breakdown.excludedCount} excluded, out of ${breakdown.totalCount} total`;
+  }
+
+  setOutcomeFilter(value: TransactionOutcome): void {
+    this.updateRoute({ outcome: value, page: 0 });
+  }
+
+  toggleOutcomeFilter(value: Exclude<TransactionOutcome, 'ALL'>): void {
+    this.setOutcomeFilter(this.outcome() === value ? 'ALL' : value);
+  }
+
+  sortedStageBreakdown(report: TransactionReportResponse): TransactionStageBreakdown[] {
+    return [...report.stageBreakdown].sort((a, b) => {
+      const orderA = PIPELINE_STAGE_ORDER.indexOf(a.stage);
+      const orderB = PIPELINE_STAGE_ORDER.indexOf(b.stage);
+      return (orderA === -1 ? PIPELINE_STAGE_ORDER.length : orderA)
+        - (orderB === -1 ? PIPELINE_STAGE_ORDER.length : orderB);
+    });
+  }
+
+  stageShare(row: TransactionStageBreakdown, count: number): number {
+    return row.totalCount === 0 ? 0 : (count / row.totalCount) * 100;
+  }
+
+  stageSummary(row: TransactionStageBreakdown): string {
+    return `${this.stageLabel(row.stage)}: ${row.successCount} success, ${row.errorCount} error, ${row.pendingCount} pending, ${row.excludedCount} excluded, out of ${row.totalCount} total`;
+  }
+
+  toggleStageFilter(value: string): void {
+    this.updateRoute({ stage: this.stage() === value ? 'ALL' : value, page: 0 });
+  }
+
+  filterStageOutcome(stageValue: string, outcomeValue: Exclude<TransactionOutcome, 'ALL'>): void {
+    const alreadyActive = this.stage() === stageValue && this.outcome() === outcomeValue;
+    this.updateRoute({
+      stage: alreadyActive ? 'ALL' : stageValue,
+      outcome: alreadyActive ? 'ALL' : outcomeValue,
+      page: 0
+    });
   }
 
   evidenceLevelLabel(level: TransactionEvidenceLevel): string {
@@ -190,16 +326,56 @@ export class TransactionReportComponent implements OnInit {
   }
 
   sourceLabel(source: Exclude<TransactionEvidenceSource, 'ALL'>): string {
-    return source === 'JOURNEY' ? 'Latest journey' : 'Exclusion audit';
+    switch (source) {
+      case 'JOURNEY':
+        return 'Latest journey';
+      case 'EXCLUSION_AUDIT':
+        return 'Exclusion audit';
+      case 'RULE_HIT':
+        return 'Rule hit';
+    }
+  }
+
+  stageLabel(stage: string | null): string {
+    switch (stage) {
+      case 'SELECTION':
+        return 'Selection';
+      case 'TRANSACTION_JOIN':
+        return 'Transaction join';
+      case 'TRANSFORMATION':
+        return 'Transformation';
+      case 'EXCLUSION':
+        return 'Exclusion';
+      case 'RULE_HIT':
+        return 'Rule hit';
+      default:
+        return 'Not available';
+    }
   }
 
   recordDetail(record: TransactionEvidenceRecord): string {
+    if (record.source === 'RULE_HIT') {
+      return record.status === 'REPORTED' ? 'Reported' : 'Not yet reported';
+    }
     return (
       record.exclusionReason ??
       record.skipReason ??
       record.comments ??
       (record.processingComplete === false ? 'Processing incomplete' : 'No additional detail')
     );
+  }
+
+  toggleExpanded(recordKey: string): void {
+    this.expandedRecordKey.set(this.expandedRecordKey() === recordKey ? null : recordKey);
+  }
+
+  formatCurrency(record: TransactionEvidenceRecord): string {
+    if (record.currencyAmount === null) {
+      return 'Not available';
+    }
+    return record.currencyCode
+      ? `${record.currencyCode} ${record.currencyAmount.toLocaleString()}`
+      : record.currencyAmount.toLocaleString();
   }
 
   private loadReport(): void {
@@ -214,6 +390,7 @@ export class TransactionReportComponent implements OnInit {
       .set('metric', this.metric())
       .set('search', this.search().trim())
       .set('source', this.source())
+      .set('stage', this.stage())
       .set('outcome', this.outcome())
       .set('page', this.page())
       .set('size', this.size());
@@ -241,6 +418,7 @@ export class TransactionReportComponent implements OnInit {
     this.metric.set(this.parseMetric(params.get('metric')));
     this.search.set(params.get('search') ?? '');
     this.source.set(this.parseSource(params.get('source')));
+    this.stage.set(this.parseStage(params.get('stage')));
     this.outcome.set(this.parseOutcome(params.get('outcome')));
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
     this.hasBatchContext.set(this.reportGroupId() !== null && this.sequenceNumber() !== null && !!batchId);
@@ -264,7 +442,19 @@ export class TransactionReportComponent implements OnInit {
   }
 
   private parseSource(value: string | null): TransactionEvidenceSource {
-    return value === 'JOURNEY' || value === 'EXCLUSION_AUDIT' ? value : 'ALL';
+    return value === 'JOURNEY' || value === 'EXCLUSION_AUDIT' || value === 'RULE_HIT'
+      ? value
+      : 'ALL';
+  }
+
+  private parseStage(value: string | null): TransactionStage {
+    return value === 'SELECTION' ||
+      value === 'TRANSACTION_JOIN' ||
+      value === 'TRANSFORMATION' ||
+      value === 'EXCLUSION' ||
+      value === 'RULE_HIT'
+      ? value
+      : 'ALL';
   }
 
   private parseOutcome(value: string | null): TransactionOutcome {

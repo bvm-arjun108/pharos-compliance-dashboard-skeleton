@@ -10,7 +10,7 @@
     <div class="transaction-breadcrumb">
       <button type="button" (click)="goBack()">Batch Explorer</button>
       <span aria-hidden="true">/</span>
-      <span>{{ batchId() }}</span>
+      <button type="button" (click)="openBatchView()">{{ batchId() }}</button>
       <span aria-hidden="true">/</span>
       <strong>Transaction report</strong>
     </div>
@@ -36,27 +36,91 @@
         <div><span>Report period</span><strong>{{ result.context.reportingPeriodFrom | date:'MMM d, y':'UTC' }} – {{ result.context.reportingPeriodTo | date:'MMM d, y':'UTC' }}</strong></div>
       </section>
 
-      <section class="transaction-report-kpis" aria-label="Transaction evidence summary">
-        <article>
-          <span>Batch aggregate</span>
-          <strong>{{ result.aggregateCount | number:'1.0-0' }}</strong>
-          <small>{{ result.metricLabel }}</small>
-        </article>
-        <article>
-          <span>Available records</span>
-          <strong>{{ result.availableRecordCount | number:'1.0-0' }}</strong>
-          <small>Authoritative rows found</small>
-        </article>
-        <article>
-          <span>Evidence coverage</span>
-          <strong>{{ coverage(result) }}</strong>
-          <small>Available rows ÷ aggregate</small>
-        </article>
-        <article [class.aggregate-only]="result.evidenceLevel === 'AGGREGATE_ONLY'">
-          <span>Evidence quality</span>
-          <strong class="evidence-quality">{{ evidenceLevelLabel(result.evidenceLevel) }}</strong>
-          <small>Phase 1 source coverage</small>
-        </article>
+      <section class="transaction-outcome-panel" aria-label="Pipeline stage breakdown">
+        <header>
+          <div>
+            <p>Pipeline stage breakdown</p>
+            <h2>{{ result.metricLabel }}</h2>
+          </div>
+          <span>{{ result.availableRecordCount | number:'1.0-0' }} of {{ result.aggregateCount | number:'1.0-0' }} aggregate · {{ evidenceLevelLabel(result.evidenceLevel) }}</span>
+        </header>
+
+        <ul class="outcome-legend">
+          <li class="is-all" [class.is-active]="outcome() === 'ALL'" (click)="setOutcomeFilter('ALL')">
+            <span></span>All<strong>{{ result.outcomeBreakdown.totalCount | number:'1.0-0' }}</strong><small>100%</small>
+          </li>
+          <li class="is-success" [class.is-active]="outcome() === 'SUCCESS'" (click)="toggleOutcomeFilter('SUCCESS')">
+            <span></span>Success<strong>{{ result.outcomeBreakdown.successCount | number:'1.0-0' }}</strong><small>{{ outcomeShare(result, result.outcomeBreakdown.successCount) | number:'1.0-1' }}%</small>
+          </li>
+          <li class="is-error" [class.is-active]="outcome() === 'ERROR'" (click)="toggleOutcomeFilter('ERROR')">
+            <span></span>Error<strong>{{ result.outcomeBreakdown.errorCount | number:'1.0-0' }}</strong><small>{{ outcomeShare(result, result.outcomeBreakdown.errorCount) | number:'1.0-1' }}%</small>
+          </li>
+          <li class="is-pending" [class.is-active]="outcome() === 'PENDING'" (click)="toggleOutcomeFilter('PENDING')">
+            <span></span>Pending<strong>{{ result.outcomeBreakdown.pendingCount | number:'1.0-0' }}</strong><small>{{ outcomeShare(result, result.outcomeBreakdown.pendingCount) | number:'1.0-1' }}%</small>
+          </li>
+          <li class="is-excluded" [class.is-active]="outcome() === 'EXCLUDED'" (click)="toggleOutcomeFilter('EXCLUDED')">
+            <span></span>Excluded<strong>{{ result.outcomeBreakdown.excludedCount | number:'1.0-0' }}</strong><small>{{ outcomeShare(result, result.outcomeBreakdown.excludedCount) | number:'1.0-1' }}%</small>
+          </li>
+        </ul>
+
+        @if (sortedStageBreakdown(result).length === 0) {
+          <div class="outcome-bar outcome-bar--empty">
+            <span>No evidence rows for this selection</span>
+          </div>
+        } @else {
+          <ul class="stage-breakdown-list">
+            @for (row of sortedStageBreakdown(result); track row.stage) {
+              <li class="stage-breakdown-row" [class.is-active]="stage() === row.stage" (click)="toggleStageFilter(row.stage)">
+                <div class="stage-breakdown-label">
+                  <span>{{ stageLabel(row.stage) }}</span>
+                  <strong>{{ row.totalCount | number:'1.0-0' }}</strong>
+                </div>
+                <div class="outcome-bar" role="img" [attr.aria-label]="stageSummary(row)">
+                  @if (row.successCount > 0) {
+                    <span
+                      class="outcome-bar-segment outcome-bar-segment--success"
+                      [class.is-active]="stage() === row.stage && outcome() === 'SUCCESS'"
+                      [style.width.%]="stageShare(row, row.successCount)"
+                      [title]="row.successCount + ' success — click to view'"
+                      (click)="$event.stopPropagation(); filterStageOutcome(row.stage, 'SUCCESS')">
+                      @if (stageShare(row, row.successCount) >= 8) { {{ row.successCount }} }
+                    </span>
+                  }
+                  @if (row.errorCount > 0) {
+                    <span
+                      class="outcome-bar-segment outcome-bar-segment--error"
+                      [class.is-active]="stage() === row.stage && outcome() === 'ERROR'"
+                      [style.width.%]="stageShare(row, row.errorCount)"
+                      [title]="row.errorCount + ' error — click to view'"
+                      (click)="$event.stopPropagation(); filterStageOutcome(row.stage, 'ERROR')">
+                      @if (stageShare(row, row.errorCount) >= 8) { {{ row.errorCount }} }
+                    </span>
+                  }
+                  @if (row.pendingCount > 0) {
+                    <span
+                      class="outcome-bar-segment outcome-bar-segment--pending"
+                      [class.is-active]="stage() === row.stage && outcome() === 'PENDING'"
+                      [style.width.%]="stageShare(row, row.pendingCount)"
+                      [title]="row.pendingCount + ' pending — click to view'"
+                      (click)="$event.stopPropagation(); filterStageOutcome(row.stage, 'PENDING')">
+                      @if (stageShare(row, row.pendingCount) >= 8) { {{ row.pendingCount }} }
+                    </span>
+                  }
+                  @if (row.excludedCount > 0) {
+                    <span
+                      class="outcome-bar-segment outcome-bar-segment--excluded"
+                      [class.is-active]="stage() === row.stage && outcome() === 'EXCLUDED'"
+                      [style.width.%]="stageShare(row, row.excludedCount)"
+                      [title]="row.excludedCount + ' excluded — click to view'"
+                      (click)="$event.stopPropagation(); filterStageOutcome(row.stage, 'EXCLUDED')">
+                      @if (stageShare(row, row.excludedCount) >= 8) { {{ row.excludedCount }} }
+                    </span>
+                  }
+                </div>
+              </li>
+            }
+          </ul>
+        }
       </section>
 
       <section class="evidence-disclosure" [class.evidence-disclosure--warning]="result.evidenceLevel === 'AGGREGATE_ONLY' || result.evidenceLevel === 'PARTIAL_RECORD_LEVEL'">
@@ -83,11 +147,14 @@
             <input type="search" placeholder="Search identifier, MTCN, or rule ID" [value]="search()" (input)="setSearch($event)" />
           </label>
           <label>
-            <span class="sr-only">Evidence source</span>
-            <select [value]="source()" (change)="setSource($event)">
-              <option value="ALL">All evidence sources</option>
-              <option value="JOURNEY">Latest journey</option>
-              <option value="EXCLUSION_AUDIT">Exclusion audit</option>
+            <span class="sr-only">Stage</span>
+            <select [value]="stage()" (change)="setStage($event)">
+              <option value="ALL">All stages</option>
+              <option value="SELECTION">Selection</option>
+              <option value="TRANSACTION_JOIN">Transaction join</option>
+              <option value="TRANSFORMATION">Transformation</option>
+              <option value="EXCLUSION">Exclusion</option>
+              <option value="RULE_HIT">Rule hit</option>
             </select>
           </label>
           <label>
@@ -117,21 +184,24 @@
                 <tr>
                   <th scope="col">Transaction</th>
                   <th scope="col">Outcome</th>
-                  <th scope="col">Stage / status</th>
+                  <th scope="col">Stage</th>
+                  <th scope="col">Status</th>
                   <th scope="col">Evidence source</th>
                   <th scope="col">Investigation detail</th>
                   <th scope="col">Last updated</th>
+                  <th scope="col"><span class="sr-only">Details</span></th>
                 </tr>
               </thead>
               <tbody>
                 @for (record of result.transactions; track record.recordKey) {
-                  <tr>
+                  <tr class="transaction-row" [class.transaction-row--expanded]="expandedRecordKey() === record.recordKey" (click)="toggleExpanded(record.recordKey)">
                     <th scope="row">
                       <strong>{{ record.identifier }}</strong>
                       <small>{{ record.mtcn ? 'MTCN ' + record.mtcn : 'MTCN unavailable' }}</small>
                     </th>
                     <td><span class="outcome-pill" [class.outcome-pill--success]="record.outcome === 'SUCCESS'" [class.outcome-pill--error]="record.outcome === 'ERROR'" [class.outcome-pill--excluded]="record.outcome === 'EXCLUDED'">{{ record.outcome }}</span></td>
-                    <td><strong>{{ record.stage || 'Not available' }}</strong><small>{{ record.status || 'Status unavailable' }}</small></td>
+                    <td>{{ stageLabel(record.stage) }}</td>
+                    <td>{{ record.status || 'Not available' }}</td>
                     <td><span class="source-pill">{{ sourceLabel(record.source) }}</span></td>
                     <td>
                       <strong>{{ recordDetail(record) }}</strong>
@@ -139,7 +209,30 @@
                       @if (record.reportedBatchId) { <small>Previously reported in {{ record.reportedBatchId }}</small> }
                     </td>
                     <td><time>{{ record.modifiedAt | date:'MMM d, y, h:mm a' }}</time></td>
+                    <td class="transaction-row-toggle">
+                      <button type="button" class="detail-toggle" [attr.aria-expanded]="expandedRecordKey() === record.recordKey" (click)="$event.stopPropagation(); toggleExpanded(record.recordKey)">
+                        {{ expandedRecordKey() === record.recordKey ? 'Hide details' : 'Details' }}
+                      </button>
+                    </td>
                   </tr>
+                  @if (expandedRecordKey() === record.recordKey) {
+                    <tr class="transaction-detail-row">
+                      <td colspan="8">
+                        <div class="transaction-detail-grid">
+                          <div><span>Currency amount</span><strong>{{ formatCurrency(record) }}</strong></div>
+                          <div><span>Transaction date</span><strong>{{ record.transactionDate || 'Not available' }}</strong></div>
+                          <div><span>Transaction side</span><strong>{{ record.transactionSide || 'Not available' }}</strong></div>
+                          <div><span>Source</span><strong>{{ record.txnSource || 'Not available' }}</strong></div>
+                          <div><span>Activity type</span><strong>{{ record.activityType || 'Not available' }}</strong></div>
+                          <div><span>Send date</span><strong>{{ record.sendDate || 'Not available' }}</strong></div>
+                          <div><span>Galactic ID</span><strong>{{ record.galacticId || 'Not available' }}</strong></div>
+                          <div><span>Bucket / attempt ID</span><strong>{{ record.bucketId !== null ? record.bucketId + ' / ' + record.attemptId : 'Not available' }}</strong></div>
+                          <div class="transaction-detail-grid-span"><span>Comments</span><strong>{{ record.comments || 'Not available' }}</strong></div>
+                          <div class="transaction-detail-grid-span"><span>Skip reason</span><strong>{{ record.skipReason || 'Not available' }}</strong></div>
+                        </div>
+                      </td>
+                    </tr>
+                  }
                 }
               </tbody>
             </table>
@@ -149,6 +242,13 @@
           <span>{{ pageRange(result) }}</span>
           <div>
             <button type="button" (click)="previousPage()" [disabled]="page() === 0">← Previous</button>
+            @for (item of pageNumbers(result); track $index) {
+              @if (item === '…') {
+                <span class="transaction-page-ellipsis">…</span>
+              } @else {
+                <button type="button" class="transaction-page-number" [class.is-active]="item === page() + 1" [attr.aria-current]="item === page() + 1 ? 'page' : null" (click)="goToPage(item)">{{ item }}</button>
+              }
+            }
             <button type="button" (click)="nextPage(result)" [disabled]="(page() + 1) * size() >= result.matchingRecordCount">Next →</button>
           </div>
         </footer>

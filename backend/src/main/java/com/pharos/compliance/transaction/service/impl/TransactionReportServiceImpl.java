@@ -4,15 +4,20 @@ import com.pharos.compliance.common.exception.ResourceNotFoundException;
 import com.pharos.compliance.reportgroup.model.CountryDefinition;
 import com.pharos.compliance.reportgroup.service.CountryCatalog;
 import com.pharos.compliance.transaction.dto.TransactionEvidenceRecordResponse;
+import com.pharos.compliance.transaction.dto.TransactionOutcomeBreakdownResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportContextResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
+import com.pharos.compliance.transaction.dto.TransactionStageBreakdownResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
-import com.pharos.compliance.transaction.repository.TransactionReportRepository;
+import com.pharos.compliance.transaction.model.TransactionStage;
+import com.pharos.compliance.transaction.repository.TransactionEvidenceCache;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionEvidenceProjection;
+import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionOutcomeBreakdownProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionReportContextProjection;
+import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionStageBreakdownProjection;
 import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -28,15 +33,15 @@ public class TransactionReportServiceImpl implements TransactionReportService {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(TransactionReportServiceImpl.class);
 
-  private final TransactionReportRepository transactionReportRepository;
+  private final TransactionEvidenceCache transactionEvidenceCache;
   private final CountryCatalog countryCatalog;
   private final Scheduler jdbcScheduler;
 
   public TransactionReportServiceImpl(
-      TransactionReportRepository transactionReportRepository,
+      TransactionEvidenceCache transactionEvidenceCache,
       CountryCatalog countryCatalog,
       @Qualifier("jdbcScheduler") Scheduler jdbcScheduler) {
-    this.transactionReportRepository = transactionReportRepository;
+    this.transactionEvidenceCache = transactionEvidenceCache;
     this.countryCatalog = countryCatalog;
     this.jdbcScheduler = jdbcScheduler;
   }
@@ -49,6 +54,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       TransactionMetric metric,
       String search,
       TransactionEvidenceSource source,
+      TransactionStage stage,
       TransactionOutcome outcome,
       int page,
       int size) {
@@ -58,24 +64,33 @@ public class TransactionReportServiceImpl implements TransactionReportService {
     return onJdbcScheduler(
             () -> {
               TransactionReportContextProjection context =
-                  transactionReportRepository
+                  transactionEvidenceCache
                       .findReportContext(reportGroupId, batchId, sequenceNumber)
                       .orElseThrow(
                           () ->
                               new ResourceNotFoundException("Reconciliation batch was not found"));
               List<TransactionEvidenceProjection> evidence =
-                  transactionReportRepository.findEvidenceRecords(
+                  transactionEvidenceCache.findEvidenceRecords(
                       reportGroupId,
                       batchId,
                       metric.name(),
                       normalizedSearch,
                       source.name(),
+                      stage.name(),
                       outcome.name(),
                       size,
                       offset);
-              long matchingCount = evidence.isEmpty() ? 0 : evidence.getFirst().getMatchingCount();
+              long matchingCount =
+                  transactionEvidenceCache.countEvidenceRecords(
+                      reportGroupId,
+                      batchId,
+                      metric.name(),
+                      normalizedSearch,
+                      source.name(),
+                      stage.name(),
+                      outcome.name());
               long availableRecordCount =
-                  hasDefaultEvidenceFilters(normalizedSearch, source, outcome)
+                  hasDefaultEvidenceFilters(normalizedSearch, source, stage, outcome)
                       ? matchingCount
                       : availableRecordCount(reportGroupId, batchId, metric);
               long aggregateCount = aggregateCount(context, metric);
@@ -83,6 +98,22 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   evidenceLevel(aggregateCount, availableRecordCount);
               CountryDefinition country =
                   countryCatalog.getSnapshot().getForReportGroup(reportGroupId);
+              TransactionOutcomeBreakdownProjection outcomeBreakdown =
+                  transactionEvidenceCache.findOutcomeBreakdown(
+                      reportGroupId,
+                      batchId,
+                      metric.name(),
+                      normalizedSearch,
+                      source.name(),
+                      stage.name());
+              List<TransactionStageBreakdownProjection> stageBreakdown =
+                  transactionEvidenceCache.findStageBreakdown(
+                      reportGroupId,
+                      batchId,
+                      metric.name(),
+                      normalizedSearch,
+                      source.name(),
+                      outcome.name());
 
               return new TransactionReportResponse(
                   toContext(context, country),
@@ -93,9 +124,12 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   matchingCount,
                   evidenceLevel,
                   evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
+                  toOutcomeBreakdown(outcomeBreakdown),
+                  toStageBreakdown(stageBreakdown),
                   evidence.stream().map(this::toEvidenceRecord).toList(),
                   normalizedSearch,
                   source,
+                  stage,
                   outcome,
                   page,
                   size);
@@ -103,12 +137,13 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         .doOnSubscribe(
             ignored ->
                 LOGGER.info(
-                    "Transaction evidence query started reportGroupId={} batchId={} sequenceNumber={} metric={} source={} outcome={} search={} page={} size={}",
+                    "Transaction evidence query started reportGroupId={} batchId={} sequenceNumber={} metric={} source={} stage={} outcome={} search={} page={} size={}",
                     reportGroupId,
                     batchId,
                     sequenceNumber,
                     metric,
                     source,
+                    stage,
                     outcome,
                     normalizedSearch,
                     page,
@@ -152,7 +187,42 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         row.getReportedBatchId(),
         row.getReportingTimestamp(),
         row.getModifiedAt(),
-        row.getProcessingComplete());
+        row.getProcessingComplete(),
+        row.getCurrencyAmount(),
+        row.getCurrencyCode(),
+        row.getTransactionDate(),
+        row.getTransactionSide(),
+        row.getTxnSource(),
+        row.getActivityType(),
+        row.getSendDate(),
+        row.getGalacticId(),
+        row.getBucketId(),
+        row.getAttemptId());
+  }
+
+  private TransactionOutcomeBreakdownResponse toOutcomeBreakdown(
+      TransactionOutcomeBreakdownProjection breakdown) {
+    return new TransactionOutcomeBreakdownResponse(
+        breakdown.getSuccessCount(),
+        breakdown.getErrorCount(),
+        breakdown.getPendingCount(),
+        breakdown.getExcludedCount(),
+        breakdown.getTotalCount());
+  }
+
+  private List<TransactionStageBreakdownResponse> toStageBreakdown(
+      List<TransactionStageBreakdownProjection> breakdown) {
+    return breakdown.stream()
+        .map(
+            row ->
+                new TransactionStageBreakdownResponse(
+                    row.getStage(),
+                    row.getSuccessCount(),
+                    row.getErrorCount(),
+                    row.getPendingCount(),
+                    row.getExcludedCount(),
+                    row.getTotalCount()))
+        .toList();
   }
 
   private long aggregateCount(
@@ -206,24 +276,25 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   }
 
   private boolean hasDefaultEvidenceFilters(
-      String search, TransactionEvidenceSource source, TransactionOutcome outcome) {
+      String search,
+      TransactionEvidenceSource source,
+      TransactionStage stage,
+      TransactionOutcome outcome) {
     return search.isEmpty()
         && source == TransactionEvidenceSource.ALL
+        && stage == TransactionStage.ALL
         && outcome == TransactionOutcome.ALL;
   }
 
   private long availableRecordCount(int reportGroupId, String batchId, TransactionMetric metric) {
-    List<TransactionEvidenceProjection> records =
-        transactionReportRepository.findEvidenceRecords(
-            reportGroupId,
-            batchId,
-            metric.name(),
-            "",
-            TransactionEvidenceSource.ALL.name(),
-            TransactionOutcome.ALL.name(),
-            1,
-            0);
-    return records.isEmpty() ? 0 : records.getFirst().getMatchingCount();
+    return transactionEvidenceCache.countEvidenceRecords(
+        reportGroupId,
+        batchId,
+        metric.name(),
+        "",
+        TransactionEvidenceSource.ALL.name(),
+        TransactionStage.ALL.name(),
+        TransactionOutcome.ALL.name());
   }
 
   private String evidenceMessage(

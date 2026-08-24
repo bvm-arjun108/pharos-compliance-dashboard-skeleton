@@ -5,6 +5,7 @@ import com.pharos.compliance.transaction.dto.TransactionReportResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
+import com.pharos.compliance.transaction.model.TransactionStage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -65,6 +66,7 @@ public interface TransactionReportApi {
       @RequestParam(value = "metric", defaultValue = "ALL") TransactionMetric metric,
       @RequestParam(value = "search", defaultValue = "") String search,
       @RequestParam(value = "source", defaultValue = "ALL") TransactionEvidenceSource source,
+      @RequestParam(value = "stage", defaultValue = "ALL") TransactionStage stage,
       @RequestParam(value = "outcome", defaultValue = "ALL") TransactionOutcome outcome,
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size);

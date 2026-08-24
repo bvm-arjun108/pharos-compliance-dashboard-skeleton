@@ -2,6 +2,7 @@ package com.pharos.compliance.transaction.repository;
 
 import com.pharos.compliance.dashboard.entity.ReportTransformationReconciliationEntity;
 import com.pharos.compliance.dashboard.entity.ReportTransformationReconciliationId;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.Query;
@@ -27,9 +28,38 @@ public interface TransactionReportRepository
       @Param("metric") String metric,
       @Param("search") String search,
       @Param("source") String source,
+      @Param("stage") String stage,
       @Param("outcome") String outcome,
       @Param("size") int size,
       @Param("offset") long offset);
+
+  @Query(value = TransactionReportNativeQueries.EVIDENCE_COUNT, nativeQuery = true)
+  long countEvidenceRecords(
+      @Param("reportGroupId") int reportGroupId,
+      @Param("batchId") String batchId,
+      @Param("metric") String metric,
+      @Param("search") String search,
+      @Param("source") String source,
+      @Param("stage") String stage,
+      @Param("outcome") String outcome);
+
+  @Query(value = TransactionReportNativeQueries.OUTCOME_BREAKDOWN, nativeQuery = true)
+  TransactionOutcomeBreakdownProjection findOutcomeBreakdown(
+      @Param("reportGroupId") int reportGroupId,
+      @Param("batchId") String batchId,
+      @Param("metric") String metric,
+      @Param("search") String search,
+      @Param("source") String source,
+      @Param("stage") String stage);
+
+  @Query(value = TransactionReportNativeQueries.STAGE_BREAKDOWN, nativeQuery = true)
+  List<TransactionStageBreakdownProjection> findStageBreakdown(
+      @Param("reportGroupId") int reportGroupId,
+      @Param("batchId") String batchId,
+      @Param("metric") String metric,
+      @Param("search") String search,
+      @Param("source") String source,
+      @Param("outcome") String outcome);
 
   interface TransactionReportContextProjection {
     int getReportGroupId();
@@ -102,6 +132,50 @@ public interface TransactionReportRepository
 
     Boolean getProcessingComplete();
 
-    long getMatchingCount();
+    BigDecimal getCurrencyAmount();
+
+    String getCurrencyCode();
+
+    String getTransactionDate();
+
+    String getTransactionSide();
+
+    String getTxnSource();
+
+    String getActivityType();
+
+    String getSendDate();
+
+    String getGalacticId();
+
+    Integer getBucketId();
+
+    Long getAttemptId();
+  }
+
+  interface TransactionOutcomeBreakdownProjection {
+    long getSuccessCount();
+
+    long getErrorCount();
+
+    long getPendingCount();
+
+    long getExcludedCount();
+
+    long getTotalCount();
+  }
+
+  interface TransactionStageBreakdownProjection {
+    String getStage();
+
+    long getSuccessCount();
+
+    long getErrorCount();
+
+    long getPendingCount();
+
+    long getExcludedCount();
+
+    long getTotalCount();
   }
 }
