@@ -270,7 +270,7 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         batch.getMissingAttempts(),
         batch.getFiltrationErrors(),
         batch.getReconciliationImbalance(),
-        batch.getReportedTransactions(),
+        batch.getTransformerOutput(),
         batch.getExcludedTransactions(),
         batch.getTotalIssues(),
         batch.getDiscoveredTransactions());

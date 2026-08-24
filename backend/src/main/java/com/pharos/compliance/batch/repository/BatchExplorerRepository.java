@@ -85,7 +85,7 @@ public interface BatchExplorerRepository
 
     long getReconciliationImbalance();
 
-    long getReportedTransactions();
+    long getTransformerOutput();
 
     long getExcludedTransactions();
 

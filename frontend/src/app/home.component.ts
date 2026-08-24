@@ -164,6 +164,9 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
       </div>
 
       <div class="kpi-grid">
+        <div class="kpi-batch-group">
+        <p class="eyebrow kpi-batch-group__label">Batches Overview</p>
+        <div class="kpi-batch-group__cards">
         <button class="kpi-card kpi-card--total kpi-card--link" type="button" (click)="openBatchExplorer('ALL')" [disabled]="dashboardLoading() || !!dashboardError()">
           <div class="kpi-card__topline">
             <span>Batches Ran</span>
@@ -212,31 +215,6 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           }
         </button>
 
-        <article class="kpi-card kpi-card--transactions">
-          <div class="kpi-card__topline">
-            <span>Transaction Totals</span>
-            <span class="kpi-card__icon" aria-hidden="true">TX</span>
-          </div>
-          @if (dashboardLoading()) {
-            <span class="kpi-loading">Loading…</span>
-          } @else if (dashboardError()) {
-            <strong class="kpi-error">Unavailable</strong>
-            <small>{{ dashboardError() }}</small>
-          } @else if (dashboardDetails(); as details) {
-            <div class="transaction-totals">
-              <div>
-                <span>Reported</span>
-                <strong>{{ details.totalReportedTransactions | number:'1.0-0' }}</strong>
-              </div>
-              <div>
-                <span>Excluded</span>
-                <strong>{{ details.totalExcludedTransactions | number:'1.0-0' }}</strong>
-              </div>
-            </div>
-            <small>Transformer output and filtration exclusions</small>
-          }
-        </article>
-
         <article class="kpi-card kpi-card--attention">
           <div class="kpi-card__topline">
             <span>Batches Needing Attention</span>
@@ -280,6 +258,36 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             }
           }
         </article>
+        </div>
+        </div>
+
+        <div class="kpi-transaction-group">
+        <p class="eyebrow kpi-batch-group__label">Transactions Overview</p>
+        <article class="kpi-card kpi-card--transactions">
+          <div class="kpi-card__topline">
+            <span>Transaction Totals</span>
+            <span class="kpi-card__icon" aria-hidden="true">TX</span>
+          </div>
+          @if (dashboardLoading()) {
+            <span class="kpi-loading">Loading…</span>
+          } @else if (dashboardError()) {
+            <strong class="kpi-error">Unavailable</strong>
+            <small>{{ dashboardError() }}</small>
+          } @else if (dashboardDetails(); as details) {
+            <div class="transaction-totals">
+              <div>
+                <span>Reported</span>
+                <strong>{{ details.totalReportedTransactions | number:'1.0-0' }}</strong>
+              </div>
+              <div>
+                <span>Excluded</span>
+                <strong>{{ details.totalExcludedTransactions | number:'1.0-0' }}</strong>
+              </div>
+            </div>
+            <small>Transformer output and filtration exclusions</small>
+          }
+        </article>
+        </div>
       </div>
     </section>
 
@@ -334,31 +342,48 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                             <span class="zero-activity" aria-label="No batch activity"></span>
                           } @else {
                             <div class="daily-stack" [style.height.%]="trendBarHeight(period, details.batchHealthTrend)">
-                              <span
+                              <button
+                                type="button"
                                 class="daily-segment daily-segment--attention"
                                 [style.height.%]="trendSegmentHeight(period.batchesNeedingAttention, period.batchesRan)"
+                                [disabled]="period.batchesNeedingAttention === 0"
+                                [attr.aria-label]="'View ' + period.batchesNeedingAttention + ' batches needing attention on ' + period.periodStart"
+                                (click)="openPeriodExplorer(period, 'ATTENTION')"
                               >
                                 @if (showTrendSegmentLabel(period.batchesNeedingAttention, details.batchHealthTrend)) {
                                   <b>{{ period.batchesNeedingAttention }}</b>
                                 }
-                              </span>
-                              <span
+                              </button>
+                              <button
+                                type="button"
                                 class="daily-segment daily-segment--success"
                                 [style.height.%]="trendSegmentHeight(period.successfulBatches, period.batchesRan)"
+                                [disabled]="period.successfulBatches === 0"
+                                [attr.aria-label]="'View ' + period.successfulBatches + ' successful batches on ' + period.periodStart"
+                                (click)="openPeriodExplorer(period, 'SUCCESSFUL')"
                               >
                                 @if (showTrendSegmentLabel(period.successfulBatches, details.batchHealthTrend)) {
                                   <b>{{ period.successfulBatches }}</b>
                                 }
-                              </span>
+                              </button>
                             </div>
                           }
                         </div>
-                        <span
-                          class="daily-split-counts"
-                          [attr.aria-label]="period.successfulBatches + ' successful, ' + period.batchesNeedingAttention + ' needing attention'"
-                        >
-                          <b class="daily-success-count">{{ period.successfulBatches }}</b>
-                          <b class="daily-attention-count">{{ period.batchesNeedingAttention }}</b>
+                        <span class="daily-split-counts">
+                          <button
+                            type="button"
+                            class="daily-success-count"
+                            [disabled]="period.successfulBatches === 0"
+                            [attr.aria-label]="'View ' + period.successfulBatches + ' successful batches on ' + period.periodStart"
+                            (click)="openPeriodExplorer(period, 'SUCCESSFUL')"
+                          >{{ period.successfulBatches }}</button>
+                          <button
+                            type="button"
+                            class="daily-attention-count"
+                            [disabled]="period.batchesNeedingAttention === 0"
+                            [attr.aria-label]="'View ' + period.batchesNeedingAttention + ' batches needing attention on ' + period.periodStart"
+                            (click)="openPeriodExplorer(period, 'ATTENTION')"
+                          >{{ period.batchesNeedingAttention }}</button>
                         </span>
                         <span class="daily-date">{{ period.periodStart | date:trendDateFormat(details.trendGranularity):'UTC' }}</span>
                       </div>
@@ -412,8 +437,16 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   role="cell"
                   [style.background]="heatmapCellColor(period.transformationFailureBatches, period.batchesRan)"
                   [style.color]="heatmapTextColor(period.transformationFailureBatches, period.batchesRan)"
-                  [attr.title]="issueCellTitle('Transformation failure', period.transformationFailureBatches, period)"
-                >{{ period.transformationFailureBatches }}</div>
+                >
+                  <button
+                    type="button"
+                    class="heatmap-cell-button"
+                    [disabled]="period.transformationFailureBatches === 0"
+                    [attr.title]="issueCellTitle('Transformation failure', period.transformationFailureBatches, period)"
+                    [attr.aria-label]="issueCellTitle('Transformation failure', period.transformationFailureBatches, period)"
+                    (click)="openPeriodExplorer(period, 'ATTENTION', 'TRANSFORMATION')"
+                  >{{ period.transformationFailureBatches }}</button>
+                </div>
               }
 
               <div class="heatmap-row-label" role="rowheader"><span></span>Missing attempts</div>
@@ -423,8 +456,16 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   role="cell"
                   [style.background]="heatmapCellColor(period.missingAttemptBatches, period.batchesRan)"
                   [style.color]="heatmapTextColor(period.missingAttemptBatches, period.batchesRan)"
-                  [attr.title]="issueCellTitle('Missing attempts', period.missingAttemptBatches, period)"
-                >{{ period.missingAttemptBatches }}</div>
+                >
+                  <button
+                    type="button"
+                    class="heatmap-cell-button"
+                    [disabled]="period.missingAttemptBatches === 0"
+                    [attr.title]="issueCellTitle('Missing attempts', period.missingAttemptBatches, period)"
+                    [attr.aria-label]="issueCellTitle('Missing attempts', period.missingAttemptBatches, period)"
+                    (click)="openPeriodExplorer(period, 'ATTENTION', 'MISSING_ATTEMPTS')"
+                  >{{ period.missingAttemptBatches }}</button>
+                </div>
               }
 
               <div class="heatmap-row-label" role="rowheader"><span></span>Filtration failure</div>
@@ -434,8 +475,16 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   role="cell"
                   [style.background]="heatmapCellColor(period.filtrationFailureBatches, period.batchesRan)"
                   [style.color]="heatmapTextColor(period.filtrationFailureBatches, period.batchesRan)"
-                  [attr.title]="issueCellTitle('Filtration failure', period.filtrationFailureBatches, period)"
-                >{{ period.filtrationFailureBatches }}</div>
+                >
+                  <button
+                    type="button"
+                    class="heatmap-cell-button"
+                    [disabled]="period.filtrationFailureBatches === 0"
+                    [attr.title]="issueCellTitle('Filtration failure', period.filtrationFailureBatches, period)"
+                    [attr.aria-label]="issueCellTitle('Filtration failure', period.filtrationFailureBatches, period)"
+                    (click)="openPeriodExplorer(period, 'ATTENTION', 'FILTRATION')"
+                  >{{ period.filtrationFailureBatches }}</button>
+                </div>
               }
 
               <div class="heatmap-row-label" role="rowheader"><span></span>Reconciliation failure</div>
@@ -445,8 +494,16 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   role="cell"
                   [style.background]="heatmapCellColor(period.reconciliationFailureBatches, period.batchesRan)"
                   [style.color]="heatmapTextColor(period.reconciliationFailureBatches, period.batchesRan)"
-                  [attr.title]="issueCellTitle('Reconciliation failure', period.reconciliationFailureBatches, period)"
-                >{{ period.reconciliationFailureBatches }}</div>
+                >
+                  <button
+                    type="button"
+                    class="heatmap-cell-button"
+                    [disabled]="period.reconciliationFailureBatches === 0"
+                    [attr.title]="issueCellTitle('Reconciliation failure', period.reconciliationFailureBatches, period)"
+                    [attr.aria-label]="issueCellTitle('Reconciliation failure', period.reconciliationFailureBatches, period)"
+                    (click)="openPeriodExplorer(period, 'ATTENTION', 'RECONCILIATION')"
+                  >{{ period.reconciliationFailureBatches }}</button>
+                </div>
               }
             </div>
           </div>
@@ -554,12 +611,12 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                       </td>
                       <td class="number-cell transaction-value">
                         @if (group.totalReportedTransactions > 0) {
-                          <button type="button" class="table-metric-link transaction-link" (click)="openReportGroupExplorer(group, 'ALL', 'ALL', 'REPORTED')" [attr.aria-label]="'View batches contributing ' + group.totalReportedTransactions + ' reported transactions'">{{ group.totalReportedTransactions | number:'1.0-0' }}</button>
+                          <span class="transaction-static">{{ group.totalReportedTransactions | number:'1.0-0' }}</span>
                         } @else { <span class="transaction-zero">0</span> }
                       </td>
                       <td class="number-cell transaction-value">
                         @if (group.totalExcludedTransactions > 0) {
-                          <button type="button" class="table-metric-link transaction-link" (click)="openReportGroupExplorer(group, 'ALL', 'ALL', 'EXCLUDED')" [attr.aria-label]="'View batches contributing ' + group.totalExcludedTransactions + ' excluded transactions'">{{ group.totalExcludedTransactions | number:'1.0-0' }}</button>
+                          <span class="transaction-static">{{ group.totalExcludedTransactions | number:'1.0-0' }}</span>
                         } @else { <span class="transaction-zero">0</span> }
                       </td>
                     </tr>
@@ -659,6 +716,25 @@ export class HomeComponent implements OnInit {
     metricFocus: ExplorerMetricFocus = 'DEFAULT'
   ): void {
     this.navigateToBatchExplorer(status, issueType, group.reportGroupId, metricFocus);
+  }
+
+  openPeriodExplorer(
+    period: BatchHealthTrend,
+    status: ExplorerStatus = 'ALL',
+    issueType: ExplorerIssueType = 'ALL'
+  ): void {
+    void this.router.navigate(['/batches/explorer'], {
+      queryParams: {
+        fromDate: period.periodStart,
+        toDate: period.periodEnd,
+        batchId: this.batchId().trim() || null,
+        country: this.country(),
+        status,
+        issueType,
+        reportGroupId: null,
+        metricFocus: 'DEFAULT'
+      }
+    });
   }
 
   private navigateToBatchExplorer(

@@ -21,7 +21,7 @@ public record BatchQueueItemResponse(
     long missingAttempts,
     long filtrationErrors,
     long reconciliationImbalance,
-    long reportedTransactions,
+    long transformerOutput,
     long excludedTransactions,
     long totalIssues,
     @Schema(

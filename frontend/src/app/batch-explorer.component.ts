@@ -1,4 +1,4 @@
-import { DOCUMENT, DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -27,11 +27,6 @@ type TransactionMetric =
   | 'FILTRATION_VARIANCE'
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
-type EvidenceSection =
-  | 'transformation-evidence'
-  | 'missing-attempt-evidence'
-  | 'filtration-evidence'
-  | 'reconciliation-evidence';
 type ConditionalEvidence = 'journey' | 'rule-hits' | 'exclusions';
 
 interface CountryOption {
@@ -66,7 +61,7 @@ interface BatchQueueItem {
   missingAttempts: number;
   filtrationErrors: number;
   reconciliationImbalance: number;
-  reportedTransactions: number;
+  transformerOutput: number;
   excludedTransactions: number;
   totalIssues: number;
   discoveredTransactions: number;
@@ -153,7 +148,6 @@ export class BatchExplorerComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly document = inject(DOCUMENT);
 
   readonly filterOptions = signal<BatchFilterOptionsResponse>({ countries: [] });
   readonly response = signal<BatchExplorerResponse | null>(null);
@@ -163,7 +157,6 @@ export class BatchExplorerComponent implements OnInit {
   readonly detailLoading = signal(false);
   readonly queueError = signal<string | null>(null);
   readonly detailError = signal<string | null>(null);
-  readonly activeEvidence = signal<EvidenceSection | null>(null);
   readonly reportConfigSummary = signal<ReportConfigSummary | null>(null);
   readonly reportConfigLoading = signal(false);
 
@@ -278,13 +271,6 @@ export class BatchExplorerComponent implements OnInit {
     );
   }
 
-  openIssueEvidence(section: EvidenceSection): void {
-    this.activeEvidence.set(section);
-    const evidence = this.document.getElementById(section);
-    evidence?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    evidence?.focus({ preventScroll: true });
-  }
-
   openTransactionReport(metric: TransactionMetric): void {
     const batch = this.selectedBatch();
     if (!batch) {
@@ -308,10 +294,10 @@ export class BatchExplorerComponent implements OnInit {
 
   explorerTitle(): string {
     if (this.metricFocus() === 'REPORTED') {
-      return 'Reported Transaction Batches';
+      return 'Highest Transformer Output Batches';
     }
     if (this.metricFocus() === 'EXCLUDED') {
-      return 'Excluded Transaction Batches';
+      return 'Highest Excluded Transactions Batches';
     }
     if (this.issueType() !== 'ALL') {
       return `${this.issueLabel(this.issueType())} Batches`;
@@ -406,6 +392,14 @@ export class BatchExplorerComponent implements OnInit {
   }
 
 
+  barShare(numerator: number, denominator: number): number {
+    return denominator <= 0 ? 0 : Math.min(100, (numerator / denominator) * 100);
+  }
+
+  barRemainder(denominator: number, ...parts: number[]): number {
+    return Math.max(0, denominator - parts.reduce((sum, part) => sum + part, 0));
+  }
+
   hasEvidence(details: BatchDetailsResponse): boolean {
     return details.journeyAvailable || details.ruleHitsAvailable || details.exclusionsAvailable;
   }
@@ -475,7 +469,6 @@ export class BatchExplorerComponent implements OnInit {
     this.detailLoading.set(true);
     this.detailError.set(null);
     this.selectedDetails.set(null);
-    this.activeEvidence.set(null);
     const batchId = encodeURIComponent(batch.batchId);
     const url = `/api/v1/batches/${batch.reportGroupId}/${batchId}/${batch.sequenceNumber}`;
     this.http.get<BatchDetailsResponse>(url).subscribe({

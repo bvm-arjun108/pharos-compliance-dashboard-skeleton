@@ -137,7 +137,7 @@ final class BatchExplorerNativeQueries {
               missing_attempts AS "missingAttempts",
               filtration_errors AS "filtrationErrors",
               reconciliation_imbalance AS "reconciliationImbalance",
-              transformer_output AS "reportedTransactions",
+              transformer_output AS "transformerOutput",
               excluded_transactions AS "excludedTransactions",
               total_issues AS "totalIssues",
               discovered_transactions AS "discoveredTransactions",
