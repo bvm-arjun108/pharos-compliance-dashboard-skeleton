@@ -202,6 +202,11 @@ final class BatchExplorerNativeQueries {
           COALESCE(reconciliation.activity_transformed, 0)::bigint AS "transformedActivities",
           COALESCE(reconciliation.actual_reportable_txn, 0)::bigint AS "transformerOutput",
           COALESCE(reconciliation.excluded_txn, 0)::bigint AS "excludedTransactions",
+          COALESCE(reconciliation.txn_simulated, 0)::bigint AS "simulatedTransactions",
+          COALESCE(reconciliation.already_reported_count, 0)::bigint
+              AS "alreadyReportedTransactions",
+          COALESCE(reconciliation.soft_dedup_dropped_txn_count, 0)::bigint
+              AS "softDedupTransactions",
           EXISTS (
               SELECT 1
               FROM pharos.record_transformation_journey journey

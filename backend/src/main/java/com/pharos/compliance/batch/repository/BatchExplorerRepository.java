@@ -141,6 +141,12 @@ public interface BatchExplorerRepository
 
     long getExcludedTransactions();
 
+    long getSimulatedTransactions();
+
+    long getAlreadyReportedTransactions();
+
+    long getSoftDedupTransactions();
+
     boolean getJourneyAvailable();
 
     boolean getExclusionsAvailable();

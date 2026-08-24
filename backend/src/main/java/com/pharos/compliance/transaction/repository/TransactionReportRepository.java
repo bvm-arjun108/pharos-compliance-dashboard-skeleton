@@ -94,6 +94,12 @@ public interface TransactionReportRepository
 
     long getExcluded();
 
+    long getSimulated();
+
+    long getAlreadyReported();
+
+    long getSoftDedup();
+
     long getFiltrationVariance();
 
     long getReconciliationVariance();

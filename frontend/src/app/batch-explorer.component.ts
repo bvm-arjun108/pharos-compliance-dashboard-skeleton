@@ -24,6 +24,9 @@ type TransactionMetric =
   | 'EXPECTED_REPORTABLE'
   | 'ACTUAL_REPORTABLE'
   | 'EXCLUDED'
+  | 'SIMULATED'
+  | 'ALREADY_REPORTED'
+  | 'SOFT_DEDUP'
   | 'FILTRATION_VARIANCE'
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
@@ -114,6 +117,9 @@ interface BatchDetailsResponse {
   transformerOutput: number;
   finalDownstreamReported: number | null;
   excludedTransactions: number;
+  simulatedTransactions: number;
+  alreadyReportedTransactions: number;
+  softDedupTransactions: number;
   journeyAvailable: boolean;
   ruleHitsAvailable: boolean;
   exclusionsAvailable: boolean;

@@ -238,6 +238,9 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case EXPECTED_REPORTABLE -> context.getExpectedReportable();
       case ACTUAL_REPORTABLE, TRANSFORMER_OUTPUT -> context.getActualReportable();
       case EXCLUDED -> context.getExcluded();
+      case SIMULATED -> context.getSimulated();
+      case ALREADY_REPORTED -> context.getAlreadyReported();
+      case SOFT_DEDUP -> context.getSoftDedup();
       case FILTRATION_VARIANCE -> context.getFiltrationVariance();
       case RECONCILIATION_VARIANCE -> context.getReconciliationVariance();
     };
@@ -256,6 +259,9 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case EXPECTED_REPORTABLE -> "Expected reportable transactions";
       case ACTUAL_REPORTABLE -> "Actual reportable transactions";
       case EXCLUDED -> "Excluded transactions";
+      case SIMULATED -> "Simulated (SML) transactions";
+      case ALREADY_REPORTED -> "Already reported transactions";
+      case SOFT_DEDUP -> "Soft-dedup dropped transactions";
       case FILTRATION_VARIANCE -> "Filtration variance";
       case RECONCILIATION_VARIANCE -> "Reconciliation variance";
       case TRANSFORMER_OUTPUT -> "Transformer output";

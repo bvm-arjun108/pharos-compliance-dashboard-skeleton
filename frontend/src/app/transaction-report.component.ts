@@ -16,6 +16,9 @@ type TransactionMetric =
   | 'EXPECTED_REPORTABLE'
   | 'ACTUAL_REPORTABLE'
   | 'EXCLUDED'
+  | 'SIMULATED'
+  | 'ALREADY_REPORTED'
+  | 'SOFT_DEDUP'
   | 'FILTRATION_VARIANCE'
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
@@ -436,6 +439,7 @@ export class TransactionReportComponent implements OnInit {
     const metrics: TransactionMetric[] = [
       'SELECTED', 'ATTEMPTS_FOUND', 'MISSING', 'EXPECTED_ELIGIBLE', 'ACTUAL_ELIGIBLE',
       'TRANSFORMED', 'FAILED', 'EXPECTED_REPORTABLE', 'ACTUAL_REPORTABLE', 'EXCLUDED',
+      'SIMULATED', 'ALREADY_REPORTED', 'SOFT_DEDUP',
       'FILTRATION_VARIANCE', 'RECONCILIATION_VARIANCE', 'TRANSFORMER_OUTPUT'
     ];
     return metrics.includes(value as TransactionMetric) ? (value as TransactionMetric) : 'ALL';

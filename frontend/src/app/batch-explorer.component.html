@@ -327,7 +327,16 @@
                 <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(details.actualReportableTransactions, details.expectedReportableTransactions)" [title]="details.actualReportableTransactions + ' actual reportable — click to view'" (click)="openTransactionReport('ACTUAL_REPORTABLE')">{{ details.actualReportableTransactions }}</span>
               }
               @if (details.excludedTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--excluded" [style.width.%]="barShare(details.excludedTransactions, details.expectedReportableTransactions)" [title]="details.excludedTransactions + ' excluded — click to view'" (click)="openTransactionReport('EXCLUDED')">{{ details.excludedTransactions }}</span>
+                <span class="evidence-bar-segment evidence-bar-segment--excluded" [style.width.%]="barShare(details.excludedTransactions, details.expectedReportableTransactions)" [title]="details.excludedTransactions + ' rule-excluded — click to view'" (click)="openTransactionReport('EXCLUDED')">{{ details.excludedTransactions }}</span>
+              }
+              @if (details.simulatedTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--simulated" [style.width.%]="barShare(details.simulatedTransactions, details.expectedReportableTransactions)" [title]="details.simulatedTransactions + ' simulated (SML) — click to view'" (click)="openTransactionReport('SIMULATED')">{{ details.simulatedTransactions }}</span>
+              }
+              @if (details.alreadyReportedTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--already-reported" [style.width.%]="barShare(details.alreadyReportedTransactions, details.expectedReportableTransactions)" [title]="details.alreadyReportedTransactions + ' already reported — click to view'" (click)="openTransactionReport('ALREADY_REPORTED')">{{ details.alreadyReportedTransactions }}</span>
+              }
+              @if (details.softDedupTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--soft-dedup" [style.width.%]="barShare(details.softDedupTransactions, details.expectedReportableTransactions)" [title]="details.softDedupTransactions + ' soft-dedup dropped — click to view'" (click)="openTransactionReport('SOFT_DEDUP')">{{ details.softDedupTransactions }}</span>
               }
               @if (details.filtrationErrors > 0) {
                 <span class="evidence-bar-segment evidence-bar-segment--gap" [style.width.%]="barShare(details.filtrationErrors, details.expectedReportableTransactions)" [title]="'Variance: ' + details.filtrationErrors + ' — click to view'" (click)="openTransactionReport('FILTRATION_VARIANCE')">{{ details.filtrationErrors }}</span>
@@ -336,8 +345,14 @@
             <div class="evidence-values evidence-values--four">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_REPORTABLE')" aria-label="View expected reportable transaction evidence"><span>Expected reportable</span><strong>{{ details.expectedReportableTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_REPORTABLE')" aria-label="View actual reportable transaction evidence"><span>Actual reportable</span><strong>{{ details.actualReportableTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Excluded</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Rule exclusion</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTRATION_VARIANCE')" aria-label="View filtration variance transaction report"><span>Variance</span><strong [class.issue-number]="details.filtrationErrors > 0">{{ details.filtrationErrors | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+            </div>
+            <p class="evidence-panel__subheading">Other excluded-transaction categories</p>
+            <div class="evidence-values evidence-values--three">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SIMULATED')" aria-label="View simulated (SML) transaction evidence"><span>Simulated (SML)</span><strong>{{ details.simulatedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ALREADY_REPORTED')" aria-label="View already reported transaction evidence"><span>Already reported</span><strong>{{ details.alreadyReportedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SOFT_DEDUP')" aria-label="View soft-dedup dropped transaction evidence"><span>Soft-dedup dropped</span><strong>{{ details.softDedupTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
           </section>
 

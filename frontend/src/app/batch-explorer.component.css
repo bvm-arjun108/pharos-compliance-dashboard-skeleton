@@ -797,7 +797,19 @@
 .evidence-bar-segment--error { background: #d99aa1; }
 .evidence-bar-segment--pending { background: #e8cd7c; }
 .evidence-bar-segment--excluded { background: #cfa876; }
+.evidence-bar-segment--simulated { background: #b3a6c9; }
+.evidence-bar-segment--already-reported { background: #8fb0c4; }
+.evidence-bar-segment--soft-dedup { background: #c4a6b0; }
 .evidence-bar-segment--gap { background: repeating-linear-gradient(135deg, #ebe9e2, #ebe9e2 4px, #ddd9cd 4px, #ddd9cd 8px); }
+
+.evidence-panel__subheading {
+  margin: 14px 0 0;
+  color: #85837a;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
 
 .evidence-values {
   display: grid;

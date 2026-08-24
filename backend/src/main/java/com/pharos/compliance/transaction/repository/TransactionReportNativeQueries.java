@@ -25,6 +25,9 @@ final class TransactionReportNativeQueries {
           COALESCE(expected_reportable_txn, 0)::bigint AS "expectedReportable",
           COALESCE(actual_reportable_txn, 0)::bigint AS "actualReportable",
           COALESCE(excluded_txn, 0)::bigint AS "excluded",
+          COALESCE(txn_simulated, 0)::bigint AS "simulated",
+          COALESCE(already_reported_count, 0)::bigint AS "alreadyReported",
+          COALESCE(soft_dedup_dropped_txn_count, 0)::bigint AS "softDedup",
           ABS(COALESCE(expected_reportable_txn, 0)
               - COALESCE(actual_reportable_txn, 0))::bigint AS "filtrationVariance",
           ABS(COALESCE(expected_activity_eligible_for_transformation, 0)
@@ -84,6 +87,7 @@ final class TransactionReportNativeQueries {
                       THEN 'ERROR'
                   WHEN UPPER(COALESCE(journey.status, '')) IN
                       ('SUCCESS', 'COMPLETED', 'TRANSFORMED', 'REPORTED') THEN 'SUCCESS'
+                  WHEN UPPER(COALESCE(journey.status, '')) = 'EXCLUDED' THEN 'EXCLUDED'
                   ELSE 'PENDING'
               END AS outcome,
               journey.comments,
@@ -201,6 +205,17 @@ final class TransactionReportNativeQueries {
                 OR (:metric = 'FAILED' AND evidence_source = 'JOURNEY'
                     AND UPPER(COALESCE(stage, '')) = 'TRANSFORMATION' AND outcome = 'ERROR')
                 OR (:metric = 'EXCLUDED' AND evidence_source = 'EXCLUSION_AUDIT')
+                OR (:metric = 'SIMULATED' AND evidence_source = 'JOURNEY'
+                    AND UPPER(COALESCE(stage, '')) = 'FILTRATION'
+                    AND UPPER(COALESCE(comments, '')) = 'EXCLUDED_BECAUSE_SML')
+                OR (:metric = 'ALREADY_REPORTED' AND evidence_source = 'JOURNEY'
+                    AND UPPER(COALESCE(stage, '')) = 'FILTRATION'
+                    AND UPPER(COALESCE(comments, ''))
+                        LIKE 'EXCLUDED_BECAUSE_ALREADY_REPORTED%')
+                OR (:metric = 'SOFT_DEDUP' AND evidence_source = 'JOURNEY'
+                    AND UPPER(COALESCE(stage, '')) = 'FILTRATION'
+                    AND (UPPER(COALESCE(comments, '')) = 'EXCLUDED_SOFT_DEDUP'
+                         OR UPPER(COALESCE(comments, '')) LIKE 'EXCLUDED_REAPPEARING_%'))
                 OR (:metric IN ('ACTUAL_REPORTABLE', 'TRANSFORMER_OUTPUT')
                     AND evidence_source = 'RULE_HIT')
             )
