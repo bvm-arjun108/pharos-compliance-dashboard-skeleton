@@ -26,6 +26,7 @@ uv run --project database/loaders python3 database/loaders/load_record_transform
 uv run --project database/loaders python3 database/loaders/load_report_transformation_reconciliation.py --dry-run
 uv run --project database/loaders python3 database/loaders/load_rule_hit_exclusion_audit.py --dry-run
 uv run --project database/loaders python3 database/loaders/load_report_group_config.py --dry-run
+uv run --project database/loaders python3 database/loaders/load_reg_reportable_activity.py --dry-run
 ```
 
 ## Insert or update the data
@@ -35,6 +36,7 @@ uv run --project database/loaders python3 database/loaders/load_record_transform
 uv run --project database/loaders python3 database/loaders/load_report_transformation_reconciliation.py
 uv run --project database/loaders python3 database/loaders/load_rule_hit_exclusion_audit.py
 uv run --project database/loaders python3 database/loaders/load_report_group_config.py
+uv run --project database/loaders python3 database/loaders/load_reg_reportable_activity.py
 ```
 
 Defaults match `docker-compose.yml`:

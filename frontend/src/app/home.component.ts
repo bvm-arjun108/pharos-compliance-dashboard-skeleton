@@ -26,8 +26,11 @@ interface DashboardDetailsResponse {
   batchesNeedingAttention: number;
   transformationFailureBatches: number;
   missingAttemptBatches: number;
-  filtrationFailureBatches: number;
-  reconciliationFailureBatches: number;
+  activityMissingBatches: number;
+  duplicateTransactionBatches: number;
+  exclusionBatches: number;
+  simulatedTransactionBatches: number;
+  softDedupBatches: number;
   totalReportedTransactions: number;
   totalExcludedTransactions: number;
   trendGranularity: TrendGranularity;
@@ -47,8 +50,7 @@ interface BatchHealthTrend {
   batchesNeedingAttention: number;
   transformationFailureBatches: number;
   missingAttemptBatches: number;
-  filtrationFailureBatches: number;
-  reconciliationFailureBatches: number;
+  activityMissingBatches: number;
   attentionRate: number;
 }
 
@@ -60,15 +62,22 @@ interface ReportGroupAttention {
   batchesNeedingAttention: number;
   transformationFailureBatches: number;
   missingAttemptBatches: number;
-  filtrationFailureBatches: number;
-  reconciliationFailureBatches: number;
+  activityMissingBatches: number;
   totalReportedTransactions: number;
   totalExcludedTransactions: number;
 }
 
 type ReportPeriod = 'TODAY' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'CUSTOM';
 type ExplorerStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED';
-type ExplorerIssueType = 'ALL' | 'TRANSFORMATION' | 'MISSING_ATTEMPTS' | 'FILTRATION' | 'RECONCILIATION';
+type ExplorerIssueType =
+  | 'ALL'
+  | 'ACTIVITY_MISSING'
+  | 'MISSING_ATTEMPTS'
+  | 'TRANSFORMATION'
+  | 'DUPLICATE_TRANSFORMATION'
+  | 'EXCLUSION'
+  | 'SIMULATED'
+  | 'SOFT_DEDUP';
 type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
 
 @Component({
@@ -183,9 +192,9 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           }
         </button>
 
-        <button class="kpi-card kpi-card--success kpi-card--link" type="button" (click)="openBatchExplorer('SUCCESSFUL')" [disabled]="dashboardLoading() || !!dashboardError()">
+        <article class="kpi-card kpi-card--success">
           <div class="kpi-card__topline">
-            <span>Successful Batches</span>
+            <span>Batches Not Needing Attention</span>
             <span class="kpi-card__icon" aria-hidden="true">✓</span>
           </div>
           @if (dashboardLoading()) {
@@ -194,10 +203,41 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             <strong class="kpi-error">Unavailable</strong>
             <small>{{ dashboardError() }}</small>
           } @else if (dashboardDetails(); as details) {
-            <strong>{{ details.successfulBatches | number:'1.0-0' }}</strong>
-            <small>Distinct batches completed without a detected attention condition</small>
+            <button class="attention-summary-link" type="button" (click)="openBatchExplorer('SUCCESSFUL')">
+              <strong>{{ details.successfulBatches | number:'1.0-0' }}</strong>
+              <small>Distinct batches completed without a detected attention condition</small>
+            </button>
+
+            <div class="issue-breakdown" aria-label="Not needing attention breakdown">
+              <button class="issue-kpi" type="button" (click)="openBatchExplorer('SUCCESSFUL', 'DUPLICATE_TRANSFORMATION')">
+                <span>Duplicate Transactions</span>
+                <strong>{{ details.duplicateTransactionBatches | number:'1.0-0' }}</strong>
+              </button>
+              <button class="issue-kpi" type="button" (click)="openBatchExplorer('SUCCESSFUL', 'EXCLUSION')">
+                <span>Exclusion Reason</span>
+                <strong>{{ details.exclusionBatches | number:'1.0-0' }}</strong>
+              </button>
+              <button class="issue-kpi" type="button" (click)="openBatchExplorer('SUCCESSFUL', 'SIMULATED')">
+                <span>SML / Simulated</span>
+                <strong>{{ details.simulatedTransactionBatches | number:'1.0-0' }}</strong>
+              </button>
+              <button class="issue-kpi" type="button" (click)="openBatchExplorer('SUCCESSFUL', 'SOFT_DEDUP')">
+                <span>Soft Dedup Dropped</span>
+                <strong>{{ details.softDedupBatches | number:'1.0-0' }}</strong>
+              </button>
+            </div>
+
+            <div class="issue-overlap-note">
+              @if (notNeedingAttentionBreakdownSum(details) > details.successfulBatches) {
+                <span class="issue-overlap-note__badge">{{ notNeedingAttentionBreakdownSum(details) | number:'1.0-0' }}</span>
+                <span>condition occurrences across only <strong>{{ details.successfulBatches | number:'1.0-0' }}</strong> distinct batches — a batch can have more than one condition, so the categories above don't sum to the total.</span>
+              } @else {
+                <span class="issue-overlap-note__badge issue-overlap-note__badge--neutral">✓</span>
+                <span>No batch in this period shows more than one of these conditions.</span>
+              }
+            </div>
           }
-        </button>
+        </article>
 
         <button class="kpi-card kpi-card--pending kpi-card--link" type="button" (click)="openBatchExplorer('NOT_YET_REPORTED')" [disabled]="dashboardLoading() || !!dashboardError()">
           <div class="kpi-card__topline">
@@ -231,31 +271,30 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
               <small>Distinct batches with one or more detected issues</small>
             </button>
 
-            <div class="issue-breakdown" aria-label="Attention issue breakdown">
-              <button class="issue-kpi" type="button" (click)="openBatchExplorer('ATTENTION', 'TRANSFORMATION')">
-                <span>Transformation Failure</span>
-                <strong>{{ details.transformationFailureBatches | number:'1.0-0' }}</strong>
+            <div class="issue-breakdown issue-breakdown--three" aria-label="Attention issue breakdown">
+              <button class="issue-kpi" type="button" (click)="openBatchExplorer('ATTENTION', 'ACTIVITY_MISSING')">
+                <span>Activity Missing</span>
+                <strong>{{ details.activityMissingBatches | number:'1.0-0' }}</strong>
               </button>
               <button class="issue-kpi" type="button" (click)="openBatchExplorer('ATTENTION', 'MISSING_ATTEMPTS')">
-                <span>Missing Transaction Attempts</span>
+                <span>Attempts Missing</span>
                 <strong>{{ details.missingAttemptBatches | number:'1.0-0' }}</strong>
               </button>
-              <button class="issue-kpi" type="button" (click)="openBatchExplorer('ATTENTION', 'FILTRATION')">
-                <span>Filtration Failure</span>
-                <strong>{{ details.filtrationFailureBatches | number:'1.0-0' }}</strong>
-              </button>
-              <button class="issue-kpi" type="button" (click)="openBatchExplorer('ATTENTION', 'RECONCILIATION')">
-                <span>Reconciliation Failure</span>
-                <strong>{{ details.reconciliationFailureBatches | number:'1.0-0' }}</strong>
+              <button class="issue-kpi" type="button" (click)="openBatchExplorer('ATTENTION', 'TRANSFORMATION')">
+                <span>Skipped During Transformation</span>
+                <strong>{{ details.transformationFailureBatches | number:'1.0-0' }}</strong>
               </button>
             </div>
 
-            @if (issueBreakdownSum(details) > details.batchesNeedingAttention) {
-              <div class="issue-overlap-note">
+            <div class="issue-overlap-note">
+              @if (issueBreakdownSum(details) > details.batchesNeedingAttention) {
                 <span class="issue-overlap-note__badge">{{ issueBreakdownSum(details) | number:'1.0-0' }}</span>
                 <span>issue occurrences across only <strong>{{ details.batchesNeedingAttention | number:'1.0-0' }}</strong> distinct batches — a batch can have more than one issue type, so the categories above don't sum to the total.</span>
-              </div>
-            }
+              } @else {
+                <span class="issue-overlap-note__badge issue-overlap-note__badge--neutral">✓</span>
+                <span>No batch in this period shows more than one issue type.</span>
+              }
+            </div>
           }
         </article>
         </div>
@@ -468,41 +507,22 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                 </div>
               }
 
-              <div class="heatmap-row-label" role="rowheader"><span></span>Filtration failure</div>
+              <div class="heatmap-row-label" role="rowheader"><span></span>Activity missing</div>
               @for (period of details.batchHealthTrend; track period.periodStart) {
                 <div
                   class="heatmap-cell"
                   role="cell"
-                  [style.background]="heatmapCellColor(period.filtrationFailureBatches, period.batchesRan)"
-                  [style.color]="heatmapTextColor(period.filtrationFailureBatches, period.batchesRan)"
+                  [style.background]="heatmapCellColor(period.activityMissingBatches, period.batchesRan)"
+                  [style.color]="heatmapTextColor(period.activityMissingBatches, period.batchesRan)"
                 >
                   <button
                     type="button"
                     class="heatmap-cell-button"
-                    [disabled]="period.filtrationFailureBatches === 0"
-                    [attr.title]="issueCellTitle('Filtration failure', period.filtrationFailureBatches, period)"
-                    [attr.aria-label]="issueCellTitle('Filtration failure', period.filtrationFailureBatches, period)"
-                    (click)="openPeriodExplorer(period, 'ATTENTION', 'FILTRATION')"
-                  >{{ period.filtrationFailureBatches }}</button>
-                </div>
-              }
-
-              <div class="heatmap-row-label" role="rowheader"><span></span>Reconciliation failure</div>
-              @for (period of details.batchHealthTrend; track period.periodStart) {
-                <div
-                  class="heatmap-cell"
-                  role="cell"
-                  [style.background]="heatmapCellColor(period.reconciliationFailureBatches, period.batchesRan)"
-                  [style.color]="heatmapTextColor(period.reconciliationFailureBatches, period.batchesRan)"
-                >
-                  <button
-                    type="button"
-                    class="heatmap-cell-button"
-                    [disabled]="period.reconciliationFailureBatches === 0"
-                    [attr.title]="issueCellTitle('Reconciliation failure', period.reconciliationFailureBatches, period)"
-                    [attr.aria-label]="issueCellTitle('Reconciliation failure', period.reconciliationFailureBatches, period)"
-                    (click)="openPeriodExplorer(period, 'ATTENTION', 'RECONCILIATION')"
-                  >{{ period.reconciliationFailureBatches }}</button>
+                    [disabled]="period.activityMissingBatches === 0"
+                    [attr.title]="issueCellTitle('Activity missing', period.activityMissingBatches, period)"
+                    [attr.aria-label]="issueCellTitle('Activity missing', period.activityMissingBatches, period)"
+                    (click)="openPeriodExplorer(period, 'ATTENTION', 'ACTIVITY_MISSING')"
+                  >{{ period.activityMissingBatches }}</button>
                 </div>
               }
             </div>
@@ -537,17 +557,16 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   <tr class="column-groups">
                     <th scope="col" rowspan="2">Priority & Report Group</th>
                     <th scope="colgroup" colspan="3">Batch Status</th>
-                    <th scope="colgroup" colspan="4">Issue Breakdown</th>
+                    <th scope="colgroup" colspan="3">Issue Breakdown</th>
                     <th scope="colgroup" colspan="2">Transaction Totals</th>
                   </tr>
                   <tr class="column-labels">
                     <th scope="col" class="number-cell">Ran</th>
                     <th scope="col" class="number-cell">Successful</th>
                     <th scope="col" class="number-cell" aria-sort="descending">Attention ↓</th>
-                    <th scope="col" class="number-cell">Transformation</th>
+                    <th scope="col" class="number-cell">Activity Missing</th>
                     <th scope="col" class="number-cell">Missing Attempts</th>
-                    <th scope="col" class="number-cell">Filtration</th>
-                    <th scope="col" class="number-cell">Reconciliation</th>
+                    <th scope="col" class="number-cell">Transformation</th>
                     <th scope="col" class="number-cell">Reported</th>
                     <th scope="col" class="number-cell">Excluded</th>
                   </tr>
@@ -590,8 +609,8 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                         }
                       </td>
                       <td class="number-cell">
-                        @if (group.transformationFailureBatches > 0) {
-                          <button type="button" class="table-metric-link metric-pill" (click)="openReportGroupExplorer(group, 'ATTENTION', 'TRANSFORMATION')" [attr.aria-label]="'View ' + group.transformationFailureBatches + ' batches with transformation failures'">{{ group.transformationFailureBatches | number:'1.0-0' }}</button>
+                        @if (group.activityMissingBatches > 0) {
+                          <button type="button" class="table-metric-link metric-pill" (click)="openReportGroupExplorer(group, 'ATTENTION', 'ACTIVITY_MISSING')" [attr.aria-label]="'View ' + group.activityMissingBatches + ' batches with activity missing'">{{ group.activityMissingBatches | number:'1.0-0' }}</button>
                         } @else { <span class="metric-pill metric-pill--zero">0</span> }
                       </td>
                       <td class="number-cell">
@@ -600,13 +619,8 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                         } @else { <span class="metric-pill metric-pill--zero">0</span> }
                       </td>
                       <td class="number-cell">
-                        @if (group.filtrationFailureBatches > 0) {
-                          <button type="button" class="table-metric-link metric-pill" (click)="openReportGroupExplorer(group, 'ATTENTION', 'FILTRATION')" [attr.aria-label]="'View ' + group.filtrationFailureBatches + ' batches with filtration errors'">{{ group.filtrationFailureBatches | number:'1.0-0' }}</button>
-                        } @else { <span class="metric-pill metric-pill--zero">0</span> }
-                      </td>
-                      <td class="number-cell">
-                        @if (group.reconciliationFailureBatches > 0) {
-                          <button type="button" class="table-metric-link metric-pill" (click)="openReportGroupExplorer(group, 'ATTENTION', 'RECONCILIATION')" [attr.aria-label]="'View ' + group.reconciliationFailureBatches + ' batches with reconciliation imbalance'">{{ group.reconciliationFailureBatches | number:'1.0-0' }}</button>
+                        @if (group.transformationFailureBatches > 0) {
+                          <button type="button" class="table-metric-link metric-pill" (click)="openReportGroupExplorer(group, 'ATTENTION', 'TRANSFORMATION')" [attr.aria-label]="'View ' + group.transformationFailureBatches + ' batches with transformation failures'">{{ group.transformationFailureBatches | number:'1.0-0' }}</button>
                         } @else { <span class="metric-pill metric-pill--zero">0</span> }
                       </td>
                       <td class="number-cell transaction-value">
@@ -770,8 +784,16 @@ export class HomeComponent implements OnInit {
     return (
       details.transformationFailureBatches +
       details.missingAttemptBatches +
-      details.filtrationFailureBatches +
-      details.reconciliationFailureBatches
+      details.activityMissingBatches
+    );
+  }
+
+  notNeedingAttentionBreakdownSum(details: DashboardDetailsResponse): number {
+    return (
+      details.duplicateTransactionBatches +
+      details.exclusionBatches +
+      details.simulatedTransactionBatches +
+      details.softDedupBatches
     );
   }
 
@@ -866,8 +888,7 @@ export class HomeComponent implements OnInit {
             ...period,
             transformationFailureBatches: period.transformationFailureBatches ?? 0,
             missingAttemptBatches: period.missingAttemptBatches ?? 0,
-            filtrationFailureBatches: period.filtrationFailureBatches ?? 0,
-            reconciliationFailureBatches: period.reconciliationFailureBatches ?? 0
+            activityMissingBatches: period.activityMissingBatches ?? 0
           }))
         });
         this.dashboardLoading.set(false);

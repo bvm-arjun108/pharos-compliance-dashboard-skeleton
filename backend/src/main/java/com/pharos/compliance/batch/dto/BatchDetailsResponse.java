@@ -21,6 +21,8 @@ public record BatchDetailsResponse(
     BatchStatus status,
     long transformationFailures,
     long missingAttempts,
+    long activityMissing,
+    long duplicateTransactions,
     long filtrationErrors,
     long reconciliationImbalance,
     long totalIssues,

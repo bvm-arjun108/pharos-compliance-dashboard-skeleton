@@ -4,6 +4,7 @@ uv run --project database/loaders python3 database/loaders/load_rule_hit_exclusi
 uv run --project database/loaders python3 database/loaders/load_report_group_config.py --dry-run
 uv run --project database/loaders python3 database/loaders/load_rule_hit.py --dry-run
 uv run --project database/loaders python3 database/loaders/load_rule_hit_reconciliation.py --dry-run
+uv run --project database/loaders python3 database/loaders/load_reg_reportable_activity.py --dry-run
 
 uv run --project database/loaders python3 database/loaders/load_record_transformation_journey.py
 
@@ -16,3 +17,5 @@ uv run --project database/loaders python3 database/loaders/load_report_group_con
 uv run --project database/loaders python3 database/loaders/load_rule_hit.py
 
 uv run --project database/loaders python3 database/loaders/load_rule_hit_reconciliation.py
+
+uv run --project database/loaders python3 database/loaders/load_reg_reportable_activity.py

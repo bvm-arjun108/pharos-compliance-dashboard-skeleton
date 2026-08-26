@@ -81,6 +81,8 @@ public interface BatchExplorerRepository
 
     long getMissingAttempts();
 
+    long getActivityMissing();
+
     long getFiltrationErrors();
 
     long getReconciliationImbalance();
@@ -88,6 +90,12 @@ public interface BatchExplorerRepository
     long getTransformerOutput();
 
     long getExcludedTransactions();
+
+    long getDuplicateTransactions();
+
+    long getSimulatedTransactions();
+
+    long getSoftDedupTransactions();
 
     long getTotalIssues();
 
@@ -118,6 +126,10 @@ public interface BatchExplorerRepository
     long getTransformationFailures();
 
     long getMissingAttempts();
+
+    long getActivityMissing();
+
+    long getDuplicateTransactions();
 
     long getFiltrationErrors();
 

@@ -218,17 +218,56 @@
                   @if (expandedRecordKey() === record.recordKey) {
                     <tr class="transaction-detail-row">
                       <td colspan="8">
-                        <div class="transaction-detail-grid">
-                          <div><span>Currency amount</span><strong>{{ formatCurrency(record) }}</strong></div>
-                          <div><span>Transaction date</span><strong>{{ record.transactionDate || 'Not available' }}</strong></div>
-                          <div><span>Transaction side</span><strong>{{ record.transactionSide || 'Not available' }}</strong></div>
-                          <div><span>Source</span><strong>{{ record.txnSource || 'Not available' }}</strong></div>
-                          <div><span>Activity type</span><strong>{{ record.activityType || 'Not available' }}</strong></div>
-                          <div><span>Send date</span><strong>{{ record.sendDate || 'Not available' }}</strong></div>
-                          <div><span>Galactic ID</span><strong>{{ record.galacticId || 'Not available' }}</strong></div>
-                          <div><span>Bucket / attempt ID</span><strong>{{ record.bucketId !== null ? record.bucketId + ' / ' + record.attemptId : 'Not available' }}</strong></div>
-                          <div class="transaction-detail-grid-span"><span>Comments</span><strong>{{ record.comments || 'Not available' }}</strong></div>
-                          <div class="transaction-detail-grid-span"><span>Skip reason</span><strong>{{ record.skipReason || 'Not available' }}</strong></div>
+                        <div class="transaction-detail-section">
+                          <p class="transaction-detail-heading">Transaction details</p>
+                          <div class="transaction-detail-grid">
+                            <div><span>Sender</span><strong>{{ record.senderName || 'Not available' }}</strong></div>
+                            <div><span>Sender ID</span><strong>{{ record.senderIdType && record.senderIdNumber ? record.senderIdType + ' ' + record.senderIdNumber : 'Not available' }}</strong></div>
+                            <div><span>Sender location</span><strong>{{ record.senderCity && record.senderCountry ? record.senderCity + ', ' + record.senderCountry : (record.senderCountry || 'Not available') }}</strong></div>
+                            <div><span>Sender phone</span><strong>{{ record.senderPhone || 'Not available' }}</strong></div>
+                            <div><span>Sender date of birth</span><strong>{{ record.senderDateOfBirth || 'Not available' }}</strong></div>
+                            <div><span>Receiver</span><strong>{{ record.receiverName || 'Not available' }}</strong></div>
+                            <div><span>Receiver ID</span><strong>{{ record.receiverIdType && record.receiverIdNumber ? record.receiverIdType + ' ' + record.receiverIdNumber : 'Not available' }}</strong></div>
+                            <div><span>Receiver location</span><strong>{{ record.receiverCity && record.receiverCountry ? record.receiverCity + ', ' + record.receiverCountry : (record.receiverCountry || 'Not available') }}</strong></div>
+                            <div><span>Receiver phone</span><strong>{{ record.receiverPhone || 'Not available' }}</strong></div>
+                            <div><span>Receiver date of birth</span><strong>{{ record.receiverDateOfBirth || 'Not available' }}</strong></div>
+                            <div><span>Currency amount</span><strong>{{ formatCurrency(record) }}</strong></div>
+                            <div><span>Transaction date</span><strong>{{ record.transactionDate || 'Not available' }}</strong></div>
+                            <div><span>Send date</span><strong>{{ record.sendDate || 'Not available' }}</strong></div>
+                            <div><span>Transaction side</span><strong>{{ record.transactionSide || 'Not available' }}</strong></div>
+                            <div><span>Transaction status</span><strong>{{ record.transactionStatus || 'Not available' }}</strong></div>
+                            <div><span>Sub status</span><strong>{{ record.transactionSubStatus || 'Not available' }}</strong></div>
+                            <div class="transaction-detail-grid-span"><span>Comments</span><strong>{{ record.comments || 'Not available' }}</strong></div>
+                            <div class="transaction-detail-grid-span"><span>Skip reason</span><strong>{{ record.skipReason || 'Not available' }}</strong></div>
+                          </div>
+                        </div>
+                        <div class="transaction-detail-section transaction-detail-section--rule">
+                          <p class="transaction-detail-heading">
+                            Rule hit details
+                            @if (ruleHits(record).length > 1) { <span class="transaction-detail-heading__count">({{ ruleHits(record).length }} rule hits)</span> }
+                          </p>
+                          @if (ruleHits(record).length > 0) {
+                            <div class="rule-hit-list">
+                              @for (hit of ruleHits(record); track hit.ruleId + ':' + hit.attemptId) {
+                                <div class="rule-hit-list__item">
+                                  <span class="rule-hit-list__id">Rule {{ hit.ruleId }}</span>
+                                  <span class="outcome-pill" [class.outcome-pill--success]="hit.isReported">{{ hit.isReported ? 'Reported' : 'Not reported' }}</span>
+                                  @if (hit.reportingTimestamp) { <span class="rule-hit-list__timestamp">{{ hit.reportingTimestamp | date:'MMM d, y, h:mm a' }}</span> }
+                                </div>
+                              }
+                            </div>
+                          } @else {
+                            <p class="rule-hit-list__empty">No rule hits matched for this transaction.</p>
+                          }
+                          <div class="transaction-detail-grid">
+                            <div><span>Exclusion reason</span><strong>{{ record.exclusionReason || 'Not available' }}</strong></div>
+                            <div><span>Exclusion strategy</span><strong>{{ record.exclusionStrategy || 'Not available' }}</strong></div>
+                            <div><span>Reported batch</span><strong>{{ record.reportedBatchId || 'Not available' }}</strong></div>
+                            <div><span>Source</span><strong>{{ record.txnSource || 'Not available' }}</strong></div>
+                            <div><span>Activity type</span><strong>{{ record.activityType || 'Not available' }}</strong></div>
+                            <div><span>Galactic ID</span><strong>{{ record.galacticId || 'Not available' }}</strong></div>
+                            <div><span>Bucket / attempt ID</span><strong>{{ record.bucketId !== null ? record.bucketId + ' / ' + record.attemptId : 'Not available' }}</strong></div>
+                          </div>
                         </div>
                       </td>
                     </tr>

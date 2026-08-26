@@ -18,8 +18,11 @@ public record DashboardDetailsResponse(
     @Schema(example = "23") long batchesNeedingAttention,
     @Schema(example = "20") long transformationFailureBatches,
     @Schema(example = "8") long missingAttemptBatches,
-    @Schema(example = "8") long filtrationFailureBatches,
-    @Schema(example = "0") long reconciliationFailureBatches,
+    @Schema(example = "2") long activityMissingBatches,
+    @Schema(example = "1") long duplicateTransactionBatches,
+    @Schema(example = "23") long exclusionBatches,
+    @Schema(example = "15") long simulatedTransactionBatches,
+    @Schema(example = "0") long softDedupBatches,
     @Schema(
             description = "Transformer output, not final downstream reporting confirmation",
             example = "26840")

@@ -75,6 +75,31 @@ interface TransactionEvidenceRecord {
   galacticId: string | null;
   bucketId: number | null;
   attemptId: number | null;
+  senderName: string | null;
+  receiverName: string | null;
+  senderCity: string | null;
+  senderCountry: string | null;
+  senderPhone: string | null;
+  senderDateOfBirth: string | null;
+  senderIdType: string | null;
+  senderIdNumber: string | null;
+  receiverCity: string | null;
+  receiverCountry: string | null;
+  receiverPhone: string | null;
+  receiverDateOfBirth: string | null;
+  receiverIdType: string | null;
+  receiverIdNumber: string | null;
+  transactionStatus: string | null;
+  transactionSubStatus: string | null;
+  ruleHitsJson: string | null;
+}
+
+interface RuleHitSummary {
+  ruleId: string | null;
+  isReported: boolean | null;
+  reportingTimestamp: string | null;
+  bucketId: number | null;
+  attemptId: number | null;
 }
 
 interface TransactionOutcomeBreakdown {
@@ -370,6 +395,18 @@ export class TransactionReportComponent implements OnInit {
 
   toggleExpanded(recordKey: string): void {
     this.expandedRecordKey.set(this.expandedRecordKey() === recordKey ? null : recordKey);
+  }
+
+  ruleHits(record: TransactionEvidenceRecord): RuleHitSummary[] {
+    if (!record.ruleHitsJson) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(record.ruleHitsJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 
   formatCurrency(record: TransactionEvidenceRecord): string {

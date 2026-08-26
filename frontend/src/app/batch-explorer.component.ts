@@ -8,10 +8,13 @@ import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 type BatchStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED';
 type BatchIssueType =
   | 'ALL'
-  | 'TRANSFORMATION'
+  | 'ACTIVITY_MISSING'
   | 'MISSING_ATTEMPTS'
-  | 'FILTRATION'
-  | 'RECONCILIATION';
+  | 'TRANSFORMATION'
+  | 'DUPLICATE_TRANSFORMATION'
+  | 'EXCLUSION'
+  | 'SIMULATED'
+  | 'SOFT_DEDUP';
 type BatchMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
 type TransactionMetric =
   | 'SELECTED'
@@ -62,10 +65,14 @@ interface BatchQueueItem {
   status: Exclude<BatchStatus, 'ALL'>;
   transformationFailures: number;
   missingAttempts: number;
+  activityMissing: number;
   filtrationErrors: number;
   reconciliationImbalance: number;
   transformerOutput: number;
   excludedTransactions: number;
+  duplicateTransactions: number;
+  simulatedTransactions: number;
+  softDedupTransactions: number;
   totalIssues: number;
   discoveredTransactions: number;
 }
@@ -103,6 +110,8 @@ interface BatchDetailsResponse {
   status: Exclude<BatchStatus, 'ALL'>;
   transformationFailures: number;
   missingAttempts: number;
+  activityMissing: number;
+  duplicateTransactions: number;
   filtrationErrors: number;
   reconciliationImbalance: number;
   totalIssues: number;
@@ -352,14 +361,20 @@ export class BatchExplorerComponent implements OnInit {
 
   issueLabel(issueType: BatchIssueType): string {
     switch (issueType) {
-      case 'TRANSFORMATION':
-        return 'Transformation Failure';
+      case 'ACTIVITY_MISSING':
+        return 'Activity Missing';
       case 'MISSING_ATTEMPTS':
         return 'Missing Attempt';
-      case 'FILTRATION':
-        return 'Filtration Error';
-      case 'RECONCILIATION':
-        return 'Reconciliation Imbalance';
+      case 'TRANSFORMATION':
+        return 'Transformation Skipped';
+      case 'DUPLICATE_TRANSFORMATION':
+        return 'Duplicate Transactions';
+      case 'EXCLUSION':
+        return 'Exclusion Reason';
+      case 'SIMULATED':
+        return 'SML / Simulated';
+      case 'SOFT_DEDUP':
+        return 'Soft Dedup Dropped';
       default:
         return 'All';
     }
@@ -539,10 +554,13 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   private parseIssueType(value: string | null): BatchIssueType {
-    return value === 'TRANSFORMATION' ||
+    return value === 'ACTIVITY_MISSING' ||
       value === 'MISSING_ATTEMPTS' ||
-      value === 'FILTRATION' ||
-      value === 'RECONCILIATION'
+      value === 'TRANSFORMATION' ||
+      value === 'DUPLICATE_TRANSFORMATION' ||
+      value === 'EXCLUSION' ||
+      value === 'SIMULATED' ||
+      value === 'SOFT_DEDUP'
       ? value
       : 'ALL';
   }

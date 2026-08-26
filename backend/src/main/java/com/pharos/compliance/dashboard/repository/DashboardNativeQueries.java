@@ -18,9 +18,7 @@ final class DashboardNativeQueries {
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_transformation_failed, 0) > 0
                      OR COALESCE(txn_missing_attempt_count, 0) > 0
-                     OR COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-                     OR COALESCE(expected_activity_eligible_for_transformation, 0)
-                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
+                     OR COALESCE(activity_missing, 0) > 0
               ) AS batches_needing_attention,
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_transformation_failed, 0) > 0
@@ -29,12 +27,32 @@ final class DashboardNativeQueries {
                   WHERE COALESCE(txn_missing_attempt_count, 0) > 0
               ) AS missing_attempt_batches,
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-                  WHERE COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-              ) AS filtration_failure_batches,
+                  WHERE COALESCE(activity_missing, 0) > 0
+              ) AS activity_missing_batches,
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-                  WHERE COALESCE(expected_activity_eligible_for_transformation, 0)
-                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
-              ) AS reconciliation_failure_batches,
+                  WHERE COALESCE(duplicate_transformation, 0) > 0
+                    AND COALESCE(activity_transformation_failed, 0) = 0
+                    AND COALESCE(txn_missing_attempt_count, 0) = 0
+                    AND COALESCE(activity_missing, 0) = 0
+              ) AS duplicate_transaction_batches,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(excluded_txn, 0) > 0
+                    AND COALESCE(activity_transformation_failed, 0) = 0
+                    AND COALESCE(txn_missing_attempt_count, 0) = 0
+                    AND COALESCE(activity_missing, 0) = 0
+              ) AS exclusion_batches,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(txn_simulated, 0) > 0
+                    AND COALESCE(activity_transformation_failed, 0) = 0
+                    AND COALESCE(txn_missing_attempt_count, 0) = 0
+                    AND COALESCE(activity_missing, 0) = 0
+              ) AS simulated_transaction_batches,
+              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
+                  WHERE COALESCE(soft_dedup_dropped_txn_count, 0) > 0
+                    AND COALESCE(activity_transformation_failed, 0) = 0
+                    AND COALESCE(txn_missing_attempt_count, 0) = 0
+                    AND COALESCE(activity_missing, 0) = 0
+              ) AS soft_dedup_batches,
               COALESCE(SUM(actual_reportable_txn), 0) AS total_reported_transactions,
               COALESCE(SUM(excluded_txn), 0) AS total_excluded_transactions
           FROM rtr_scope
@@ -59,8 +77,11 @@ final class DashboardNativeQueries {
           a.batches_needing_attention AS "batchesNeedingAttention",
           a.transformation_failure_batches AS "transformationFailureBatches",
           a.missing_attempt_batches AS "missingAttemptBatches",
-          a.filtration_failure_batches AS "filtrationFailureBatches",
-          a.reconciliation_failure_batches AS "reconciliationFailureBatches",
+          a.activity_missing_batches AS "activityMissingBatches",
+          a.duplicate_transaction_batches AS "duplicateTransactionBatches",
+          a.exclusion_batches AS "exclusionBatches",
+          a.simulated_transaction_batches AS "simulatedTransactionBatches",
+          a.soft_dedup_batches AS "softDedupBatches",
           a.total_reported_transactions AS "totalReportedTransactions",
           a.total_excluded_transactions AS "totalExcludedTransactions"
       FROM rtr_aggregates a
@@ -77,9 +98,7 @@ final class DashboardNativeQueries {
               COUNT(DISTINCT (batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_transformation_failed, 0) > 0
                      OR COALESCE(txn_missing_attempt_count, 0) > 0
-                     OR COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-                     OR COALESCE(expected_activity_eligible_for_transformation, 0)
-                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
+                     OR COALESCE(activity_missing, 0) > 0
               ) AS batches_needing_attention,
               COUNT(DISTINCT (batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_transformation_failed, 0) > 0
@@ -88,12 +107,8 @@ final class DashboardNativeQueries {
                   WHERE COALESCE(txn_missing_attempt_count, 0) > 0
               ) AS missing_attempt_batches,
               COUNT(DISTINCT (batch_id, seq_no)) FILTER (
-                  WHERE COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-              ) AS filtration_failure_batches,
-              COUNT(DISTINCT (batch_id, seq_no)) FILTER (
-                  WHERE COALESCE(expected_activity_eligible_for_transformation, 0)
-                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
-              ) AS reconciliation_failure_batches,
+                  WHERE COALESCE(activity_missing, 0) > 0
+              ) AS activity_missing_batches,
               COALESCE(SUM(actual_reportable_txn), 0) AS total_reported_transactions,
               COALESCE(SUM(excluded_txn), 0) AS total_excluded_transactions
           FROM pharos.report_transformation_reconciliation
@@ -111,15 +126,14 @@ final class DashboardNativeQueries {
           batches_needing_attention AS "batchesNeedingAttention",
           transformation_failure_batches AS "transformationFailureBatches",
           missing_attempt_batches AS "missingAttemptBatches",
-          filtration_failure_batches AS "filtrationFailureBatches",
-          reconciliation_failure_batches AS "reconciliationFailureBatches",
+          activity_missing_batches AS "activityMissingBatches",
           total_reported_transactions AS "totalReportedTransactions",
           total_excluded_transactions AS "totalExcludedTransactions"
       FROM report_group_metrics
       WHERE batches_needing_attention > 0
       ORDER BY batches_needing_attention DESC,
                (transformation_failure_batches + missing_attempt_batches
-                + filtration_failure_batches + reconciliation_failure_batches) DESC,
+                + activity_missing_batches) DESC,
                rpt_grp_id
       """;
 
@@ -153,9 +167,7 @@ final class DashboardNativeQueries {
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_transformation_failed, 0) > 0
                      OR COALESCE(txn_missing_attempt_count, 0) > 0
-                     OR COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-                     OR COALESCE(expected_activity_eligible_for_transformation, 0)
-                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
+                     OR COALESCE(activity_missing, 0) > 0
               ) AS batches_needing_attention,
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_transformation_failed, 0) > 0
@@ -164,12 +176,8 @@ final class DashboardNativeQueries {
                   WHERE COALESCE(txn_missing_attempt_count, 0) > 0
               ) AS missing_attempt_batches,
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-                  WHERE COALESCE(expected_reportable_txn, 0) <> COALESCE(actual_reportable_txn, 0)
-              ) AS filtration_failure_batches,
-              COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
-                  WHERE COALESCE(expected_activity_eligible_for_transformation, 0)
-                        <> COALESCE(actual_activity_eligible_for_transformation, 0)
-              ) AS reconciliation_failure_batches
+                  WHERE COALESCE(activity_missing, 0) > 0
+              ) AS activity_missing_batches
           FROM pharos.report_transformation_reconciliation
           WHERE created_timestamp >= :fromTimestamp
             AND created_timestamp < :toTimestampExclusive
@@ -185,8 +193,7 @@ final class DashboardNativeQueries {
           COALESCE(period_metrics.batches_needing_attention, 0) AS "batchesNeedingAttention",
           COALESCE(period_metrics.transformation_failure_batches, 0) AS "transformationFailureBatches",
           COALESCE(period_metrics.missing_attempt_batches, 0) AS "missingAttemptBatches",
-          COALESCE(period_metrics.filtration_failure_batches, 0) AS "filtrationFailureBatches",
-          COALESCE(period_metrics.reconciliation_failure_batches, 0) AS "reconciliationFailureBatches"
+          COALESCE(period_metrics.activity_missing_batches, 0) AS "activityMissingBatches"
       FROM periods
       LEFT JOIN period_metrics USING (period_start)
       ORDER BY periods.period_start

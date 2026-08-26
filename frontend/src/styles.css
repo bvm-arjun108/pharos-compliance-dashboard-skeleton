@@ -453,7 +453,7 @@ main {
 
 .kpi-batch-group__cards {
   display: grid;
-  grid-template-columns: minmax(155px, .62fr) minmax(170px, .7fr) minmax(170px, .7fr) minmax(420px, 1.75fr);
+  grid-template-columns: minmax(155px, .62fr) minmax(420px, 1.7fr) minmax(170px, .7fr) minmax(360px, 1.45fr);
   align-items: stretch;
   gap: 14px;
 }
@@ -557,6 +557,29 @@ main {
 .kpi-card--success .kpi-loading,
 .kpi-card--attention .kpi-loading { color: #50504a; }
 
+.kpi-card--success .attention-summary-link > strong { color: #315542; }
+.kpi-card--success .attention-summary-link > small { color: #587064; }
+.kpi-card--success .attention-summary-link:hover > strong { color: #1f3a2c; }
+.kpi-card--success .attention-summary-link:focus-visible { outline-color: #4f7663; }
+
+.kpi-card--success .issue-kpi {
+  background: rgba(255, 255, 255, .58);
+  border-color: #c9dccf;
+}
+
+.kpi-card--success button.issue-kpi:hover { border-color: #9dbba9; }
+.kpi-card--success button.issue-kpi:focus-visible { outline-color: #4f7663; }
+.kpi-card--success .issue-kpi span { color: #587064; }
+.kpi-card--success .issue-kpi strong { color: #315542; }
+
+.kpi-card--success .issue-overlap-note {
+  border-color: #9dbba9;
+  color: #587064;
+}
+
+.kpi-card--success .issue-overlap-note__badge { background: #4f7663; }
+.kpi-card--success .issue-overlap-note strong { color: #315542; }
+
 .kpi-card--transactions {
   background: #f0f0ec;
   border-color: #d5d5ce;
@@ -605,6 +628,10 @@ main {
   margin-top: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
+}
+
+.issue-breakdown--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .issue-kpi {
@@ -665,6 +692,8 @@ button.issue-kpi:focus-visible { outline: 2px solid #865057; outline-offset: 2px
   font-size: 10px;
   font-weight: 800;
 }
+
+.issue-overlap-note__badge--neutral { background: #4f7663; }
 
 .issue-overlap-note strong { color: #63343a; }
 
@@ -1168,7 +1197,8 @@ button.metric-value,
   .kpi-grid { grid-template-columns: 1fr; }
   .kpi-batch-group__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-card { width: 100%; }
-  .kpi-card--attention { grid-column: 1 / -1; }
+  .kpi-card--attention,
+  .kpi-card--success { grid-column: 1 / -1; }
 }
 
 @media (max-width: 700px) {
@@ -1189,7 +1219,8 @@ button.metric-value,
   .content-placeholder { align-items: flex-start; }
   .kpi-grid { grid-template-columns: 1fr; }
   .kpi-batch-group__cards { grid-template-columns: 1fr; }
-  .kpi-card--attention { grid-column: auto; }
+  .kpi-card--attention,
+  .kpi-card--success { grid-column: auto; }
   .issue-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .planned-capabilities { grid-template-columns: 1fr; }
   .attention-table-heading { align-items: flex-start; flex-direction: column; gap: 6px; }

@@ -67,10 +67,13 @@
       <span class="sr-only">Issue driver</span>
       <select [value]="issueType()" (change)="setIssueType($event)">
         <option value="ALL">All issue drivers</option>
-        <option value="TRANSFORMATION">Transformation failure</option>
+        <option value="ACTIVITY_MISSING">Activity missing</option>
         <option value="MISSING_ATTEMPTS">Missing attempts</option>
-        <option value="FILTRATION">Filtration error</option>
-        <option value="RECONCILIATION">Reconciliation imbalance</option>
+        <option value="TRANSFORMATION">Transformation skipped</option>
+        <option value="DUPLICATE_TRANSFORMATION">Duplicate transactions</option>
+        <option value="EXCLUSION">Exclusion reason</option>
+        <option value="SIMULATED">SML / simulated</option>
+        <option value="SOFT_DEDUP">Soft dedup dropped</option>
       </select>
     </label>
 
@@ -162,10 +165,9 @@
                     }
                     @if (batch.totalIssues > 0) {
                       <span class="queue-issue-tags">
+                        @if (batch.activityMissing > 0) { <i>Activity Missing {{ batch.activityMissing }}</i> }
                         @if (batch.missingAttempts > 0) { <i>Missing {{ batch.missingAttempts }}</i> }
                         @if (batch.transformationFailures > 0) { <i>Transform {{ batch.transformationFailures }}</i> }
-                        @if (batch.filtrationErrors > 0) { <i>Filter {{ batch.filtrationErrors }}</i> }
-                        @if (batch.reconciliationImbalance > 0) { <i>Recon {{ batch.reconciliationImbalance }}</i> }
                       </span>
                     }
                   }

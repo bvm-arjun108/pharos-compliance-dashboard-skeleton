@@ -197,7 +197,24 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         row.getSendDate(),
         row.getGalacticId(),
         row.getBucketId(),
-        row.getAttemptId());
+        row.getAttemptId(),
+        row.getSenderName(),
+        row.getReceiverName(),
+        row.getSenderCity(),
+        row.getSenderCountry(),
+        row.getSenderPhone(),
+        row.getSenderDateOfBirth(),
+        row.getSenderIdType(),
+        row.getSenderIdNumber(),
+        row.getReceiverCity(),
+        row.getReceiverCountry(),
+        row.getReceiverPhone(),
+        row.getReceiverDateOfBirth(),
+        row.getReceiverIdType(),
+        row.getReceiverIdNumber(),
+        row.getTransactionStatus(),
+        row.getTransactionSubStatus(),
+        row.getRuleHitsJson());
   }
 
   private TransactionOutcomeBreakdownResponse toOutcomeBreakdown(

@@ -53,9 +53,15 @@ public interface DashboardRepository
 
     long getMissingAttemptBatches();
 
-    long getFiltrationFailureBatches();
+    long getActivityMissingBatches();
 
-    long getReconciliationFailureBatches();
+    long getDuplicateTransactionBatches();
+
+    long getExclusionBatches();
+
+    long getSimulatedTransactionBatches();
+
+    long getSoftDedupBatches();
 
     long getTotalReportedTransactions();
 
@@ -77,9 +83,7 @@ public interface DashboardRepository
 
     long getMissingAttemptBatches();
 
-    long getFiltrationFailureBatches();
-
-    long getReconciliationFailureBatches();
+    long getActivityMissingBatches();
 
     long getTotalReportedTransactions();
 
@@ -99,8 +103,6 @@ public interface DashboardRepository
 
     long getMissingAttemptBatches();
 
-    long getFiltrationFailureBatches();
-
-    long getReconciliationFailureBatches();
+    long getActivityMissingBatches();
   }
 }

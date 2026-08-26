@@ -53,6 +53,7 @@ final class BatchExplorerNativeQueries {
               modified_timestamp,
               COALESCE(activity_transformation_failed, 0)::bigint AS transformation_failures,
               COALESCE(txn_missing_attempt_count, 0)::bigint AS missing_attempts,
+              COALESCE(activity_missing, 0)::bigint AS activity_missing,
               ABS(COALESCE(expected_reportable_txn, 0)
                   - COALESCE(actual_reportable_txn, 0))::bigint AS filtration_errors,
               ABS(COALESCE(expected_activity_eligible_for_transformation, 0)
@@ -64,7 +65,10 @@ final class BatchExplorerNativeQueries {
                   AS actual_transformation_attempts,
               COALESCE(activity_transformed, 0)::bigint AS transformed_activities,
               COALESCE(actual_reportable_txn, 0)::bigint AS transformer_output,
-              COALESCE(excluded_txn, 0)::bigint AS excluded_transactions
+              COALESCE(excluded_txn, 0)::bigint AS excluded_transactions,
+              COALESCE(duplicate_transformation, 0)::bigint AS duplicate_transactions,
+              COALESCE(txn_simulated, 0)::bigint AS simulated_transactions,
+              COALESCE(soft_dedup_dropped_txn_count, 0)::bigint AS soft_dedup_transactions
           FROM pharos.report_transformation_reconciliation
           WHERE created_timestamp >= :fromTimestamp
             AND created_timestamp < :toTimestampExclusive
@@ -73,8 +77,7 @@ final class BatchExplorerNativeQueries {
       ), enriched_batch_metrics AS (
           SELECT
               batch_metrics.*,
-              transformation_failures + missing_attempts + filtration_errors
-                  + reconciliation_imbalance AS total_issues
+              transformation_failures + missing_attempts + activity_missing AS total_issues
           FROM batch_metrics
           WHERE (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
       )
@@ -107,8 +110,9 @@ final class BatchExplorerNativeQueries {
                   rpt_grp_id, batch_id, seq_no, rpt_grp_name, rpt_from_date, rpt_to_date,
                   created_timestamp::timestamptz AS started_at,
                   modified_timestamp::timestamptz AS completed_at,
-                  transformation_failures, missing_attempts, filtration_errors,
+                  transformation_failures, missing_attempts, activity_missing, filtration_errors,
                   reconciliation_imbalance, transformer_output, excluded_transactions,
+                  duplicate_transactions, simulated_transactions, soft_dedup_transactions,
                   total_issues, 0::bigint AS discovered_transactions,
                   'RECONCILED' AS status_bucket
               FROM enriched_batch_metrics
@@ -119,7 +123,8 @@ final class BatchExplorerNativeQueries {
                   rpt_grp_id, batch_id, 0 AS seq_no, rpt_grp_name,
                   NULL::text AS rpt_from_date, NULL::text AS rpt_to_date,
                   started_at, NULL::timestamptz AS completed_at,
-                  0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint,
+                  0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint, 0::bigint,
+                  0::bigint, 0::bigint, 0::bigint,
                   0::bigint AS total_issues, discovered_transactions,
                   'NOT_YET_REPORTED' AS status_bucket
               FROM not_yet_reported_batches
@@ -135,10 +140,14 @@ final class BatchExplorerNativeQueries {
               completed_at AS "completedAt",
               transformation_failures AS "transformationFailures",
               missing_attempts AS "missingAttempts",
+              activity_missing AS "activityMissing",
               filtration_errors AS "filtrationErrors",
               reconciliation_imbalance AS "reconciliationImbalance",
               transformer_output AS "transformerOutput",
               excluded_transactions AS "excludedTransactions",
+              duplicate_transactions AS "duplicateTransactions",
+              simulated_transactions AS "simulatedTransactions",
+              soft_dedup_transactions AS "softDedupTransactions",
               total_issues AS "totalIssues",
               discovered_transactions AS "discoveredTransactions",
               status_bucket AS "statusBucket",
@@ -149,10 +158,13 @@ final class BatchExplorerNativeQueries {
                  OR (:status = 'ATTENTION' AND status_bucket = 'RECONCILED' AND total_issues > 0)
                  OR (:status = 'NOT_YET_REPORTED' AND status_bucket = 'NOT_YET_REPORTED'))
             AND (:issueType = 'ALL'
-                 OR (status_bucket = 'RECONCILED' AND :issueType = 'TRANSFORMATION' AND transformation_failures > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'ACTIVITY_MISSING' AND activity_missing > 0)
                  OR (status_bucket = 'RECONCILED' AND :issueType = 'MISSING_ATTEMPTS' AND missing_attempts > 0)
-                 OR (status_bucket = 'RECONCILED' AND :issueType = 'FILTRATION' AND filtration_errors > 0)
-                 OR (status_bucket = 'RECONCILED' AND :issueType = 'RECONCILIATION' AND reconciliation_imbalance > 0))
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'TRANSFORMATION' AND transformation_failures > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'DUPLICATE_TRANSFORMATION' AND duplicate_transactions > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'EXCLUSION' AND excluded_transactions > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'SIMULATED' AND simulated_transactions > 0)
+                 OR (status_bucket = 'RECONCILED' AND :issueType = 'SOFT_DEDUP' AND soft_dedup_transactions > 0))
             AND (:metricFocus = 'DEFAULT'
                  OR (status_bucket = 'RECONCILED' AND :metricFocus = 'REPORTED' AND transformer_output > 0)
                  OR (status_bucket = 'RECONCILED' AND :metricFocus = 'EXCLUDED' AND excluded_transactions > 0))
@@ -181,6 +193,8 @@ final class BatchExplorerNativeQueries {
           COALESCE(reconciliation.activity_transformation_failed, 0)::bigint
               AS "transformationFailures",
           COALESCE(reconciliation.txn_missing_attempt_count, 0)::bigint AS "missingAttempts",
+          COALESCE(reconciliation.activity_missing, 0)::bigint AS "activityMissing",
+          COALESCE(reconciliation.duplicate_transformation, 0)::bigint AS "duplicateTransactions",
           ABS(COALESCE(reconciliation.expected_reportable_txn, 0)
               - COALESCE(reconciliation.actual_reportable_txn, 0))::bigint AS "filtrationErrors",
           ABS(COALESCE(reconciliation.expected_activity_eligible_for_transformation, 0)

@@ -146,8 +146,11 @@ public class DashboardServiceImpl implements DashboardService {
         counts.getBatchesNeedingAttention(),
         counts.getTransformationFailureBatches(),
         counts.getMissingAttemptBatches(),
-        counts.getFiltrationFailureBatches(),
-        counts.getReconciliationFailureBatches(),
+        counts.getActivityMissingBatches(),
+        counts.getDuplicateTransactionBatches(),
+        counts.getExclusionBatches(),
+        counts.getSimulatedTransactionBatches(),
+        counts.getSoftDedupBatches(),
         counts.getTotalReportedTransactions(),
         counts.getTotalExcludedTransactions(),
         trendGranularity,
@@ -172,8 +175,7 @@ public class DashboardServiceImpl implements DashboardService {
         period.getBatchesNeedingAttention(),
         period.getTransformationFailureBatches(),
         period.getMissingAttemptBatches(),
-        period.getFiltrationFailureBatches(),
-        period.getReconciliationFailureBatches(),
+        period.getActivityMissingBatches(),
         period.getBatchesRan() == 0
             ? 0.0
             : (period.getBatchesNeedingAttention() * 100.0) / period.getBatchesRan());
@@ -188,8 +190,7 @@ public class DashboardServiceImpl implements DashboardService {
         group.getBatchesNeedingAttention(),
         group.getTransformationFailureBatches(),
         group.getMissingAttemptBatches(),
-        group.getFiltrationFailureBatches(),
-        group.getReconciliationFailureBatches(),
+        group.getActivityMissingBatches(),
         group.getTotalReportedTransactions(),
         group.getTotalExcludedTransactions());
   }

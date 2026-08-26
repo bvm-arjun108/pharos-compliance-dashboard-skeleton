@@ -71,10 +71,37 @@ final class TransactionReportNativeQueries {
       )
       """;
 
+  /**
+   * One row per matched identifier, holding every rule hit for that transaction as a JSON array —
+   * a transaction can have more than one rule_hit row (one per rule triggered), so any evidence row
+   * for that identifier (journey, exclusion, or a specific rule hit) can show the full set, not just
+   * its own.
+   */
+  private static final String RULE_HIT_ROLLUP_CTE =
+      """
+      , rule_hit_rollup AS (
+          SELECT
+              rule_hit_matches.matched_identifier AS identifier,
+              json_agg(
+                  json_build_object(
+                      'ruleId', rule_hit_matches.rule_id,
+                      'isReported', rule_hit_matches.is_reported,
+                      'reportingTimestamp', rule_hit_matches.reporting_timestamp::text,
+                      'bucketId', rule_hit_matches.bucket_id,
+                      'attemptId', rule_hit_matches.attempt_id
+                  )
+                  ORDER BY rule_hit_matches.rule_id
+              )::text AS rule_hits_json
+          FROM rule_hit_matches
+          WHERE rule_hit_matches.matched_identifier IS NOT NULL
+          GROUP BY rule_hit_matches.matched_identifier
+      )
+      """;
+
   /** Union of every evidence source into one common row shape, keyed by evidence_source. */
   private static final String EVIDENCE_CTE =
       """
-      , evidence AS (
+      , evidence_base AS (
           SELECT
               CONCAT('JOURNEY:', journey.identifier) AS record_key,
               journey.identifier,
@@ -99,17 +126,37 @@ final class TransactionReportNativeQueries {
               journey.reporting_timestamp_latest::text AS reporting_timestamp,
               journey.modified_timestamp::text AS modified_at,
               journey.processing_complete,
-              NULL::numeric AS currency_amount,
-              NULL::text AS currency_code,
-              NULL::text AS transaction_date,
+              COALESCE(rra_journey.s_local_principal, rra_journey.r_local_principal)
+                  AS currency_amount,
+              COALESCE(rra_journey.s_currency, rra_journey.r_currency) AS currency_code,
+              COALESCE(rra_journey.s_date, rra_journey.r_date) AS transaction_date,
               NULL::text AS transaction_side,
               NULL::text AS txn_source,
               NULL::text AS activity_type,
-              NULL::text AS send_date,
+              rra_journey.group_send_date AS send_date,
               NULL::text AS galactic_id,
               NULL::int4 AS bucket_id,
-              NULL::int8 AS attempt_id
+              NULL::int8 AS attempt_id,
+              rra_journey.s_party_name AS sender_name,
+              rra_journey.r_party_name AS receiver_name,
+              rra_journey.s_party_city AS sender_city,
+              rra_journey.s_party_country_of_residence AS sender_country,
+              rra_journey.s_party_phone_number AS sender_phone,
+              rra_journey.s_party_date_of_birth AS sender_date_of_birth,
+              rra_journey.s_party_id_type AS sender_id_type,
+              rra_journey.s_party_id_number AS sender_id_number,
+              rra_journey.r_party_city AS receiver_city,
+              rra_journey.r_party_country_of_residence AS receiver_country,
+              rra_journey.r_party_phone_number AS receiver_phone,
+              rra_journey.r_party_date_of_birth AS receiver_date_of_birth,
+              rra_journey.r_party_id_type AS receiver_id_type,
+              rra_journey.r_party_id_number AS receiver_id_number,
+              rra_journey.txn_status AS transaction_status,
+              rra_journey.sub_status AS transaction_sub_status
           FROM pharos.record_transformation_journey journey
+          LEFT JOIN pharos.reg_reportable_activity rra_journey
+              ON journey.identifier ~ '^[0-9]+$'
+             AND rra_journey.txn_sur_key = journey.identifier::bigint
           WHERE journey.rpt_grp_id = :reportGroupId
             AND journey.batch_id = :batchId
 
@@ -143,8 +190,26 @@ final class TransactionReportNativeQueries {
               NULL::text AS send_date,
               NULL::text AS galactic_id,
               exclusion_audit.bucket_id,
-              exclusion_audit.attempt_id
+              exclusion_audit.attempt_id,
+              rra_exclusion.s_party_name AS sender_name,
+              rra_exclusion.r_party_name AS receiver_name,
+              rra_exclusion.s_party_city AS sender_city,
+              rra_exclusion.s_party_country_of_residence AS sender_country,
+              rra_exclusion.s_party_phone_number AS sender_phone,
+              rra_exclusion.s_party_date_of_birth AS sender_date_of_birth,
+              rra_exclusion.s_party_id_type AS sender_id_type,
+              rra_exclusion.s_party_id_number AS sender_id_number,
+              rra_exclusion.r_party_city AS receiver_city,
+              rra_exclusion.r_party_country_of_residence AS receiver_country,
+              rra_exclusion.r_party_phone_number AS receiver_phone,
+              rra_exclusion.r_party_date_of_birth AS receiver_date_of_birth,
+              rra_exclusion.r_party_id_type AS receiver_id_type,
+              rra_exclusion.r_party_id_number AS receiver_id_number,
+              rra_exclusion.txn_status AS transaction_status,
+              rra_exclusion.sub_status AS transaction_sub_status
           FROM pharos.rule_hit_exclusion_audit exclusion_audit
+          LEFT JOIN pharos.reg_reportable_activity rra_exclusion
+              ON rra_exclusion.txn_sur_key = exclusion_audit.external_txn_key
           WHERE exclusion_audit.rpt_grp_id = :reportGroupId
             AND exclusion_audit.processing_batch_id = :batchId
 
@@ -178,9 +243,35 @@ final class TransactionReportNativeQueries {
               rule_hit_matches.send_date::text AS send_date,
               rule_hit_matches.galactic_id AS galactic_id,
               rule_hit_matches.bucket_id AS bucket_id,
-              rule_hit_matches.attempt_id AS attempt_id
+              rule_hit_matches.attempt_id AS attempt_id,
+              rra_rule_hit.s_party_name AS sender_name,
+              rra_rule_hit.r_party_name AS receiver_name,
+              rra_rule_hit.s_party_city AS sender_city,
+              rra_rule_hit.s_party_country_of_residence AS sender_country,
+              rra_rule_hit.s_party_phone_number AS sender_phone,
+              rra_rule_hit.s_party_date_of_birth AS sender_date_of_birth,
+              rra_rule_hit.s_party_id_type AS sender_id_type,
+              rra_rule_hit.s_party_id_number AS sender_id_number,
+              rra_rule_hit.r_party_city AS receiver_city,
+              rra_rule_hit.r_party_country_of_residence AS receiver_country,
+              rra_rule_hit.r_party_phone_number AS receiver_phone,
+              rra_rule_hit.r_party_date_of_birth AS receiver_date_of_birth,
+              rra_rule_hit.r_party_id_type AS receiver_id_type,
+              rra_rule_hit.r_party_id_number AS receiver_id_number,
+              rra_rule_hit.txn_status AS transaction_status,
+              rra_rule_hit.sub_status AS transaction_sub_status
           FROM rule_hit_matches
+          LEFT JOIN pharos.reg_reportable_activity rra_rule_hit
+              ON rra_rule_hit.txn_sur_key = rule_hit_matches.external_txn_key
           WHERE rule_hit_matches.matched_identifier IS NOT NULL
+      )
+      , evidence AS (
+          SELECT
+              evidence_base.*,
+              COALESCE(rule_hit_rollup.rule_hits_json, '[]') AS rule_hits_json
+          FROM evidence_base
+          LEFT JOIN rule_hit_rollup
+              ON rule_hit_rollup.identifier = evidence_base.identifier
       )
       """;
 
@@ -271,6 +362,7 @@ final class TransactionReportNativeQueries {
   static final String EVIDENCE_RECORDS =
       "WITH "
           + RULE_HIT_MATCHES_CTE
+          + RULE_HIT_ROLLUP_CTE
           + EVIDENCE_CTE
           + METRIC_SCOPED_CTE
           + STAGE_SCOPED_CTE
@@ -302,7 +394,24 @@ final class TransactionReportNativeQueries {
           send_date AS "sendDate",
           galactic_id AS "galacticId",
           bucket_id AS "bucketId",
-          attempt_id AS "attemptId"
+          attempt_id AS "attemptId",
+          sender_name AS "senderName",
+          receiver_name AS "receiverName",
+          sender_city AS "senderCity",
+          sender_country AS "senderCountry",
+          sender_phone AS "senderPhone",
+          sender_date_of_birth AS "senderDateOfBirth",
+          sender_id_type AS "senderIdType",
+          sender_id_number AS "senderIdNumber",
+          receiver_city AS "receiverCity",
+          receiver_country AS "receiverCountry",
+          receiver_phone AS "receiverPhone",
+          receiver_date_of_birth AS "receiverDateOfBirth",
+          receiver_id_type AS "receiverIdType",
+          receiver_id_number AS "receiverIdNumber",
+          transaction_status AS "transactionStatus",
+          transaction_sub_status AS "transactionSubStatus",
+          rule_hits_json AS "ruleHitsJson"
       FROM filtered_evidence
       ORDER BY modified_at DESC NULLS LAST, record_key
       LIMIT :size OFFSET :offset
@@ -317,6 +426,7 @@ final class TransactionReportNativeQueries {
   static final String EVIDENCE_COUNT =
       "WITH "
           + RULE_HIT_MATCHES_CTE
+          + RULE_HIT_ROLLUP_CTE
           + EVIDENCE_CTE
           + METRIC_SCOPED_CTE
           + STAGE_SCOPED_CTE
@@ -333,6 +443,7 @@ final class TransactionReportNativeQueries {
   static final String OUTCOME_BREAKDOWN =
       "WITH "
           + RULE_HIT_MATCHES_CTE
+          + RULE_HIT_ROLLUP_CTE
           + EVIDENCE_CTE
           + METRIC_SCOPED_CTE
           + STAGE_SCOPED_CTE
@@ -354,6 +465,7 @@ final class TransactionReportNativeQueries {
   static final String STAGE_BREAKDOWN =
       "WITH "
           + RULE_HIT_MATCHES_CTE
+          + RULE_HIT_ROLLUP_CTE
           + EVIDENCE_CTE
           + METRIC_SCOPED_CTE
           + OUTCOME_SCOPED_CTE

@@ -157,6 +157,40 @@ public interface TransactionReportRepository
     Integer getBucketId();
 
     Long getAttemptId();
+
+    String getSenderName();
+
+    String getReceiverName();
+
+    String getSenderCity();
+
+    String getSenderCountry();
+
+    String getSenderPhone();
+
+    String getSenderDateOfBirth();
+
+    String getSenderIdType();
+
+    String getSenderIdNumber();
+
+    String getReceiverCity();
+
+    String getReceiverCountry();
+
+    String getReceiverPhone();
+
+    String getReceiverDateOfBirth();
+
+    String getReceiverIdType();
+
+    String getReceiverIdNumber();
+
+    String getTransactionStatus();
+
+    String getTransactionSubStatus();
+
+    String getRuleHitsJson();
   }
 
   interface TransactionOutcomeBreakdownProjection {

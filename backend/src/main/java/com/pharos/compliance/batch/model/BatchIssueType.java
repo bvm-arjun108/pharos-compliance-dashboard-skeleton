@@ -2,8 +2,11 @@ package com.pharos.compliance.batch.model;
 
 public enum BatchIssueType {
   ALL,
-  TRANSFORMATION,
+  ACTIVITY_MISSING,
   MISSING_ATTEMPTS,
-  FILTRATION,
-  RECONCILIATION
+  TRANSFORMATION,
+  DUPLICATE_TRANSFORMATION,
+  EXCLUSION,
+  SIMULATED,
+  SOFT_DEDUP
 }

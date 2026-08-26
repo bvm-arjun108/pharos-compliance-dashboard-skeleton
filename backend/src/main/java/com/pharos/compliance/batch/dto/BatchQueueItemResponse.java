@@ -19,10 +19,14 @@ public record BatchQueueItemResponse(
     BatchStatus status,
     long transformationFailures,
     long missingAttempts,
+    long activityMissing,
     long filtrationErrors,
     long reconciliationImbalance,
     long transformerOutput,
     long excludedTransactions,
+    long duplicateTransactions,
+    long simulatedTransactions,
+    long softDedupTransactions,
     long totalIssues,
     @Schema(
             description =

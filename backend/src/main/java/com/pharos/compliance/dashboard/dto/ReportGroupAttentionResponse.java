@@ -11,7 +11,6 @@ public record ReportGroupAttentionResponse(
     @Schema(example = "4") long batchesNeedingAttention,
     @Schema(example = "4") long transformationFailureBatches,
     @Schema(example = "1") long missingAttemptBatches,
-    @Schema(example = "1") long filtrationFailureBatches,
-    @Schema(example = "0") long reconciliationFailureBatches,
+    @Schema(example = "1") long activityMissingBatches,
     @Schema(example = "5596") long totalReportedTransactions,
     @Schema(example = "10") long totalExcludedTransactions) {}

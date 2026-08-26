@@ -268,10 +268,14 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         queueItemStatus(batch),
         batch.getTransformationFailures(),
         batch.getMissingAttempts(),
+        batch.getActivityMissing(),
         batch.getFiltrationErrors(),
         batch.getReconciliationImbalance(),
         batch.getTransformerOutput(),
         batch.getExcludedTransactions(),
+        batch.getDuplicateTransactions(),
+        batch.getSimulatedTransactions(),
+        batch.getSoftDedupTransactions(),
         batch.getTotalIssues(),
         batch.getDiscoveredTransactions());
   }
@@ -289,8 +293,7 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     long totalIssues =
         batch.getTransformationFailures()
             + batch.getMissingAttempts()
-            + batch.getFiltrationErrors()
-            + batch.getReconciliationImbalance();
+            + batch.getActivityMissing();
     boolean transformationBalanced =
         batch.getActualTransformationAttempts()
             == batch.getTransformedActivities() + batch.getTransformationFailures();
@@ -310,6 +313,8 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         totalIssues == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION,
         batch.getTransformationFailures(),
         batch.getMissingAttempts(),
+        batch.getActivityMissing(),
+        batch.getDuplicateTransactions(),
         batch.getFiltrationErrors(),
         batch.getReconciliationImbalance(),
         totalIssues,
@@ -351,6 +356,8 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         0,
         "IN_PROGRESS",
         BatchStatus.NOT_YET_REPORTED,
+        0,
+        0,
         0,
         0,
         0,
