@@ -17,6 +17,7 @@ type BatchIssueType =
   | 'SOFT_DEDUP';
 type BatchMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
 type TransactionMetric =
+  | 'ALL'
   | 'SELECTED'
   | 'ATTEMPTS_FOUND'
   | 'MISSING'

@@ -249,6 +249,9 @@
             </div>
             <p class="preview-subtitle">{{ details.countryName }} · {{ reportPeriodLabel(details) }}</p>
           </div>
+          <button type="button" class="primary-button view-all-transactions-btn" (click)="openTransactionReport('ALL')">
+            View all transactions
+          </button>
         </header>
 
         <section class="preview-context-strip" aria-label="Batch context">

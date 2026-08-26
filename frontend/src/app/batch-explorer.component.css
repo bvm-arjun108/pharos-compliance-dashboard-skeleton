@@ -580,6 +580,10 @@
   font-size: 12px;
 }
 
+.view-all-transactions-btn {
+  flex-shrink: 0;
+}
+
 .preview-context-strip {
   display: grid;
   margin-top: 16px;
