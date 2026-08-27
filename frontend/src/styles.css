@@ -1096,6 +1096,25 @@ button.issue-kpi:focus-visible { outline: 2px solid #865057; outline-offset: 2px
 .attention-table tbody th small { margin-top: 3px; color: #83827a; font-size: 10px; font-weight: 600; }
 .attention-table .number-cell { text-align: right; font-variant-numeric: tabular-nums; }
 
+.attention-pagination {
+  display: flex;
+  padding: 14px 16px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid #e3e1d9;
+}
+.attention-pagination > span { color: #74726a; font-size: 10px; font-weight: 750; }
+.attention-pagination > div { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.attention-pagination button { min-height: 31px; padding: 0 11px; color: #353530; background: #fff; border: 1px solid #cfcdc4; border-radius: 6px; font-size: 10px; font-weight: 800; }
+.attention-pagination button:hover:not(:disabled) { border-color: #9b998f; }
+.attention-pagination button:disabled { color: #aaa89f; background: #f0efea; cursor: not-allowed; }
+
+.attention-page-number { min-width: 31px; padding: 0 8px; }
+.attention-page-number.is-active { color: #151513; background: #ffdd00; border-color: #e4c700; }
+.attention-page-ellipsis { padding: 0 2px; color: #aaa89f; font-size: 10px; font-weight: 800; }
+
 .sort-header {
   display: block;
   width: 100%;

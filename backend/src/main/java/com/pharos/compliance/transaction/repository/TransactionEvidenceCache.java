@@ -19,6 +19,16 @@ import org.springframework.stereotype.Component;
  * {@code @Cacheable} on a repository interface method is silently never invoked (only Spring Data's
  * own built-in {@code @Transactional} support gets wired into that proxy). A real bean like this
  * one goes through standard bean post-processing, so {@code @Cacheable} works as expected.
+ *
+ * <p>None of the methods below specify an explicit {@code key} — Spring's default {@code
+ * SimpleKeyGenerator} hashes the full parameter list automatically. That's deliberate: these
+ * methods have grown to 6-12 parameters each as filters were added over time, and a hand-written
+ * SpEL key string has to be manually kept in sync with that list. Miss one when adding a new
+ * parameter and two genuinely different queries silently collide on the same cache entry, each
+ * serving the other's stale result — a correctness bug with no compiler or test signal. Letting
+ * the framework derive the key from every argument removes that failure mode entirely; every
+ * parameter here is a primitive, String, LocalDateTime, or List<Integer>, all of which already
+ * have correct value-based equals/hashCode, so this is behavior-preserving.
  */
 @Component
 public class TransactionEvidenceCache {
@@ -29,20 +39,13 @@ public class TransactionEvidenceCache {
     this.repository = repository;
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.TRANSACTION_REPORT_CONTEXT,
-      key = "#reportGroupId + ':' + #batchId + ':' + #sequenceNumber")
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_REPORT_CONTEXT)
   public Optional<TransactionReportContextProjection> findReportContext(
       int reportGroupId, String batchId, int sequenceNumber) {
     return repository.findReportContext(reportGroupId, batchId, sequenceNumber);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_RECORDS,
-      key =
-          "#reportGroupId + ':' + #batchId + ':' + #metric + ':' + #search + ':' + #source"
-              + " + ':' + #stage + ':' + #outcome + ':' + #status + ':' + #sortDirection + ':'"
-              + " + #size + ':' + #offset")
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_RECORDS)
   public List<TransactionEvidenceProjection> findEvidenceRecords(
       int reportGroupId,
       String batchId,
@@ -60,11 +63,7 @@ public class TransactionEvidenceCache {
         size, offset);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_COUNT,
-      key =
-          "#reportGroupId + ':' + #batchId + ':' + #metric + ':' + #search + ':' + #source"
-              + " + ':' + #stage + ':' + #outcome + ':' + #status")
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_COUNT)
   public long countEvidenceRecords(
       int reportGroupId,
       String batchId,
@@ -78,11 +77,7 @@ public class TransactionEvidenceCache {
         reportGroupId, batchId, metric, search, source, stage, outcome, status);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.TRANSACTION_OUTCOME_BREAKDOWN,
-      key =
-          "#reportGroupId + ':' + #batchId + ':' + #metric + ':' + #search + ':' + #source"
-              + " + ':' + #stage")
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_OUTCOME_BREAKDOWN)
   public TransactionOutcomeBreakdownProjection findOutcomeBreakdown(
       int reportGroupId,
       String batchId,
@@ -93,11 +88,7 @@ public class TransactionEvidenceCache {
     return repository.findOutcomeBreakdown(reportGroupId, batchId, metric, search, source, stage);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.TRANSACTION_STAGE_BREAKDOWN,
-      key =
-          "#reportGroupId + ':' + #batchId + ':' + #metric + ':' + #search + ':' + #source"
-              + " + ':' + #outcome")
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_STAGE_BREAKDOWN)
   public List<TransactionStageBreakdownProjection> findStageBreakdown(
       int reportGroupId,
       String batchId,
@@ -108,11 +99,7 @@ public class TransactionEvidenceCache {
     return repository.findStageBreakdown(reportGroupId, batchId, metric, search, source, outcome);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.PERIOD_TRANSACTION_AGGREGATE,
-      key =
-          "#fromTimestamp + ':' + #toTimestampExclusive + ':' + #filterByCountry + ':'"
-              + " + #reportGroupIds + ':' + #filterByReportGroup + ':' + #reportGroupId")
+  @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_AGGREGATE)
   public PeriodAggregateProjection findPeriodAggregate(
       LocalDateTime fromTimestamp,
       LocalDateTime toTimestampExclusive,
@@ -125,13 +112,7 @@ public class TransactionEvidenceCache {
         reportGroupId);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_RECORDS,
-      key =
-          "#fromTimestamp + ':' + #toTimestampExclusive + ':' + #filterByCountry + ':'"
-              + " + #reportGroupIds + ':' + #filterByReportGroup + ':' + #reportGroupId + ':'"
-              + " + #search + ':' + #outcome + ':' + #status + ':' + #sortDirection + ':'"
-              + " + #size + ':' + #offset")
+  @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_RECORDS)
   public List<TransactionEvidenceProjection> findPeriodEvidenceRecords(
       LocalDateTime fromTimestamp,
       LocalDateTime toTimestampExclusive,
@@ -150,12 +131,7 @@ public class TransactionEvidenceCache {
         reportGroupId, search, outcome, status, sortDirection, size, offset);
   }
 
-  @Cacheable(
-      cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_COUNT,
-      key =
-          "#fromTimestamp + ':' + #toTimestampExclusive + ':' + #filterByCountry + ':'"
-              + " + #reportGroupIds + ':' + #filterByReportGroup + ':' + #reportGroupId + ':'"
-              + " + #search + ':' + #outcome + ':' + #status")
+  @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_COUNT)
   public long countPeriodEvidenceRecords(
       LocalDateTime fromTimestamp,
       LocalDateTime toTimestampExclusive,

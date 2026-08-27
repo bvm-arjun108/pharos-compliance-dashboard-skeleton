@@ -635,7 +635,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (group of sortedReportGroups(details.reportGroupsRequiringAttention); track group.reportGroupId; let rank = $index) {
+                  @for (group of pagedReportGroups(details.reportGroupsRequiringAttention); track group.reportGroupId; let rank = $index) {
                     <tr>
                       <th scope="row">
                         <button
@@ -644,7 +644,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                           (click)="openReportGroupExplorer(group)"
                           [attr.aria-label]="'View all batches for ' + (group.reportGroupName || 'report group ' + group.reportGroupId)"
                         >
-                          <span class="rank-badge">{{ rank + 1 }}</span>
+                          <span class="rank-badge">{{ rank + 1 + attentionPage() * attentionPageSize }}</span>
                           <span>
                             <strong>{{ group.reportGroupName || 'Report Group' }}</strong>
                             <small>ID {{ group.reportGroupId }}</small>
@@ -701,6 +701,20 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                 </tbody>
               </table>
             </div>
+            <footer class="attention-pagination">
+              <span>{{ attentionPageRange(details.reportGroupsRequiringAttention.length) }}</span>
+              <div>
+                <button type="button" (click)="previousAttentionPage()" [disabled]="attentionPage() === 0">← Previous</button>
+                @for (item of attentionPageNumbers(details.reportGroupsRequiringAttention.length); track $index) {
+                  @if (item === '…') {
+                    <span class="attention-page-ellipsis">…</span>
+                  } @else {
+                    <button type="button" class="attention-page-number" [class.is-active]="item === attentionPage() + 1" [attr.aria-current]="item === attentionPage() + 1 ? 'page' : null" (click)="goToAttentionPage(item)">{{ item }}</button>
+                  }
+                }
+                <button type="button" (click)="nextAttentionPage(details.reportGroupsRequiringAttention.length)" [disabled]="(attentionPage() + 1) * attentionPageSize >= details.reportGroupsRequiringAttention.length">Next →</button>
+              </div>
+            </footer>
           }
         }
       </div>
@@ -723,6 +737,8 @@ export class HomeComponent implements OnInit {
   readonly reportGroupOptions = signal<ReportGroupOption[]>([]);
   readonly attentionSortColumn = signal<AttentionSortColumn>('batchesNeedingAttention');
   readonly attentionSortDirection = signal<AttentionSortDirection>('desc');
+  readonly attentionPage = signal(0);
+  readonly attentionPageSize = 10;
 
   constructor(
     private readonly http: HttpClient,
@@ -861,6 +877,7 @@ export class HomeComponent implements OnInit {
       this.attentionSortColumn.set(column);
       this.attentionSortDirection.set(column === 'name' ? 'asc' : 'desc');
     }
+    this.attentionPage.set(0);
   }
 
   sortedReportGroups(groups: ReportGroupAttention[]): ReportGroupAttention[] {
@@ -874,6 +891,66 @@ export class HomeComponent implements OnInit {
       }
       return (a[column] - b[column]) * direction;
     });
+  }
+
+  /** Sorted, then sliced to the current page — 10 rows at a time so a long attention list stays
+   *  scannable instead of stretching the page indefinitely. */
+  pagedReportGroups(groups: ReportGroupAttention[]): ReportGroupAttention[] {
+    const sorted = this.sortedReportGroups(groups);
+    const start = this.attentionPage() * this.attentionPageSize;
+    return sorted.slice(start, start + this.attentionPageSize);
+  }
+
+  attentionTotalPages(totalCount: number): number {
+    return Math.max(1, Math.ceil(totalCount / this.attentionPageSize));
+  }
+
+  attentionPageRange(totalCount: number): string {
+    if (totalCount === 0) {
+      return '0 of 0';
+    }
+    const start = this.attentionPage() * this.attentionPageSize + 1;
+    const end = Math.min(start + this.attentionPageSize - 1, totalCount);
+    return `${start}–${end} of ${totalCount}`;
+  }
+
+  attentionPageNumbers(totalCount: number): (number | '…')[] {
+    const total = this.attentionTotalPages(totalCount);
+    const current = this.attentionPage() + 1;
+    const delta = 2;
+    const rangeStart = Math.max(2, current - delta);
+    const rangeEnd = Math.min(total - 1, current + delta);
+
+    const pages: (number | '…')[] = [1];
+    if (rangeStart > 2) {
+      pages.push('…');
+    }
+    for (let i = rangeStart; i <= rangeEnd; i++) {
+      pages.push(i);
+    }
+    if (rangeEnd < total - 1) {
+      pages.push('…');
+    }
+    if (total > 1) {
+      pages.push(total);
+    }
+    return pages;
+  }
+
+  previousAttentionPage(): void {
+    if (this.attentionPage() > 0) {
+      this.attentionPage.set(this.attentionPage() - 1);
+    }
+  }
+
+  nextAttentionPage(totalCount: number): void {
+    if (this.attentionPage() + 1 < this.attentionTotalPages(totalCount)) {
+      this.attentionPage.set(this.attentionPage() + 1);
+    }
+  }
+
+  goToAttentionPage(pageNumber: number): void {
+    this.attentionPage.set(pageNumber - 1);
   }
 
   attentionSortIndicator(column: AttentionSortColumn): string {
@@ -1145,6 +1222,7 @@ export class HomeComponent implements OnInit {
 
     this.http.get<DashboardDetailsResponse>('/dashboardDetails', { params }).subscribe({
       next: details => {
+        this.attentionPage.set(0);
         this.dashboardDetails.set({
           ...details,
           batchHealthTrend: details.batchHealthTrend.map(period => ({
