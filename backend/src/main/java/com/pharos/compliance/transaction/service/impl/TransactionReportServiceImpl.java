@@ -241,11 +241,18 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                             normalizedSearch,
                             outcome.name(),
                             status.name());
-                    long aggregateCount = aggregate.getTotalExcluded();
-                    // Unlike the single-batch report, there is only one metric here (EXCLUDED),
-                    // so "available" and "matching" always coincide — no separate unfiltered probe
-                    // is needed to distinguish "available under this metric" from "matching this
-                    // exact filter".
+                    // The reconciliation-sourced excluded_txn sum is only a meaningful "aggregate"
+                    // to compare record counts against when the user is actually viewing Excluded
+                    // evidence — it has no equivalent for Success/Reported/etc, so treating it as
+                    // the aggregate for every status would make evidenceLevel/evidenceMessage
+                    // compare unrelated numbers (e.g. "25 records for an aggregate of 37" while
+                    // viewing Success, where 37 is the unrelated excluded count). For every other
+                    // status, the matching record count IS the full picture, so it doubles as its
+                    // own aggregate.
+                    long aggregateCount =
+                        status == TransactionStatus.EXCLUDED
+                            ? aggregate.getTotalExcluded()
+                            : matchingCount;
                     long availableRecordCount = matchingCount;
                     TransactionEvidenceLevel evidenceLevel =
                         evidenceLevel(aggregateCount, availableRecordCount);
@@ -265,7 +272,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                             fromDate,
                             toDate,
                             aggregate.getBatchCount()),
-                        "Excluded transactions",
+                        periodMetricLabel(status),
                         aggregateCount,
                         availableRecordCount,
                         matchingCount,
@@ -448,6 +455,22 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case FILTRATION_VARIANCE -> "Filtration variance";
       case RECONCILIATION_VARIANCE -> "Reconciliation variance";
       case TRANSFORMER_OUTPUT -> "Transformer output";
+    };
+  }
+
+  /** Unlike the single-batch report (one fixed metric per page), the period-wide report's only
+   *  axis is the status filter — the heading reflects whatever status is currently selected,
+   *  since a user can pivot it freely to browse any evidence for the scoped report group/period. */
+  private String periodMetricLabel(TransactionStatus status) {
+    return switch (status) {
+      case ALL -> "All transactions";
+      case SUCCESS -> "Successful transactions";
+      case FAILED -> "Failed transactions";
+      case ERROR -> "Error transactions";
+      case EXCLUDED -> "Excluded transactions";
+      case NOT_YET_REPORTED -> "Not yet reported transactions";
+      case REPORTED -> "Reported transactions";
+      case NOT_REPORTED -> "Not reported transactions";
     };
   }
 
