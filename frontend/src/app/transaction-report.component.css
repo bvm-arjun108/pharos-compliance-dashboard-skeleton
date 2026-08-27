@@ -45,7 +45,7 @@
 
 /* Variant for the dark context-strip ribbon — the default gold-on-light styling above is
    unreadable against its near-black background. */
-.batch-link--dark { color: #f5f5f1; }
+.batch-link--dark { color: #f5f5f1; text-decoration: none; }
 .batch-link--dark:hover,
 .batch-link--dark:focus-visible { color: #ffdd00; }
 

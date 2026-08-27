@@ -265,10 +265,22 @@ export class TransactionReportComponent implements OnInit {
     this.status.set((event.target as HTMLSelectElement).value as TransactionStatus);
   }
 
+  /** Client-side only — re-orders the already-loaded page of records, no refetch. */
   toggleSortDirection(): void {
-    this.updateRoute({
-      sortDirection: this.sortDirection() === 'DESC' ? 'ASC' : 'DESC',
-      page: 0
+    this.sortDirection.set(this.sortDirection() === 'DESC' ? 'ASC' : 'DESC');
+  }
+
+  /** Sorts the current page's records by modifiedAt in-browser; nulls always sort last,
+   *  matching the backend's own NULLS LAST convention for the initial fetch order. */
+  sortedTransactions(transactions: TransactionEvidenceRecord[]): TransactionEvidenceRecord[] {
+    const ascending = this.sortDirection() === 'ASC';
+    return [...transactions].sort((a, b) => {
+      if (a.modifiedAt === null && b.modifiedAt === null) return 0;
+      if (a.modifiedAt === null) return 1;
+      if (b.modifiedAt === null) return -1;
+      const aTime = Date.parse(a.modifiedAt);
+      const bTime = Date.parse(b.modifiedAt);
+      return ascending ? aTime - bTime : bTime - aTime;
     });
   }
 
@@ -433,6 +445,26 @@ export class TransactionReportComponent implements OnInit {
       return { primary: first.message, extras };
     }
     return { primary: this.humanizeIfCode(raw), extras: [] };
+  }
+
+  /** Same shape as recordDetail, but scoped strictly to record.skipReason (not the
+   *  exclusionReason/comments fallback chain) — used for the expanded "Skip reason" field so it
+   *  renders the underlying exception JSON as readable text instead of the raw payload. */
+  skipReasonDetail(record: TransactionEvidenceRecord): EvidenceDetail {
+    if (!record.skipReason) {
+      return { primary: 'Not available', extras: [] };
+    }
+    const issues = this.parseIssueList(record.skipReason);
+    if (issues) {
+      const [first, ...rest] = issues;
+      const extras: string[] = [];
+      if (first.field) { extras.push(`Field: ${first.field}`); }
+      if (first.ruleSet) { extras.push(`Rule set: ${this.humanize(first.ruleSet)}`); }
+      if (first.errorCode) { extras.push(`Error code: ${first.errorCode}`); }
+      if (rest.length > 0) { extras.push(`+${rest.length} more issue${rest.length > 1 ? 's' : ''}`); }
+      return { primary: first.message, extras };
+    }
+    return { primary: this.humanizeIfCode(record.skipReason), extras: [] };
   }
 
   /** Converts a SCREAMING_SNAKE_CASE / mixed(PAREN) code into "Screaming Snake Case (Paren)". */

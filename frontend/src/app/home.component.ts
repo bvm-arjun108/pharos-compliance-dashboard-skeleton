@@ -324,7 +324,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           } @else if (dashboardDetails(); as details) {
             <div class="transaction-overview-body">
               <div class="exclusion-gauge">
-                <svg class="exclusion-gauge__svg" viewBox="0 0 220 130" aria-hidden="true">
+                <svg class="exclusion-gauge__svg" viewBox="0 0 220 116" aria-hidden="true">
                   <path class="exclusion-gauge__band exclusion-gauge__band--healthy" d="M20,110 A90,90 0 0 1 46.36,46.36" />
                   <path class="exclusion-gauge__band exclusion-gauge__band--low" d="M46.36,46.36 A90,90 0 0 1 110,20" />
                   <path class="exclusion-gauge__band exclusion-gauge__band--elevated" d="M110,20 A90,90 0 0 1 173.64,46.36" />
@@ -337,6 +337,9 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   />
                   <circle class="exclusion-gauge__hub" cx="110" cy="110" r="6" />
                 </svg>
+                <!-- Sits in normal flow below the arc (not overlaid on it) so the needle —
+                     whose tip never dips below the hub's y-coordinate — can never cross this text,
+                     regardless of the exclusion rate's angle. -->
                 <div class="exclusion-gauge__readout">
                   <strong [style.color]="gaugeZoneColor(exclusionRatePercent(details))">{{ formatExclusionRate(exclusionRatePercent(details)) }}</strong>
                   <span>Exclusion Rate</span>

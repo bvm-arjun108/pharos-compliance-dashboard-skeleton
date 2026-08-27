@@ -271,18 +271,35 @@ export class ReportConfigComponent implements OnInit {
       return [];
     }
 
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(value);
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        return [{ label: 'Configuration', value: this.formatConfigValue(parsed) }];
-      }
-      return Object.entries(parsed).map(([key, entryValue]) => ({
-        label: this.formatConfigLabel(key),
-        value: this.formatConfigValue(entryValue)
-      }));
+      parsed = JSON.parse(value);
     } catch {
       return [{ label: 'Configuration', value }];
     }
+
+    // A handful of rows have been double-encoded — the jsonb column holds a JSON *string*
+    // whose own contents are another JSON blob, rather than a plain JSON object. Unwrap one
+    // more level so the individual fields render normally instead of leaking raw JSON text
+    // into the card as a single "Configuration" entry.
+    if (typeof parsed === 'string') {
+      try {
+        const reparsed: unknown = JSON.parse(parsed);
+        if (typeof reparsed === 'object' && reparsed !== null && !Array.isArray(reparsed)) {
+          parsed = reparsed;
+        }
+      } catch {
+        // Not double-encoded — fall through and format the string as-is below.
+      }
+    }
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return [{ label: 'Configuration', value: this.formatConfigValue(parsed) }];
+    }
+    return Object.entries(parsed).map(([key, entryValue]) => ({
+      label: this.formatConfigLabel(key),
+      value: this.formatConfigValue(entryValue)
+    }));
   }
 
   private configuredEntries(entries: Array<[string, string | null]>): ConfigurationEntry[] {

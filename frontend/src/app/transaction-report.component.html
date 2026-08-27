@@ -104,7 +104,7 @@
                 </tr>
               </thead>
               <tbody>
-                @for (record of result.transactions; track record.recordKey) {
+                @for (record of sortedTransactions(result.transactions); track record.recordKey) {
                   <tr class="transaction-row" [class.transaction-row--expanded]="expandedRecordKey() === record.recordKey" (click)="toggleExpanded(record.recordKey)">
                     <th scope="row">
                       <strong>{{ record.identifier }}</strong>
@@ -121,7 +121,6 @@
                     <td>{{ humanize(record.comments) }}</td>
                     <td>
                       <strong>{{ recordDetail(record).primary }}</strong>
-                      @for (extra of recordDetail(record).extras; track extra) { <small>{{ extra }}</small> }
                       @if (record.reportedBatchId) { <small>Previously reported in <button type="button" class="batch-link" (click)="viewBatch(record.reportedBatchId, $event)">{{ record.reportedBatchId }}</button></small> }
                     </td>
                     <td><time>{{ record.modifiedAt | date:'MMM d, y, h:mm a' }}</time></td>
@@ -154,7 +153,11 @@
                             <div><span>Transaction status</span><strong>{{ record.transactionStatus || 'Not available' }}</strong></div>
                             <div><span>Sub status</span><strong>{{ record.transactionSubStatus || 'Not available' }}</strong></div>
                             <div class="transaction-detail-grid-span"><span>Comments</span><strong>{{ record.comments || 'Not available' }}</strong></div>
-                            <div class="transaction-detail-grid-span"><span>Skip reason</span><strong>{{ record.skipReason || 'Not available' }}</strong></div>
+                            <div class="transaction-detail-grid-span">
+                              <span>Skip reason</span>
+                              <strong>{{ skipReasonDetail(record).primary }}</strong>
+                              @for (extra of skipReasonDetail(record).extras; track extra) { <small>{{ extra }}</small> }
+                            </div>
                           </div>
                         </div>
                         <div class="transaction-detail-section transaction-detail-section--rule">

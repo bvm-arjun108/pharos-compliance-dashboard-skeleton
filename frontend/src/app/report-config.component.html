@@ -173,9 +173,8 @@
             <div><p>Identity & coverage</p><h3 id="identity-heading">Where this report applies</h3></div>
             <time>Modified {{ details.versioning.modifiedAt | date:'MMM d, y, h:mm a' }}</time>
           </div>
-          <dl class="definition-grid definition-grid--five">
+          <dl class="definition-grid definition-grid--four">
             <div><dt>Country</dt><dd>{{ details.identity.countryName }} ({{ details.identity.countryCode }})</dd></div>
-            <div><dt>Three-letter code</dt><dd>{{ configuredValue(details.identity.threeLetterCountryCode) }}</dd></div>
             <div><dt>Region</dt><dd>{{ configuredValue(details.identity.regionName) }}</dd></div>
             <div><dt>Report type</dt><dd>{{ configuredValue(details.identity.reportType) }}</dd></div>
             <div><dt>Currency</dt><dd>{{ configuredValue(details.identity.reportCurrency) }}</dd></div>

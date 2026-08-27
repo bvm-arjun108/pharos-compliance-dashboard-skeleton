@@ -576,7 +576,15 @@ main {
 
 .transaction-totals > div:last-child { padding-right: 0; border-right: 0; }
 .transaction-totals span { display: block; color: #696961; font-size: 10px; font-weight: 750; text-transform: uppercase; }
-.transaction-totals strong { display: block; margin-top: 6px; color: #20201d; font-size: 25px; letter-spacing: -.035em; }
+.transaction-totals strong {
+  display: block;
+  margin-top: 6px;
+  color: #20201d;
+  font-size: 20px;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
 
 .transaction-overview-body {
   display: flex;
@@ -593,7 +601,7 @@ main {
   gap: 8px;
 }
 
-.exclusion-gauge { position: relative; flex: 0 0 auto; width: 190px; }
+.exclusion-gauge { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; width: 190px; }
 .exclusion-gauge__svg { display: block; width: 100%; height: auto; }
 .exclusion-gauge__band { fill: none; stroke-width: 18; stroke-linecap: round; }
 .exclusion-gauge__band--healthy { stroke: #6f927f; }
@@ -603,23 +611,22 @@ main {
 .exclusion-gauge__needle { stroke: #1c2430; stroke-width: 4; stroke-linecap: round; }
 .exclusion-gauge__hub { fill: #1c2430; }
 
+/* Normal document flow, directly under the arc — never overlaid on the needle's sweep area,
+   unlike an absolutely-positioned overlay would be. */
 .exclusion-gauge__readout {
-  position: absolute;
-  top: 58%;
-  left: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translate(-50%, -50%);
+  margin-top: 8px;
   text-align: center;
 }
-.exclusion-gauge__readout strong { font-size: 17px; letter-spacing: -.02em; line-height: 1.1; }
-.exclusion-gauge__readout span { margin-top: 1px; color: #696961; font-size: 7px; font-weight: 750; letter-spacing: .02em; text-transform: uppercase; }
+.exclusion-gauge__readout strong { font-size: 19px; letter-spacing: -.02em; line-height: 1.1; }
+.exclusion-gauge__readout span { margin-top: 2px; color: #696961; font-size: 8px; font-weight: 750; letter-spacing: .02em; text-transform: uppercase; }
 
 .exclusion-gauge__legend {
   display: flex;
   flex-wrap: wrap;
-  margin-top: 9px;
+  margin-top: 14px;
   gap: 5px 12px;
   color: #696961;
   font-size: 9px;
@@ -661,7 +668,7 @@ main {
 }
 .exclusion-alert__triangle { fill: var(--failure-red); }
 .exclusion-alert__mark { fill: #fff; }
-.exclusion-alert strong { display: block; color: #63343a; font-size: 22px; letter-spacing: -.02em; }
+.exclusion-alert strong { display: block; color: #63343a; font-size: 22px; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .exclusion-alert span { display: block; margin-top: 1px; color: #76575b; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .kpi-card--transactions > .transaction-overview-note { margin-top: 12px; }
 
