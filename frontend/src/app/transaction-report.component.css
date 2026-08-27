@@ -328,6 +328,7 @@
 .transaction-no-records strong { color: #34342f; font-size: 14px; }
 .transaction-no-records p { max-width: 590px; margin: 7px 0 0; font-size: 11px; line-height: 1.5; }
 .transaction-message--error { color: #8c3f46; }
+.transaction-message .loading-ring { margin-bottom: 10px; }
 
 .transaction-empty-state { min-height: 560px; }
 .transaction-empty-state > span { max-width: 600px; margin-top: 14px; font-size: 14px; line-height: 1.5; }

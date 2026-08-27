@@ -9,6 +9,23 @@
 
 * { box-sizing: border-box; }
 
+/* Shared loading indicator — global (not component-scoped) so every page's loading state can use
+   it without redefining it; was previously only defined inside batch-explorer.component.css,
+   which Angular's style encapsulation kept invisible to every other component that referenced the
+   same class name (e.g. transaction-report rendered an empty, unstyled <span>). */
+.loading-ring {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d9d7cf;
+  border-top-color: #ffdd00;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 body {
   margin: 0;
   min-width: 320px;
