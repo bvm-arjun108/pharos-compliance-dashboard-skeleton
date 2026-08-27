@@ -7,9 +7,9 @@ import reactor.core.publisher.Mono;
 public interface DashboardService {
 
   default Mono<DashboardDetailsResponse> getDashboardDetails(LocalDate fromDate, LocalDate toDate) {
-    return getDashboardDetails(fromDate, toDate, "", "ALL");
+    return getDashboardDetails(fromDate, toDate, "", "ALL", null);
   }
 
   Mono<DashboardDetailsResponse> getDashboardDetails(
-      LocalDate fromDate, LocalDate toDate, String batchId, String country);
+      LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId);
 }

@@ -172,9 +172,8 @@ final class BatchExplorerNativeQueries {
               CASE WHEN :metricFocus = 'REPORTED' THEN transformer_output END DESC NULLS LAST,
               CASE WHEN :metricFocus = 'EXCLUDED' THEN excluded_transactions END DESC NULLS LAST,
               CASE WHEN status_bucket = 'NOT_YET_REPORTED' THEN 1 ELSE 0 END,
-              CASE WHEN total_issues > 0 THEN 0 ELSE 1 END,
-              total_issues DESC,
               completed_at DESC NULLS LAST,
+              started_at DESC NULLS LAST,
               batch_id
           LIMIT :size OFFSET :offset
           """;

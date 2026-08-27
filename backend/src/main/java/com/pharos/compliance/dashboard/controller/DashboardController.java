@@ -20,7 +20,7 @@ public class DashboardController implements DashboardApi {
 
   @Override
   public Mono<DashboardDetailsResponse> getDashboardDetails(
-      LocalDate fromDate, LocalDate toDate, String batchId, String country) {
-    return dashboardService.getDashboardDetails(fromDate, toDate, batchId, country);
+      LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId) {
+    return dashboardService.getDashboardDetails(fromDate, toDate, batchId, country, reportGroupId);
   }
 }

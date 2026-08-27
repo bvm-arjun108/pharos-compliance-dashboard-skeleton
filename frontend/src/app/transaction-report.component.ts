@@ -23,21 +23,27 @@ type TransactionMetric =
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
 type TransactionEvidenceSource = 'ALL' | 'JOURNEY' | 'EXCLUSION_AUDIT' | 'RULE_HIT';
-type TransactionStage =
-  | 'ALL'
-  | 'SELECTION'
-  | 'TRANSACTION_JOIN'
-  | 'TRANSFORMATION'
-  | 'EXCLUSION'
-  | 'RULE_HIT';
 type TransactionOutcome = 'ALL' | 'SUCCESS' | 'ERROR' | 'PENDING' | 'EXCLUDED';
+type TransactionStatus =
+  | 'ALL'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'ERROR'
+  | 'EXCLUDED'
+  | 'NOT_YET_REPORTED'
+  | 'REPORTED'
+  | 'NOT_REPORTED';
 type TransactionEvidenceLevel =
   | 'RECORD_LEVEL'
   | 'PARTIAL_RECORD_LEVEL'
   | 'AGGREGATE_ONLY'
   | 'NO_RECORDS';
+type TransactionSortDirection = 'ASC' | 'DESC';
 
-interface TransactionReportContext {
+type ReportMode = 'BATCH' | 'PERIOD';
+
+interface BatchReportContext {
+  kind: 'BATCH';
   reportGroupId: number;
   reportGroupName: string | null;
   batchId: string;
@@ -48,10 +54,26 @@ interface TransactionReportContext {
   reportingPeriodTo: string | null;
 }
 
+/** No single batch — a KPI (e.g. total excluded transactions) can span many batches, so this
+ *  covers every batch matching the date range / report group / country filter instead. */
+interface PeriodReportContext {
+  kind: 'PERIOD';
+  reportGroupId: number | null;
+  reportGroupName: string | null;
+  countryCode: string;
+  countryName: string;
+  fromDate: string;
+  toDate: string;
+  batchCount: number;
+}
+
+type ReportContext = BatchReportContext | PeriodReportContext;
+
 interface TransactionEvidenceRecord {
   recordKey: string;
   identifier: string;
   mtcn: string | null;
+  batchId: string | null;
   source: Exclude<TransactionEvidenceSource, 'ALL'>;
   stage: string | null;
   status: string | null;
@@ -94,6 +116,11 @@ interface TransactionEvidenceRecord {
   ruleHitsJson: string | null;
 }
 
+interface EvidenceDetail {
+  primary: string;
+  extras: string[];
+}
+
 interface RuleHitSummary {
   ruleId: string | null;
   isReported: boolean | null;
@@ -119,16 +146,32 @@ interface TransactionStageBreakdown {
   totalCount: number;
 }
 
-const PIPELINE_STAGE_ORDER = [
-  'SELECTION',
-  'TRANSACTION_JOIN',
-  'TRANSFORMATION',
-  'EXCLUSION',
-  'RULE_HIT'
-];
-
+/** Normalized shape the template renders, after tagging whichever backend response arrived
+ *  (batch-scoped or period-wide) with its context's `kind`. */
 interface TransactionReportResponse {
-  context: TransactionReportContext;
+  context: ReportContext;
+  metric: TransactionMetric | null;
+  metricLabel: string;
+  aggregateCount: number;
+  availableRecordCount: number;
+  matchingRecordCount: number;
+  evidenceLevel: TransactionEvidenceLevel;
+  evidenceMessage: string;
+  outcomeBreakdown?: TransactionOutcomeBreakdown;
+  stageBreakdown?: TransactionStageBreakdown[];
+  transactions: TransactionEvidenceRecord[];
+  search: string;
+  source?: TransactionEvidenceSource;
+  outcome: TransactionOutcome;
+  status: TransactionStatus;
+  sortDirection?: TransactionSortDirection;
+  page: number;
+  size: number;
+}
+
+/** Raw shape of GET /api/v1/transactions/report, before the context is tagged 'BATCH'. */
+interface RawBatchReportResponse {
+  context: Omit<BatchReportContext, 'kind'>;
   metric: TransactionMetric;
   metricLabel: string;
   aggregateCount: number;
@@ -141,8 +184,27 @@ interface TransactionReportResponse {
   transactions: TransactionEvidenceRecord[];
   search: string;
   source: TransactionEvidenceSource;
-  stage: TransactionStage;
   outcome: TransactionOutcome;
+  status: TransactionStatus;
+  sortDirection?: TransactionSortDirection;
+  page: number;
+  size: number;
+}
+
+/** Raw shape of GET /api/v1/transactions/period-report, before the context is tagged 'PERIOD'. */
+interface RawPeriodReportResponse {
+  context: Omit<PeriodReportContext, 'kind'>;
+  metricLabel: string;
+  aggregateCount: number;
+  availableRecordCount: number;
+  matchingRecordCount: number;
+  evidenceLevel: TransactionEvidenceLevel;
+  evidenceMessage: string;
+  transactions: TransactionEvidenceRecord[];
+  search: string;
+  outcome: TransactionOutcome;
+  status: TransactionStatus;
+  sortDirection?: TransactionSortDirection;
   page: number;
   size: number;
 }
@@ -163,16 +225,22 @@ export class TransactionReportComponent implements OnInit {
   readonly report = signal<TransactionReportResponse | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
-  readonly hasBatchContext = signal(false);
+  readonly hasContext = signal(false);
+  readonly mode = signal<ReportMode | null>(null);
 
   readonly reportGroupId = signal<number | null>(null);
   readonly batchId = signal('');
   readonly sequenceNumber = signal<number | null>(null);
+  // Period mode only — the date range / country a KPI's total was computed over, when there is
+  // no single batch to scope the report to.
+  readonly fromDate = signal('');
+  readonly toDate = signal('');
+  readonly country = signal('ALL');
   readonly metric = signal<TransactionMetric>('ALL');
   readonly search = signal('');
   readonly source = signal<TransactionEvidenceSource>('ALL');
-  readonly stage = signal<TransactionStage>('ALL');
-  readonly outcome = signal<TransactionOutcome>('ALL');
+  readonly status = signal<TransactionStatus>('ALL');
+  readonly sortDirection = signal<TransactionSortDirection>('DESC');
   readonly page = signal(0);
   readonly size = signal(25);
   readonly expandedRecordKey = signal<string | null>(null);
@@ -180,7 +248,7 @@ export class TransactionReportComponent implements OnInit {
   ngOnInit(): void {
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
       this.readRouteState(params);
-      if (this.hasBatchContext()) {
+      if (this.hasContext()) {
         this.loadReport();
       } else {
         this.report.set(null);
@@ -193,26 +261,28 @@ export class TransactionReportComponent implements OnInit {
     this.search.set((event.target as HTMLInputElement).value);
   }
 
-  setStage(event: Event): void {
-    this.stage.set((event.target as HTMLSelectElement).value as TransactionStage);
+  setStatus(event: Event): void {
+    this.status.set((event.target as HTMLSelectElement).value as TransactionStatus);
   }
 
-  setOutcome(event: Event): void {
-    this.outcome.set((event.target as HTMLSelectElement).value as TransactionOutcome);
+  toggleSortDirection(): void {
+    this.updateRoute({
+      sortDirection: this.sortDirection() === 'DESC' ? 'ASC' : 'DESC',
+      page: 0
+    });
   }
 
   applyFilters(event: SubmitEvent): void {
     event.preventDefault();
     this.updateRoute({
       search: this.search().trim() || null,
-      stage: this.stage(),
-      outcome: this.outcome(),
+      status: this.status(),
       page: 0
     });
   }
 
   clearFilters(): void {
-    this.updateRoute({ search: null, stage: 'ALL', outcome: 'ALL', page: 0 });
+    this.updateRoute({ search: null, status: 'ALL', page: 0 });
   }
 
   previousPage(): void {
@@ -291,106 +361,108 @@ export class TransactionReportComponent implements OnInit {
     });
   }
 
-  outcomeShare(report: TransactionReportResponse, count: number): number {
-    return report.outcomeBreakdown.totalCount === 0
-      ? 0
-      : (count / report.outcomeBreakdown.totalCount) * 100;
+  /** Same deep link as openBatchView(), but for an arbitrary batch id referenced from a row (its
+   *  own batchId, or a "previously reported in" batch) — not necessarily the batch under
+   *  investigation. Omits sequenceNumber since evidence rows don't carry the target batch's
+   *  reconciliation sequence; the explorer falls back to the first (only) match for that batch id.
+   *  Also omits reportGroupId in period mode: the page's own reportGroupId filter (often null, for
+   *  "all report groups") isn't necessarily the group that batch actually belongs to when the
+   *  period spans more than one — batchId text-matches uniquely on its own. */
+  viewBatch(batchId: string | null, event: Event): void {
+    event.stopPropagation();
+    if (!batchId) {
+      return;
+    }
+    const queryParams: Record<string, string | number | null> = {
+      batchId,
+      fromDate: '2000-01-01',
+      toDate: '2099-12-31'
+    };
+    if (this.mode() === 'BATCH') {
+      queryParams['reportGroupId'] = this.reportGroupId();
+    }
+    void this.router.navigate(['/batches/explorer'], { queryParams });
+  }
+
+  viewReportConfig(reportGroupId: number | null, event: Event): void {
+    event.stopPropagation();
+    if (reportGroupId === null) {
+      return;
+    }
+    void this.router.navigate(['/report-config'], {
+      queryParams: { reportGroupId, status: 'ALL' }
+    });
   }
 
   outcomeSummary(report: TransactionReportResponse): string {
     const breakdown = report.outcomeBreakdown;
+    if (!breakdown) {
+      return '';
+    }
     return `${breakdown.successCount} success, ${breakdown.errorCount} error, ${breakdown.pendingCount} pending, ${breakdown.excludedCount} excluded, out of ${breakdown.totalCount} total`;
   }
 
-  setOutcomeFilter(value: TransactionOutcome): void {
-    this.updateRoute({ outcome: value, page: 0 });
-  }
-
-  toggleOutcomeFilter(value: Exclude<TransactionOutcome, 'ALL'>): void {
-    this.setOutcomeFilter(this.outcome() === value ? 'ALL' : value);
-  }
-
-  sortedStageBreakdown(report: TransactionReportResponse): TransactionStageBreakdown[] {
-    return [...report.stageBreakdown].sort((a, b) => {
-      const orderA = PIPELINE_STAGE_ORDER.indexOf(a.stage);
-      const orderB = PIPELINE_STAGE_ORDER.indexOf(b.stage);
-      return (orderA === -1 ? PIPELINE_STAGE_ORDER.length : orderA)
-        - (orderB === -1 ? PIPELINE_STAGE_ORDER.length : orderB);
-    });
-  }
-
-  stageShare(row: TransactionStageBreakdown, count: number): number {
-    return row.totalCount === 0 ? 0 : (count / row.totalCount) * 100;
-  }
-
-  stageSummary(row: TransactionStageBreakdown): string {
-    return `${this.stageLabel(row.stage)}: ${row.successCount} success, ${row.errorCount} error, ${row.pendingCount} pending, ${row.excludedCount} excluded, out of ${row.totalCount} total`;
-  }
-
-  toggleStageFilter(value: string): void {
-    this.updateRoute({ stage: this.stage() === value ? 'ALL' : value, page: 0 });
-  }
-
-  filterStageOutcome(stageValue: string, outcomeValue: Exclude<TransactionOutcome, 'ALL'>): void {
-    const alreadyActive = this.stage() === stageValue && this.outcome() === outcomeValue;
-    this.updateRoute({
-      stage: alreadyActive ? 'ALL' : stageValue,
-      outcome: alreadyActive ? 'ALL' : outcomeValue,
-      page: 0
-    });
-  }
-
-  evidenceLevelLabel(level: TransactionEvidenceLevel): string {
-    switch (level) {
-      case 'RECORD_LEVEL':
-        return 'Full record evidence';
-      case 'PARTIAL_RECORD_LEVEL':
-        return 'Partial record evidence';
-      case 'AGGREGATE_ONLY':
-        return 'Aggregate only';
-      default:
-        return 'No records expected';
+  /** "PORTUGAL OBJECTIVE" / "Report group 123" when scoped to one group, "All report groups"
+   *  when a period-mode report spans every group matching its date range/country filter. */
+  contextGroupLabel(context: ReportContext): string {
+    if (context.reportGroupId === null) {
+      return 'All report groups';
     }
+    return context.reportGroupName || `Report group ${context.reportGroupId}`;
   }
 
-  sourceLabel(source: Exclude<TransactionEvidenceSource, 'ALL'>): string {
-    switch (source) {
-      case 'JOURNEY':
-        return 'Latest journey';
-      case 'EXCLUSION_AUDIT':
-        return 'Exclusion audit';
-      case 'RULE_HIT':
-        return 'Rule hit';
-    }
-  }
-
-  stageLabel(stage: string | null): string {
-    switch (stage) {
-      case 'SELECTION':
-        return 'Selection';
-      case 'TRANSACTION_JOIN':
-        return 'Transaction join';
-      case 'TRANSFORMATION':
-        return 'Transformation';
-      case 'EXCLUSION':
-        return 'Exclusion';
-      case 'RULE_HIT':
-        return 'Rule hit';
-      default:
-        return 'Not available';
-    }
-  }
-
-  recordDetail(record: TransactionEvidenceRecord): string {
+  recordDetail(record: TransactionEvidenceRecord): EvidenceDetail {
     if (record.source === 'RULE_HIT') {
-      return record.status === 'REPORTED' ? 'Reported' : 'Not yet reported';
+      return { primary: record.status === 'REPORTED' ? 'Reported' : 'Not yet reported', extras: [] };
     }
-    return (
-      record.exclusionReason ??
-      record.skipReason ??
-      record.comments ??
-      (record.processingComplete === false ? 'Processing incomplete' : 'No additional detail')
-    );
+    const raw = record.exclusionReason ?? record.skipReason ?? record.comments;
+    if (!raw) {
+      return {
+        primary: record.processingComplete === false ? 'Processing incomplete' : 'No additional detail',
+        extras: []
+      };
+    }
+    const issues = this.parseIssueList(raw);
+    if (issues) {
+      const [first, ...rest] = issues;
+      const extras: string[] = [];
+      if (first.field) { extras.push(`Field: ${first.field}`); }
+      if (first.ruleSet) { extras.push(`Rule set: ${this.humanize(first.ruleSet)}`); }
+      if (first.errorCode) { extras.push(`Error code: ${first.errorCode}`); }
+      if (rest.length > 0) { extras.push(`+${rest.length} more issue${rest.length > 1 ? 's' : ''}`); }
+      return { primary: first.message, extras };
+    }
+    return { primary: this.humanizeIfCode(raw), extras: [] };
+  }
+
+  /** Converts a SCREAMING_SNAKE_CASE / mixed(PAREN) code into "Screaming Snake Case (Paren)". */
+  humanize(value: string | null | undefined): string {
+    if (!value) {
+      return 'Not available';
+    }
+    return value
+      .replace(/_/g, ' ')
+      .replace(/\(/g, ' (')
+      .trim()
+      .split(/\s+/)
+      .map(word => {
+        const match = word.match(/^(\()?(.*?)(\))?$/);
+        if (!match || !match[2]) {
+          return word;
+        }
+        const [, open, core, close] = match;
+        const lower = core.toLowerCase();
+        return `${open ?? ''}${lower.charAt(0).toUpperCase()}${lower.slice(1)}${close ?? ''}`;
+      })
+      .join(' ');
+  }
+
+  ruleIdsDisplay(record: TransactionEvidenceRecord): string {
+    if (record.ruleId) {
+      return record.ruleId;
+    }
+    const ids = [...new Set(this.ruleHits(record).map(hit => hit.ruleId).filter((id): id is string => !!id))];
+    return ids.length > 0 ? ids.join(', ') : 'Not available';
   }
 
   toggleExpanded(recordKey: string): void {
@@ -409,6 +481,44 @@ export class TransactionReportComponent implements OnInit {
     }
   }
 
+  /** A "code" is a machine constant (SCREAMING_SNAKE_CASE, dotted IDs, etc) — humanize only those,
+   *  leaving free-text config values (e.g. an exclusion reason sentence) untouched. */
+  private humanizeIfCode(value: string): string {
+    return /^[A-Z0-9_()./-]+$/.test(value) ? this.humanize(value) : value;
+  }
+
+  /** Parses a skip/exclusion reason that is a JSON array of exception objects (or plain strings)
+   *  into a simple {message, field, ruleSet, errorCode} shape the template can render legibly.
+   *  Returns null when the raw value isn't such a JSON array, so callers fall back to plain text. */
+  private parseIssueList(
+    raw: string
+  ): { message: string; field: string | null; ruleSet: string | null; errorCode: string | null }[] | null {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return null;
+    }
+    return parsed.map(entry => {
+      if (entry && typeof entry === 'object') {
+        const obj = entry as Record<string, unknown>;
+        const message = (obj['Exception'] ?? obj['exception'] ?? obj['Message'] ?? obj['message']) as
+          | string
+          | undefined;
+        return {
+          message: message ?? JSON.stringify(obj),
+          field: ((obj['Path'] ?? obj['path']) as string | undefined) ?? null,
+          ruleSet: ((obj['RuleSetName'] ?? obj['ruleSetName']) as string | undefined) ?? null,
+          errorCode: ((obj['ErrorCode'] ?? obj['errorCode']) as string | undefined) ?? null
+        };
+      }
+      return { message: String(entry), field: null, ruleSet: null, errorCode: null };
+    });
+  }
+
   formatCurrency(record: TransactionEvidenceRecord): string {
     if (record.currencyAmount === null) {
       return 'Not available';
@@ -423,6 +533,14 @@ export class TransactionReportComponent implements OnInit {
     this.error.set(null);
     this.report.set(null);
 
+    if (this.mode() === 'BATCH') {
+      this.loadBatchReport();
+    } else if (this.mode() === 'PERIOD') {
+      this.loadPeriodReport();
+    }
+  }
+
+  private loadBatchReport(): void {
     const params = new HttpParams()
       .set('reportGroupId', this.reportGroupId()!)
       .set('batchId', this.batchId())
@@ -430,14 +548,51 @@ export class TransactionReportComponent implements OnInit {
       .set('metric', this.metric())
       .set('search', this.search().trim())
       .set('source', this.source())
-      .set('stage', this.stage())
-      .set('outcome', this.outcome())
+      .set('status', this.status())
+      .set('sortDirection', this.sortDirection())
       .set('page', this.page())
       .set('size', this.size());
 
-    this.http.get<TransactionReportResponse>('/api/v1/transactions/report', { params }).subscribe({
-      next: report => {
-        this.report.set(report);
+    this.http.get<RawBatchReportResponse>('/api/v1/transactions/report', { params }).subscribe({
+      next: raw => {
+        this.report.set({
+          ...raw,
+          context: { kind: 'BATCH', ...raw.context }
+        });
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.error.set('The transaction evidence report could not be loaded.');
+      }
+    });
+  }
+
+  /** Period mode: no batchId, so there is no single reconciliation batch to fetch evidence for —
+   *  scoped instead by date range and the optional report group/country filters, matching however
+   *  many batches the underlying KPI actually summed. See openExcludedTransactionsExplorer() in
+   *  home.component.ts for where this is linked from. */
+  private loadPeriodReport(): void {
+    let params = new HttpParams()
+      .set('fromDate', this.fromDate())
+      .set('toDate', this.toDate())
+      .set('country', this.country())
+      .set('search', this.search().trim())
+      .set('status', this.status())
+      .set('sortDirection', this.sortDirection())
+      .set('page', this.page())
+      .set('size', this.size());
+    if (this.reportGroupId() !== null) {
+      params = params.set('reportGroupId', this.reportGroupId()!);
+    }
+
+    this.http.get<RawPeriodReportResponse>('/api/v1/transactions/period-report', { params }).subscribe({
+      next: raw => {
+        this.report.set({
+          ...raw,
+          metric: null,
+          context: { kind: 'PERIOD', ...raw.context }
+        });
         this.loading.set(false);
       },
       error: () => {
@@ -451,17 +606,30 @@ export class TransactionReportComponent implements OnInit {
     const reportGroupId = Number(params.get('reportGroupId'));
     const sequenceNumber = Number(params.get('sequenceNumber'));
     const batchId = params.get('batchId')?.trim() ?? '';
+    const fromDate = params.get('fromDate')?.trim() ?? '';
+    const toDate = params.get('toDate')?.trim() ?? '';
 
     this.reportGroupId.set(Number.isInteger(reportGroupId) && reportGroupId > 0 ? reportGroupId : null);
     this.sequenceNumber.set(Number.isInteger(sequenceNumber) && sequenceNumber > 0 ? sequenceNumber : null);
     this.batchId.set(batchId);
+    this.fromDate.set(fromDate);
+    this.toDate.set(toDate);
+    this.country.set(params.get('country')?.trim() || 'ALL');
     this.metric.set(this.parseMetric(params.get('metric')));
     this.search.set(params.get('search') ?? '');
     this.source.set(this.parseSource(params.get('source')));
-    this.stage.set(this.parseStage(params.get('stage')));
-    this.outcome.set(this.parseOutcome(params.get('outcome')));
+    this.status.set(this.parseStatus(params.get('status')));
+    this.sortDirection.set(params.get('sortDirection') === 'ASC' ? 'ASC' : 'DESC');
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
-    this.hasBatchContext.set(this.reportGroupId() !== null && this.sequenceNumber() !== null && !!batchId);
+
+    if (batchId && this.reportGroupId() !== null && this.sequenceNumber() !== null) {
+      this.mode.set('BATCH');
+    } else if (fromDate && toDate) {
+      this.mode.set('PERIOD');
+    } else {
+      this.mode.set(null);
+    }
+    this.hasContext.set(this.mode() !== null);
   }
 
   private updateRoute(queryParams: Record<string, string | number | null>): void {
@@ -488,18 +656,14 @@ export class TransactionReportComponent implements OnInit {
       : 'ALL';
   }
 
-  private parseStage(value: string | null): TransactionStage {
-    return value === 'SELECTION' ||
-      value === 'TRANSACTION_JOIN' ||
-      value === 'TRANSFORMATION' ||
-      value === 'EXCLUSION' ||
-      value === 'RULE_HIT'
-      ? value
-      : 'ALL';
-  }
-
-  private parseOutcome(value: string | null): TransactionOutcome {
-    return value === 'SUCCESS' || value === 'ERROR' || value === 'PENDING' || value === 'EXCLUDED'
+  private parseStatus(value: string | null): TransactionStatus {
+    return value === 'SUCCESS' ||
+      value === 'FAILED' ||
+      value === 'ERROR' ||
+      value === 'EXCLUDED' ||
+      value === 'NOT_YET_REPORTED' ||
+      value === 'REPORTED' ||
+      value === 'NOT_REPORTED'
       ? value
       : 'ALL';
   }

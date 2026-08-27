@@ -10,6 +10,7 @@ public record TransactionEvidenceRecordResponse(
     String recordKey,
     String identifier,
     String mtcn,
+    String batchId,
     TransactionEvidenceSource source,
     String stage,
     String status,

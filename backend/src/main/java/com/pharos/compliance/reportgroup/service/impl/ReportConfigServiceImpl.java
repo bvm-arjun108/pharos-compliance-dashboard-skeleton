@@ -56,7 +56,7 @@ public class ReportConfigServiceImpl implements ReportConfigService {
                           new ReportConfigCountryOptionResponse(country.code(), country.name()))
                   .toList();
           List<String> reportTypes =
-              reportGroupConfigRepository.findActiveReportTypes().stream()
+              reportGroupConfigRepository.findReportTypes().stream()
                   .map(type -> type.getReportType())
                   .toList();
           return new ReportConfigFilterOptionsResponse(countries, reportTypes);

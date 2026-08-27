@@ -21,7 +21,9 @@ public interface DashboardRepository
       @Param("toTimestampExclusive") LocalDateTime toTimestampExclusive,
       @Param("batchId") String batchId,
       @Param("filterByCountry") boolean filterByCountry,
-      @Param("reportGroupIds") List<Integer> reportGroupIds);
+      @Param("reportGroupIds") List<Integer> reportGroupIds,
+      @Param("filterByReportGroup") boolean filterByReportGroup,
+      @Param("reportGroupId") int reportGroupId);
 
   @Query(value = DashboardNativeQueries.REPORT_GROUP_ATTENTION, nativeQuery = true)
   List<ReportGroupMetricsProjection> getReportGroupsRequiringAttention(
@@ -29,7 +31,9 @@ public interface DashboardRepository
       @Param("toTimestampExclusive") LocalDateTime toTimestampExclusive,
       @Param("batchId") String batchId,
       @Param("filterByCountry") boolean filterByCountry,
-      @Param("reportGroupIds") List<Integer> reportGroupIds);
+      @Param("reportGroupIds") List<Integer> reportGroupIds,
+      @Param("filterByReportGroup") boolean filterByReportGroup,
+      @Param("reportGroupId") int reportGroupId);
 
   @Query(value = DashboardNativeQueries.BATCH_HEALTH_TREND, nativeQuery = true)
   List<BatchHealthTrendProjection> getBatchHealthTrend(
@@ -40,7 +44,9 @@ public interface DashboardRepository
       @Param("granularity") String granularity,
       @Param("batchId") String batchId,
       @Param("filterByCountry") boolean filterByCountry,
-      @Param("reportGroupIds") List<Integer> reportGroupIds);
+      @Param("reportGroupIds") List<Integer> reportGroupIds,
+      @Param("filterByReportGroup") boolean filterByReportGroup,
+      @Param("reportGroupId") int reportGroupId);
 
   interface DashboardCountsProjection {
     long getBatchesRan();
@@ -104,5 +110,9 @@ public interface DashboardRepository
     long getMissingAttemptBatches();
 
     long getActivityMissingBatches();
+
+    long getTotalReportedTransactions();
+
+    long getTotalExcludedTransactions();
   }
 }

@@ -1,10 +1,12 @@
 package com.pharos.compliance.transaction.repository;
 
 import com.pharos.compliance.config.CacheConfiguration;
+import com.pharos.compliance.transaction.repository.TransactionReportRepository.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionOutcomeBreakdownProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionReportContextProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionStageBreakdownProjection;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.cache.annotation.Cacheable;
@@ -39,7 +41,8 @@ public class TransactionEvidenceCache {
       cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_RECORDS,
       key =
           "#reportGroupId + ':' + #batchId + ':' + #metric + ':' + #search + ':' + #source"
-              + " + ':' + #stage + ':' + #outcome + ':' + #size + ':' + #offset")
+              + " + ':' + #stage + ':' + #outcome + ':' + #status + ':' + #sortDirection + ':'"
+              + " + #size + ':' + #offset")
   public List<TransactionEvidenceProjection> findEvidenceRecords(
       int reportGroupId,
       String batchId,
@@ -48,17 +51,20 @@ public class TransactionEvidenceCache {
       String source,
       String stage,
       String outcome,
+      String status,
+      String sortDirection,
       int size,
       long offset) {
     return repository.findEvidenceRecords(
-        reportGroupId, batchId, metric, search, source, stage, outcome, size, offset);
+        reportGroupId, batchId, metric, search, source, stage, outcome, status, sortDirection,
+        size, offset);
   }
 
   @Cacheable(
       cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_COUNT,
       key =
           "#reportGroupId + ':' + #batchId + ':' + #metric + ':' + #search + ':' + #source"
-              + " + ':' + #stage + ':' + #outcome")
+              + " + ':' + #stage + ':' + #outcome + ':' + #status")
   public long countEvidenceRecords(
       int reportGroupId,
       String batchId,
@@ -66,9 +72,10 @@ public class TransactionEvidenceCache {
       String search,
       String source,
       String stage,
-      String outcome) {
+      String outcome,
+      String status) {
     return repository.countEvidenceRecords(
-        reportGroupId, batchId, metric, search, source, stage, outcome);
+        reportGroupId, batchId, metric, search, source, stage, outcome, status);
   }
 
   @Cacheable(
@@ -99,5 +106,68 @@ public class TransactionEvidenceCache {
       String source,
       String outcome) {
     return repository.findStageBreakdown(reportGroupId, batchId, metric, search, source, outcome);
+  }
+
+  @Cacheable(
+      cacheNames = CacheConfiguration.PERIOD_TRANSACTION_AGGREGATE,
+      key =
+          "#fromTimestamp + ':' + #toTimestampExclusive + ':' + #filterByCountry + ':'"
+              + " + #reportGroupIds + ':' + #filterByReportGroup + ':' + #reportGroupId")
+  public PeriodAggregateProjection findPeriodAggregate(
+      LocalDateTime fromTimestamp,
+      LocalDateTime toTimestampExclusive,
+      boolean filterByCountry,
+      List<Integer> reportGroupIds,
+      boolean filterByReportGroup,
+      int reportGroupId) {
+    return repository.findPeriodAggregate(
+        fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+        reportGroupId);
+  }
+
+  @Cacheable(
+      cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_RECORDS,
+      key =
+          "#fromTimestamp + ':' + #toTimestampExclusive + ':' + #filterByCountry + ':'"
+              + " + #reportGroupIds + ':' + #filterByReportGroup + ':' + #reportGroupId + ':'"
+              + " + #search + ':' + #outcome + ':' + #status + ':' + #sortDirection + ':'"
+              + " + #size + ':' + #offset")
+  public List<TransactionEvidenceProjection> findPeriodEvidenceRecords(
+      LocalDateTime fromTimestamp,
+      LocalDateTime toTimestampExclusive,
+      boolean filterByCountry,
+      List<Integer> reportGroupIds,
+      boolean filterByReportGroup,
+      int reportGroupId,
+      String search,
+      String outcome,
+      String status,
+      String sortDirection,
+      int size,
+      long offset) {
+    return repository.findPeriodEvidenceRecords(
+        fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+        reportGroupId, search, outcome, status, sortDirection, size, offset);
+  }
+
+  @Cacheable(
+      cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_COUNT,
+      key =
+          "#fromTimestamp + ':' + #toTimestampExclusive + ':' + #filterByCountry + ':'"
+              + " + #reportGroupIds + ':' + #filterByReportGroup + ':' + #reportGroupId + ':'"
+              + " + #search + ':' + #outcome + ':' + #status")
+  public long countPeriodEvidenceRecords(
+      LocalDateTime fromTimestamp,
+      LocalDateTime toTimestampExclusive,
+      boolean filterByCountry,
+      List<Integer> reportGroupIds,
+      boolean filterByReportGroup,
+      int reportGroupId,
+      String search,
+      String outcome,
+      String status) {
+    return repository.countPeriodEvidenceRecords(
+        fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+        reportGroupId, search, outcome, status);
   }
 }

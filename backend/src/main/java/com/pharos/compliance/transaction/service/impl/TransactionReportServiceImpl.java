@@ -1,8 +1,13 @@
 package com.pharos.compliance.transaction.service.impl;
 
+import com.pharos.compliance.common.exception.InvalidDateRangeException;
+import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.common.exception.ResourceNotFoundException;
+import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
 import com.pharos.compliance.reportgroup.model.CountryDefinition;
 import com.pharos.compliance.reportgroup.service.CountryCatalog;
+import com.pharos.compliance.transaction.dto.PeriodTransactionContextResponse;
+import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionEvidenceRecordResponse;
 import com.pharos.compliance.transaction.dto.TransactionOutcomeBreakdownResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportContextResponse;
@@ -12,14 +17,21 @@ import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
+import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
+import com.pharos.compliance.transaction.model.TransactionStatus;
 import com.pharos.compliance.transaction.repository.TransactionEvidenceCache;
+import com.pharos.compliance.transaction.repository.TransactionReportRepository.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionOutcomeBreakdownProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionReportContextProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionStageBreakdownProjection;
 import com.pharos.compliance.transaction.service.TransactionReportService;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +68,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       TransactionEvidenceSource source,
       TransactionStage stage,
       TransactionOutcome outcome,
+      TransactionStatus status,
+      TransactionSortDirection sortDirection,
       int page,
       int size) {
     String normalizedSearch = search == null ? "" : search.trim();
@@ -78,6 +92,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                       source.name(),
                       stage.name(),
                       outcome.name(),
+                      status.name(),
+                      sortDirection.name(),
                       size,
                       offset);
               long matchingCount =
@@ -88,9 +104,10 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                       normalizedSearch,
                       source.name(),
                       stage.name(),
-                      outcome.name());
+                      outcome.name(),
+                      status.name());
               long availableRecordCount =
-                  hasDefaultEvidenceFilters(normalizedSearch, source, stage, outcome)
+                  hasDefaultEvidenceFilters(normalizedSearch, source, stage, outcome, status)
                       ? matchingCount
                       : availableRecordCount(reportGroupId, batchId, metric);
               long aggregateCount = aggregateCount(context, metric);
@@ -131,13 +148,15 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   source,
                   stage,
                   outcome,
+                  status,
+                  sortDirection,
                   page,
                   size);
             })
         .doOnSubscribe(
             ignored ->
                 LOGGER.info(
-                    "Transaction evidence query started reportGroupId={} batchId={} sequenceNumber={} metric={} source={} stage={} outcome={} search={} page={} size={}",
+                    "Transaction evidence query started reportGroupId={} batchId={} sequenceNumber={} metric={} source={} stage={} outcome={} status={} sortDirection={} search={} page={} size={}",
                     reportGroupId,
                     batchId,
                     sequenceNumber,
@@ -145,6 +164,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                     source,
                     stage,
                     outcome,
+                    status,
+                    sortDirection,
                     normalizedSearch,
                     page,
                     size))
@@ -156,6 +177,150 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                     response.availableRecordCount(),
                     response.evidenceLevel()));
   }
+
+  @Override
+  public Mono<PeriodTransactionReportResponse> getPeriodTransactionReport(
+      LocalDate fromDate,
+      LocalDate toDate,
+      String country,
+      Integer reportGroupId,
+      String search,
+      TransactionOutcome outcome,
+      TransactionStatus status,
+      TransactionSortDirection sortDirection,
+      int page,
+      int size) {
+    if (fromDate.isAfter(toDate)) {
+      return Mono.error(new InvalidDateRangeException("fromDate must be on or before toDate"));
+    }
+    String normalizedSearch = search == null ? "" : search.trim();
+    String normalizedCountry = normalizeCountryCode(country);
+    boolean filterByReportGroup = reportGroupId != null;
+    int reportGroupIdFilter = filterByReportGroup ? reportGroupId : -1;
+    LocalDateTime fromTimestamp = fromDate.atStartOfDay();
+    LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
+    long offset = (long) page * size;
+
+    return onJdbcScheduler(countryCatalog::getSnapshot)
+        .flatMap(
+            catalog -> {
+              CountryFilter countryFilter =
+                  resolvePeriodCountryFilter(catalog, normalizedCountry, reportGroupId);
+              return onJdbcScheduler(
+                  () -> {
+                    PeriodAggregateProjection aggregate =
+                        transactionEvidenceCache.findPeriodAggregate(
+                            fromTimestamp,
+                            toTimestampExclusive,
+                            countryFilter.enabled(),
+                            countryFilter.reportGroupIds(),
+                            filterByReportGroup,
+                            reportGroupIdFilter);
+                    List<TransactionEvidenceProjection> evidence =
+                        transactionEvidenceCache.findPeriodEvidenceRecords(
+                            fromTimestamp,
+                            toTimestampExclusive,
+                            countryFilter.enabled(),
+                            countryFilter.reportGroupIds(),
+                            filterByReportGroup,
+                            reportGroupIdFilter,
+                            normalizedSearch,
+                            outcome.name(),
+                            status.name(),
+                            sortDirection.name(),
+                            size,
+                            offset);
+                    long matchingCount =
+                        transactionEvidenceCache.countPeriodEvidenceRecords(
+                            fromTimestamp,
+                            toTimestampExclusive,
+                            countryFilter.enabled(),
+                            countryFilter.reportGroupIds(),
+                            filterByReportGroup,
+                            reportGroupIdFilter,
+                            normalizedSearch,
+                            outcome.name(),
+                            status.name());
+                    long aggregateCount = aggregate.getTotalExcluded();
+                    // Unlike the single-batch report, there is only one metric here (EXCLUDED),
+                    // so "available" and "matching" always coincide — no separate unfiltered probe
+                    // is needed to distinguish "available under this metric" from "matching this
+                    // exact filter".
+                    long availableRecordCount = matchingCount;
+                    TransactionEvidenceLevel evidenceLevel =
+                        evidenceLevel(aggregateCount, availableRecordCount);
+                    CountryDefinition countryDefinition =
+                        filterByReportGroup
+                            ? catalog.getForReportGroup(reportGroupId)
+                            : catalog
+                                .findByCode(normalizedCountry)
+                                .orElse(new CountryDefinition("ALL", "All countries", Set.of()));
+
+                    return new PeriodTransactionReportResponse(
+                        new PeriodTransactionContextResponse(
+                            reportGroupId,
+                            filterByReportGroup ? aggregate.getReportGroupName() : null,
+                            countryDefinition.code(),
+                            countryDefinition.name(),
+                            fromDate,
+                            toDate,
+                            aggregate.getBatchCount()),
+                        "Excluded transactions",
+                        aggregateCount,
+                        availableRecordCount,
+                        matchingCount,
+                        evidenceLevel,
+                        evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
+                        evidence.stream().map(this::toEvidenceRecord).toList(),
+                        normalizedSearch,
+                        outcome,
+                        status,
+                        sortDirection,
+                        page,
+                        size);
+                  });
+            })
+        .doOnSubscribe(
+            ignored ->
+                LOGGER.info(
+                    "Period transaction evidence query started fromDate={} toDate={} country={} reportGroupId={} search={} outcome={} status={} sortDirection={} page={} size={}",
+                    fromDate,
+                    toDate,
+                    normalizedCountry,
+                    reportGroupId,
+                    normalizedSearch,
+                    outcome,
+                    status,
+                    sortDirection,
+                    page,
+                    size))
+        .doOnSuccess(
+            response ->
+                LOGGER.info(
+                    "Period transaction evidence query completed batchCount={} aggregateCount={} matchingRecords={}",
+                    response.context().batchCount(),
+                    response.aggregateCount(),
+                    response.matchingRecordCount()));
+  }
+
+  private CountryFilter resolvePeriodCountryFilter(
+      CountryCatalogSnapshot catalog, String countryCode, Integer reportGroupId) {
+    if (reportGroupId != null || "ALL".equals(countryCode)) {
+      return new CountryFilter(false, List.of(-1));
+    }
+    CountryDefinition definition =
+        catalog
+            .findByCode(countryCode)
+            .orElseThrow(
+                () -> new InvalidRequestException("Unsupported country filter: " + countryCode));
+    return new CountryFilter(true, definition.reportGroupIds().stream().toList());
+  }
+
+  private String normalizeCountryCode(String country) {
+    return country == null || country.isBlank() ? "ALL" : country.trim().toUpperCase(Locale.ROOT);
+  }
+
+  private record CountryFilter(boolean enabled, List<Integer> reportGroupIds) {}
 
   private TransactionReportContextResponse toContext(
       TransactionReportContextProjection context, CountryDefinition country) {
@@ -175,6 +340,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         row.getRecordKey(),
         row.getIdentifier(),
         row.getMtcn(),
+        row.getBatchId(),
         TransactionEvidenceSource.valueOf(row.getEvidenceSource()),
         row.getStage(),
         row.getStatus(),
@@ -302,11 +468,13 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       String search,
       TransactionEvidenceSource source,
       TransactionStage stage,
-      TransactionOutcome outcome) {
+      TransactionOutcome outcome,
+      TransactionStatus status) {
     return search.isEmpty()
         && source == TransactionEvidenceSource.ALL
         && stage == TransactionStage.ALL
-        && outcome == TransactionOutcome.ALL;
+        && outcome == TransactionOutcome.ALL
+        && status == TransactionStatus.ALL;
   }
 
   private long availableRecordCount(int reportGroupId, String batchId, TransactionMetric metric) {
@@ -317,7 +485,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         "",
         TransactionEvidenceSource.ALL.name(),
         TransactionStage.ALL.name(),
-        TransactionOutcome.ALL.name());
+        TransactionOutcome.ALL.name(),
+        TransactionStatus.ALL.name());
   }
 
   private String evidenceMessage(

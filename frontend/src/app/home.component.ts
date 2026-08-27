@@ -4,12 +4,6 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 
-interface HealthResponse {
-  status: string;
-  service: string;
-  timestamp: string;
-}
-
 interface CountryOption {
   code: string;
   name: string;
@@ -17,6 +11,20 @@ interface CountryOption {
 
 interface BatchFilterOptionsResponse {
   countries: CountryOption[];
+}
+
+interface ReportGroupOption {
+  reportGroupId: number;
+  reportGroupName: string | null;
+}
+
+interface ReportConfigListItem {
+  reportGroupId: number;
+  reportGroupName: string | null;
+}
+
+interface ReportConfigExplorerResponse {
+  configurations: ReportConfigListItem[];
 }
 
 interface DashboardDetailsResponse {
@@ -52,6 +60,8 @@ interface BatchHealthTrend {
   missingAttemptBatches: number;
   activityMissingBatches: number;
   attentionRate: number;
+  totalReportedTransactions: number;
+  totalExcludedTransactions: number;
 }
 
 interface ReportGroupAttention {
@@ -67,8 +77,20 @@ interface ReportGroupAttention {
   totalExcludedTransactions: number;
 }
 
+type AttentionSortColumn =
+  | 'name'
+  | 'batchesRan'
+  | 'successfulBatches'
+  | 'batchesNeedingAttention'
+  | 'activityMissingBatches'
+  | 'missingAttemptBatches'
+  | 'transformationFailureBatches'
+  | 'totalReportedTransactions'
+  | 'totalExcludedTransactions';
+type AttentionSortDirection = 'asc' | 'desc';
+
 type ReportPeriod = 'TODAY' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'CUSTOM';
-type ExplorerStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED';
+type ExplorerStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION';
 type ExplorerIssueType =
   | 'ALL'
   | 'ACTIVITY_MISSING'
@@ -91,17 +113,6 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           <h2 id="filter-heading">Dashboard criteria</h2>
         </div>
         <div class="filter-panel__actions">
-          <div class="status" [class.online]="health()?.status === 'UP'" [class.offline]="connectionFailed()">
-            <span class="dot"></span>
-            @if (health(); as backendHealth) {
-              <strong>System {{ backendHealth.status }}</strong>
-              <small>{{ backendHealth.timestamp | date:'shortTime' }}</small>
-            } @else if (connectionFailed()) {
-              <strong>System offline</strong>
-            } @else {
-              <strong>Checking…</strong>
-            }
-          </div>
           <button class="text-button" type="button" (click)="resetFilters()">Reset all</button>
         </div>
       </div>
@@ -126,6 +137,20 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             </select>
           } @else {
             <select disabled aria-label="Country options loading"><option>Loading countries…</option></select>
+          }
+        </label>
+
+        <label class="field">
+          <span>Report Group</span>
+          @if (reportGroupOptions().length > 0) {
+            <select [ngModel]="reportGroupId()" (ngModelChange)="setReportGroupValue($event)" [ngModelOptions]="{standalone: true}">
+              <option value="ALL">All report groups</option>
+              @for (option of reportGroupOptions(); track option.reportGroupId) {
+                <option [value]="option.reportGroupId">{{ option.reportGroupName || 'Report group ' + option.reportGroupId }}</option>
+              }
+            </select>
+          } @else {
+            <select disabled aria-label="Report group options loading"><option>Loading report groups…</option></select>
           }
         </label>
 
@@ -239,22 +264,6 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           }
         </article>
 
-        <button class="kpi-card kpi-card--pending kpi-card--link" type="button" (click)="openBatchExplorer('NOT_YET_REPORTED')" [disabled]="dashboardLoading() || !!dashboardError()">
-          <div class="kpi-card__topline">
-            <span>Not Yet Reported</span>
-            <span class="kpi-card__icon" aria-hidden="true">…</span>
-          </div>
-          @if (dashboardLoading()) {
-            <span class="kpi-loading">Loading…</span>
-          } @else if (dashboardError()) {
-            <strong class="kpi-error">Unavailable</strong>
-            <small>{{ dashboardError() }}</small>
-          } @else if (dashboardDetails(); as details) {
-            <strong>{{ details.batchesNotYetReported | number:'1.0-0' }}</strong>
-            <small>Selected but not yet transformed — no reconciliation record yet</small>
-          }
-        </button>
-
         <article class="kpi-card kpi-card--attention">
           <div class="kpi-card__topline">
             <span>Batches Needing Attention</span>
@@ -313,27 +322,79 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             <strong class="kpi-error">Unavailable</strong>
             <small>{{ dashboardError() }}</small>
           } @else if (dashboardDetails(); as details) {
-            <div class="transaction-totals">
-              <div>
-                <span>Reported</span>
-                <strong>{{ details.totalReportedTransactions | number:'1.0-0' }}</strong>
+            <div class="transaction-overview-body">
+              <div class="exclusion-gauge">
+                <svg class="exclusion-gauge__svg" viewBox="0 0 220 130" aria-hidden="true">
+                  <path class="exclusion-gauge__band exclusion-gauge__band--healthy" d="M20,110 A90,90 0 0 1 46.36,46.36" />
+                  <path class="exclusion-gauge__band exclusion-gauge__band--low" d="M46.36,46.36 A90,90 0 0 1 110,20" />
+                  <path class="exclusion-gauge__band exclusion-gauge__band--elevated" d="M110,20 A90,90 0 0 1 173.64,46.36" />
+                  <path class="exclusion-gauge__band exclusion-gauge__band--high" d="M173.64,46.36 A90,90 0 0 1 200,110" />
+                  <line
+                    class="exclusion-gauge__needle"
+                    x1="110" y1="110"
+                    [attr.x2]="gaugeNeedleX(exclusionRatePercent(details))"
+                    [attr.y2]="gaugeNeedleY(exclusionRatePercent(details))"
+                  />
+                  <circle class="exclusion-gauge__hub" cx="110" cy="110" r="6" />
+                </svg>
+                <div class="exclusion-gauge__readout">
+                  <strong [style.color]="gaugeZoneColor(exclusionRatePercent(details))">{{ formatExclusionRate(exclusionRatePercent(details)) }}</strong>
+                  <span>Exclusion Rate</span>
+                </div>
               </div>
-              <div>
-                <span>Excluded</span>
-                <strong>{{ details.totalExcludedTransactions | number:'1.0-0' }}</strong>
+
+              <div class="transaction-overview-side">
+                <div class="transaction-totals">
+                  <div>
+                    <span>Expected</span>
+                    <strong>{{ expectedTransactions(details) | number:'1.0-0' }}</strong>
+                  </div>
+                  <div>
+                    <span>Reported</span>
+                    <strong>{{ details.totalReportedTransactions | number:'1.0-0' }}</strong>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="exclusion-alert exclusion-alert--link"
+                  [disabled]="details.totalExcludedTransactions === 0"
+                  [attr.aria-label]="'View ' + details.totalExcludedTransactions + ' excluded transactions'"
+                  (click)="openExcludedTransactionsExplorer()"
+                >
+                  <svg class="exclusion-alert__icon" viewBox="0 0 40 36" aria-hidden="true" focusable="false">
+                    <path class="exclusion-alert__triangle" d="M20 2.5 38 33.5H2Z" />
+                    <rect class="exclusion-alert__mark" x="18.25" y="11" width="3.5" height="12.5" rx="1.75" />
+                    <circle class="exclusion-alert__mark" cx="20" cy="28" r="2" />
+                  </svg>
+                  <div>
+                    <strong>{{ details.totalExcludedTransactions | number:'1.0-0' }}</strong>
+                    <span>Excluded</span>
+                  </div>
+                </button>
               </div>
             </div>
-            <small>Transformer output and filtration exclusions</small>
+
+            <div class="exclusion-gauge__legend">
+              <span><i class="exclusion-gauge__legend-dot exclusion-gauge__legend-dot--healthy"></i>0–1% Healthy</span>
+              <span><i class="exclusion-gauge__legend-dot exclusion-gauge__legend-dot--low"></i>1–5% Low</span>
+              <span><i class="exclusion-gauge__legend-dot exclusion-gauge__legend-dot--elevated"></i>5–10% Elevated</span>
+              <span><i class="exclusion-gauge__legend-dot exclusion-gauge__legend-dot--high"></i>10%+ High</span>
+            </div>
+
+            <small class="transaction-overview-note">Transformer output and filtration exclusions</small>
           }
         </article>
         </div>
       </div>
     </section>
 
-    <section class="daily-health-section" aria-labelledby="daily-health-heading">
+    <section class="operational-trends-section" aria-labelledby="operational-trends-heading">
+      <p class="eyebrow" id="operational-trends-heading">Operational trend</p>
+
+      <div class="daily-health-section" aria-labelledby="daily-health-heading">
       <div class="daily-health-heading">
         <div>
-          <p class="eyebrow">Operational trend</p>
           @if (dashboardDetails(); as details) {
             <h2 id="daily-health-heading">{{ trendTitle(details.trendGranularity) }}</h2>
             <p>{{ trendDescription(details.trendGranularity) }}</p>
@@ -434,14 +495,13 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           }
         }
       </div>
-    </section>
+      </div>
 
-    <section class="issue-trend-section" aria-labelledby="issue-trend-heading">
+      <div class="issue-trend-section" aria-labelledby="excluded-trend-heading">
       <div class="issue-trend-heading">
         <div>
-          <p class="eyebrow">Root-cause signals</p>
-          <h2 id="issue-trend-heading">{{ issueTrendTitle(dashboardDetails()?.trendGranularity) }}</h2>
-          <p>Cell intensity shows the percentage of batches affected; labels show affected-batch counts.</p>
+          <h2 id="excluded-trend-heading">{{ excludedTransactionsTrendTitle(dashboardDetails()?.trendGranularity) }}</h2>
+          <p>Cell intensity shows relative volume for reported, and excluded share of that day's transactions for excluded; labels show exact counts either way.</p>
         </div>
         <div class="heatmap-legend" aria-label="Heatmap intensity legend">
           <span>Lower</span><i></i><span>Higher impact</span>
@@ -450,84 +510,66 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
 
       <div class="issue-trend-card">
         @if (dashboardLoading()) {
-          <div class="chart-message">Loading issue drivers…</div>
+          <div class="chart-message">Loading transaction totals…</div>
         } @else if (dashboardError()) {
-          <div class="chart-message chart-message--error">Issue-driver data is unavailable.</div>
+          <div class="chart-message chart-message--error">Transaction-totals data is unavailable.</div>
         } @else if (dashboardDetails(); as details) {
           <div class="heatmap-scroll">
             <div
               class="issue-heatmap"
               role="table"
-              aria-label="Issue drivers by reporting period"
+              aria-label="Transaction totals by reporting period"
               [style.min-width.px]="heatmapMinimumWidth(details.batchHealthTrend.length, details.trendGranularity)"
               [style.grid-template-columns]="'180px repeat(' + details.batchHealthTrend.length + ', minmax(38px, 1fr))'"
             >
-              <div class="heatmap-corner" role="columnheader">Issue type</div>
+              <div class="heatmap-corner" role="columnheader">Metric</div>
               @for (period of details.batchHealthTrend; track period.periodStart) {
                 <div class="heatmap-period" role="columnheader" [attr.title]="period.periodStart + ' to ' + period.periodEnd">
                   {{ period.periodStart | date:trendDateFormat(details.trendGranularity):'UTC' }}
                 </div>
               }
 
-              <div class="heatmap-row-label" role="rowheader"><span></span>Transformation failure</div>
+              <div class="heatmap-row-label" role="rowheader"><span></span>Reported transactions</div>
               @for (period of details.batchHealthTrend; track period.periodStart) {
                 <div
                   class="heatmap-cell"
                   role="cell"
-                  [style.background]="heatmapCellColor(period.transformationFailureBatches, period.batchesRan)"
-                  [style.color]="heatmapTextColor(period.transformationFailureBatches, period.batchesRan)"
+                  [style.background]="reportedHeatmapCellColor(period.totalReportedTransactions, trendReportedTransactionsMaximum(details.batchHealthTrend))"
+                  [style.color]="reportedHeatmapTextColor(period.totalReportedTransactions, trendReportedTransactionsMaximum(details.batchHealthTrend))"
                 >
                   <button
                     type="button"
                     class="heatmap-cell-button"
-                    [disabled]="period.transformationFailureBatches === 0"
-                    [attr.title]="issueCellTitle('Transformation failure', period.transformationFailureBatches, period)"
-                    [attr.aria-label]="issueCellTitle('Transformation failure', period.transformationFailureBatches, period)"
-                    (click)="openPeriodExplorer(period, 'ATTENTION', 'TRANSFORMATION')"
-                  >{{ period.transformationFailureBatches }}</button>
+                    [disabled]="period.totalReportedTransactions === 0"
+                    [attr.title]="reportedTransactionsCellTitle(period)"
+                    [attr.aria-label]="reportedTransactionsCellTitle(period)"
+                    (click)="openPeriodTransactionExplorer(period, 'REPORTED')"
+                  >{{ period.totalReportedTransactions | number:'1.0-0' }}</button>
                 </div>
               }
 
-              <div class="heatmap-row-label" role="rowheader"><span></span>Missing attempts</div>
+              <div class="heatmap-row-label" role="rowheader"><span></span>Excluded transactions</div>
               @for (period of details.batchHealthTrend; track period.periodStart) {
                 <div
                   class="heatmap-cell"
                   role="cell"
-                  [style.background]="heatmapCellColor(period.missingAttemptBatches, period.batchesRan)"
-                  [style.color]="heatmapTextColor(period.missingAttemptBatches, period.batchesRan)"
+                  [style.background]="excludedHeatmapCellColor(period.totalExcludedTransactions, period.totalReportedTransactions + period.totalExcludedTransactions)"
+                  [style.color]="excludedHeatmapTextColor(period.totalExcludedTransactions, period.totalReportedTransactions + period.totalExcludedTransactions)"
                 >
                   <button
                     type="button"
                     class="heatmap-cell-button"
-                    [disabled]="period.missingAttemptBatches === 0"
-                    [attr.title]="issueCellTitle('Missing attempts', period.missingAttemptBatches, period)"
-                    [attr.aria-label]="issueCellTitle('Missing attempts', period.missingAttemptBatches, period)"
-                    (click)="openPeriodExplorer(period, 'ATTENTION', 'MISSING_ATTEMPTS')"
-                  >{{ period.missingAttemptBatches }}</button>
-                </div>
-              }
-
-              <div class="heatmap-row-label" role="rowheader"><span></span>Activity missing</div>
-              @for (period of details.batchHealthTrend; track period.periodStart) {
-                <div
-                  class="heatmap-cell"
-                  role="cell"
-                  [style.background]="heatmapCellColor(period.activityMissingBatches, period.batchesRan)"
-                  [style.color]="heatmapTextColor(period.activityMissingBatches, period.batchesRan)"
-                >
-                  <button
-                    type="button"
-                    class="heatmap-cell-button"
-                    [disabled]="period.activityMissingBatches === 0"
-                    [attr.title]="issueCellTitle('Activity missing', period.activityMissingBatches, period)"
-                    [attr.aria-label]="issueCellTitle('Activity missing', period.activityMissingBatches, period)"
-                    (click)="openPeriodExplorer(period, 'ATTENTION', 'ACTIVITY_MISSING')"
-                  >{{ period.activityMissingBatches }}</button>
+                    [disabled]="period.totalExcludedTransactions === 0"
+                    [attr.title]="excludedTransactionsCellTitle(period)"
+                    [attr.aria-label]="excludedTransactionsCellTitle(period)"
+                    (click)="openPeriodTransactionExplorer(period, 'EXCLUDED')"
+                  >{{ period.totalExcludedTransactions | number:'1.0-0' }}</button>
                 </div>
               }
             </div>
           </div>
         }
+      </div>
       </div>
     </section>
 
@@ -555,24 +597,42 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
               <table class="attention-table">
                 <thead>
                   <tr class="column-groups">
-                    <th scope="col" rowspan="2">Priority & Report Group</th>
+                    <th scope="col" rowspan="2" [attr.aria-sort]="attentionAriaSort('name')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('name')">Priority & Report Group{{ attentionSortIndicator('name') }}</button>
+                    </th>
                     <th scope="colgroup" colspan="3">Batch Status</th>
                     <th scope="colgroup" colspan="3">Issue Breakdown</th>
                     <th scope="colgroup" colspan="2">Transaction Totals</th>
                   </tr>
                   <tr class="column-labels">
-                    <th scope="col" class="number-cell">Ran</th>
-                    <th scope="col" class="number-cell">Successful</th>
-                    <th scope="col" class="number-cell" aria-sort="descending">Attention ↓</th>
-                    <th scope="col" class="number-cell">Activity Missing</th>
-                    <th scope="col" class="number-cell">Missing Attempts</th>
-                    <th scope="col" class="number-cell">Transformation</th>
-                    <th scope="col" class="number-cell">Reported</th>
-                    <th scope="col" class="number-cell">Excluded</th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('batchesRan')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('batchesRan')">Ran{{ attentionSortIndicator('batchesRan') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('successfulBatches')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('successfulBatches')">Successful{{ attentionSortIndicator('successfulBatches') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('batchesNeedingAttention')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('batchesNeedingAttention')">Attention{{ attentionSortIndicator('batchesNeedingAttention') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('activityMissingBatches')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('activityMissingBatches')">Activity Missing{{ attentionSortIndicator('activityMissingBatches') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('missingAttemptBatches')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('missingAttemptBatches')">Missing Attempts{{ attentionSortIndicator('missingAttemptBatches') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('transformationFailureBatches')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('transformationFailureBatches')">Transformation{{ attentionSortIndicator('transformationFailureBatches') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('totalReportedTransactions')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('totalReportedTransactions')">Reported{{ attentionSortIndicator('totalReportedTransactions') }}</button>
+                    </th>
+                    <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('totalExcludedTransactions')">
+                      <button type="button" class="sort-header" (click)="setAttentionSort('totalExcludedTransactions')">Excluded{{ attentionSortIndicator('totalExcludedTransactions') }}</button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (group of details.reportGroupsRequiringAttention; track group.reportGroupId; let rank = $index) {
+                  @for (group of sortedReportGroups(details.reportGroupsRequiringAttention); track group.reportGroupId; let rank = $index) {
                     <tr>
                       <th scope="row">
                         <button
@@ -630,7 +690,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                       </td>
                       <td class="number-cell transaction-value">
                         @if (group.totalExcludedTransactions > 0) {
-                          <span class="transaction-static">{{ group.totalExcludedTransactions | number:'1.0-0' }}</span>
+                          <button type="button" class="table-metric-link transaction-link" (click)="openReportGroupExcludedTransactions(group, $event)" [attr.aria-label]="'View ' + group.totalExcludedTransactions + ' excluded transactions for ' + (group.reportGroupName || group.reportGroupId)">{{ group.totalExcludedTransactions | number:'1.0-0' }}</button>
                         } @else { <span class="transaction-zero">0</span> }
                       </td>
                     </tr>
@@ -646,8 +706,6 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
   `
 })
 export class HomeComponent implements OnInit {
-  readonly health = signal<HealthResponse | null>(null);
-  readonly connectionFailed = signal(false);
   readonly batchId = signal('');
   readonly country = signal('ALL');
   readonly reportPeriod = signal<ReportPeriod>('LAST_7_DAYS');
@@ -658,6 +716,10 @@ export class HomeComponent implements OnInit {
   readonly dashboardLoading = signal(false);
   readonly dashboardError = signal<string | null>(null);
   readonly countryOptions = signal<CountryOption[]>([]);
+  readonly reportGroupId = signal('ALL');
+  readonly reportGroupOptions = signal<ReportGroupOption[]>([]);
+  readonly attentionSortColumn = signal<AttentionSortColumn>('batchesNeedingAttention');
+  readonly attentionSortDirection = signal<AttentionSortDirection>('desc');
 
   constructor(
     private readonly http: HttpClient,
@@ -667,13 +729,18 @@ export class HomeComponent implements OnInit {
 
   ngOnInit(): void {
     this.restoreRouteFilters();
-    this.http.get<HealthResponse>('/api/v1/health').subscribe({
-      next: value => this.health.set(value),
-      error: () => this.connectionFailed.set(true)
-    });
     this.http.get<BatchFilterOptionsResponse>('/api/v1/batches/filter-options').subscribe({
       next: options => this.countryOptions.set(options.countries),
       error: () => this.countryOptions.set([])
+    });
+    this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs').subscribe({
+      next: response =>
+        this.reportGroupOptions.set(
+          response.configurations
+            .map(config => ({ reportGroupId: config.reportGroupId, reportGroupName: config.reportGroupName }))
+            .sort((a, b) => (a.reportGroupName || '').localeCompare(b.reportGroupName || ''))
+        ),
+      error: () => this.reportGroupOptions.set([])
     });
     this.loadDashboardDetails();
   }
@@ -685,6 +752,11 @@ export class HomeComponent implements OnInit {
 
   setCountryValue(country: string): void {
     this.country.set(country);
+    this.filtersApplied.set(false);
+  }
+
+  setReportGroupValue(reportGroupId: string): void {
+    this.reportGroupId.set(reportGroupId);
     this.filtersApplied.set(false);
   }
 
@@ -711,6 +783,7 @@ export class HomeComponent implements OnInit {
   resetFilters(): void {
     this.batchId.set('');
     this.country.set('ALL');
+    this.reportGroupId.set('ALL');
     this.reportPeriod.set('LAST_7_DAYS');
     this.startDate.set('');
     this.endDate.set('');
@@ -720,7 +793,30 @@ export class HomeComponent implements OnInit {
   }
 
   openBatchExplorer(status: ExplorerStatus, issueType: ExplorerIssueType = 'ALL'): void {
-    this.navigateToBatchExplorer(status, issueType, null, 'DEFAULT');
+    this.navigateToBatchExplorer(status, issueType, this.selectedReportGroupIdOrNull(), 'DEFAULT');
+  }
+
+  // This KPI's "excluded" total is a sum across every batch matching the current filters, not
+  // one batch's evidence — so it can't be pinned to a single batch's transaction report (an
+  // earlier version tried picking "the batch with the most exclusions" and jump to it, but that
+  // showed only that one batch's aggregate, silently wrong whenever the total spanned others).
+  // The transactions page instead has a period-wide mode: given a date range (and optional
+  // report group/country) with no batchId, it lists every excluded-transaction record across the
+  // whole matching batch set directly, via /api/v1/transactions/period-report.
+  openExcludedTransactionsExplorer(): void {
+    const period = this.resolvePeriod();
+    if (!period) {
+      this.dashboardError.set('Select both custom dates.');
+      return;
+    }
+    void this.router.navigate(['/transactions'], {
+      queryParams: {
+        fromDate: period.fromDate,
+        toDate: period.toDate,
+        country: this.country(),
+        reportGroupId: this.selectedReportGroupIdOrNull()
+      }
+    });
   }
 
   openReportGroupExplorer(
@@ -730,6 +826,65 @@ export class HomeComponent implements OnInit {
     metricFocus: ExplorerMetricFocus = 'DEFAULT'
   ): void {
     this.navigateToBatchExplorer(status, issueType, group.reportGroupId, metricFocus);
+  }
+
+  /** Same period-wide transactions view as the "Excluded" KPI card, but scoped to one report
+   *  group's total instead of the whole filtered dashboard — the group's excluded count can span
+   *  multiple batches, so this can't point at a single batch's transaction report either. */
+  openReportGroupExcludedTransactions(group: ReportGroupAttention, event: Event): void {
+    event.stopPropagation();
+    const period = this.resolvePeriod();
+    if (!period) {
+      this.dashboardError.set('Select both custom dates.');
+      return;
+    }
+    void this.router.navigate(['/transactions'], {
+      queryParams: {
+        fromDate: period.fromDate,
+        toDate: period.toDate,
+        country: this.country(),
+        reportGroupId: group.reportGroupId
+      }
+    });
+  }
+
+  /** Clicking the same header again flips direction; clicking a new one sorts by it — descending
+   *  for every numeric column (biggest issue/volume first, matching the table's investigative
+   *  purpose), ascending for the name column (alphabetical). */
+  setAttentionSort(column: AttentionSortColumn): void {
+    if (this.attentionSortColumn() === column) {
+      this.attentionSortDirection.set(this.attentionSortDirection() === 'desc' ? 'asc' : 'desc');
+    } else {
+      this.attentionSortColumn.set(column);
+      this.attentionSortDirection.set(column === 'name' ? 'asc' : 'desc');
+    }
+  }
+
+  sortedReportGroups(groups: ReportGroupAttention[]): ReportGroupAttention[] {
+    const column = this.attentionSortColumn();
+    const direction = this.attentionSortDirection() === 'asc' ? 1 : -1;
+    return [...groups].sort((a, b) => {
+      if (column === 'name') {
+        const nameA = a.reportGroupName || `Report Group ${a.reportGroupId}`;
+        const nameB = b.reportGroupName || `Report Group ${b.reportGroupId}`;
+        return nameA.localeCompare(nameB) * direction;
+      }
+      return (a[column] - b[column]) * direction;
+    });
+  }
+
+  attentionSortIndicator(column: AttentionSortColumn): string {
+    if (this.attentionSortColumn() !== column) {
+      return '';
+    }
+    return this.attentionSortDirection() === 'desc' ? ' ↓' : ' ↑';
+  }
+
+  attentionAriaSort(column: AttentionSortColumn): 'ascending' | 'descending' | 'none' {
+    if (this.attentionSortColumn() !== column) {
+      return 'none';
+    }
+    return this.attentionSortDirection() === 'desc' ? 'descending' : 'ascending';
   }
 
   openPeriodExplorer(
@@ -745,7 +900,7 @@ export class HomeComponent implements OnInit {
         country: this.country(),
         status,
         issueType,
-        reportGroupId: null,
+        reportGroupId: this.selectedReportGroupIdOrNull(),
         metricFocus: 'DEFAULT'
       }
     });
@@ -780,6 +935,107 @@ export class HomeComponent implements OnInit {
     return details.batchesRan === 0 ? 0 : (details.batchesNeedingAttention * 100) / details.batchesRan;
   }
 
+  exclusionRatePercent(details: DashboardDetailsResponse): number {
+    const total = details.totalReportedTransactions + details.totalExcludedTransactions;
+    return total === 0 ? 0 : (details.totalExcludedTransactions / total) * 100;
+  }
+
+  expectedTransactions(details: DashboardDetailsResponse): number {
+    return details.totalReportedTransactions + details.totalExcludedTransactions;
+  }
+
+  // Maps a rate onto a semicircle gauge where each threshold zone (0-1%, 1-5%, 5-10%, 10%+)
+  // gets an equal 45-degree slice, regardless of its numeric width. Real exclusion rates in
+  // this app sit well under 1%, so a plain linear 0-100% gauge would always pin the needle at
+  // the far left; zone-equal slices keep the needle legible within the "Healthy" range.
+  gaugeNeedleAngle(ratePercent: number): number {
+    const zones = [
+      { min: 0, max: 1, angleStart: 0, angleEnd: 45 },
+      { min: 1, max: 5, angleStart: 45, angleEnd: 90 },
+      { min: 5, max: 10, angleStart: 90, angleEnd: 135 },
+      { min: 10, max: Infinity, angleStart: 135, angleEnd: 180 }
+    ];
+    const clamped = Math.max(0, ratePercent);
+    for (const zone of zones) {
+      if (clamped < zone.max) {
+        const span = zone.max === Infinity ? 10 : zone.max - zone.min;
+        const progress = Math.min(1, (clamped - zone.min) / span);
+        return zone.angleStart + progress * (zone.angleEnd - zone.angleStart);
+      }
+    }
+    return 180;
+  }
+
+  private gaugeNeedlePoint(ratePercent: number): { x: number; y: number } {
+    const radians = (this.gaugeNeedleAngle(ratePercent) * Math.PI) / 180;
+    const radius = 68;
+    return { x: 110 - radius * Math.cos(radians), y: 110 - radius * Math.sin(radians) };
+  }
+
+  gaugeNeedleX(ratePercent: number): number {
+    return this.gaugeNeedlePoint(ratePercent).x;
+  }
+
+  gaugeNeedleY(ratePercent: number): number {
+    return this.gaugeNeedlePoint(ratePercent).y;
+  }
+
+  gaugeZoneColor(ratePercent: number): string {
+    if (ratePercent < 1) {
+      return '#547563';
+    }
+    if (ratePercent < 5) {
+      return '#8a7d3f';
+    }
+    if (ratePercent < 10) {
+      return '#a05f2e';
+    }
+    return '#bd343e';
+  }
+
+  formatExclusionRate(ratePercent: number): string {
+    return `${ratePercent.toFixed(2)}%`;
+  }
+
+  openPeriodTransactionExplorer(period: BatchHealthTrend, metricFocus: ExplorerMetricFocus): void {
+    void this.router.navigate(['/batches/explorer'], {
+      queryParams: {
+        fromDate: period.periodStart,
+        toDate: period.periodEnd,
+        batchId: this.batchId().trim() || null,
+        country: this.country(),
+        status: 'ALL',
+        issueType: 'ALL',
+        reportGroupId: this.selectedReportGroupIdOrNull(),
+        metricFocus
+      }
+    });
+  }
+
+  trendReportedTransactionsMaximum(periods: BatchHealthTrend[]): number {
+    return Math.max(1, ...periods.map(period => period.totalReportedTransactions));
+  }
+
+  reportedHeatmapCellColor(reportedCount: number, maximum: number): string {
+    if (maximum === 0) {
+      return '#efeee9';
+    }
+    if (reportedCount === 0) {
+      return '#f9f5f5';
+    }
+    const impact = reportedCount / maximum;
+    return `rgba(111, 146, 127, ${0.14 + impact * 0.66})`;
+  }
+
+  reportedHeatmapTextColor(reportedCount: number, maximum: number): string {
+    const impact = maximum === 0 ? 0 : reportedCount / maximum;
+    return impact >= 0.7 ? '#ffffff' : reportedCount === 0 ? '#aaa9a1' : '#2f4a3b';
+  }
+
+  reportedTransactionsCellTitle(period: BatchHealthTrend): string {
+    return `Reported transactions: ${period.totalReportedTransactions} from ${period.periodStart} to ${period.periodEnd}`;
+  }
+
   issueBreakdownSum(details: DashboardDetailsResponse): number {
     return (
       details.transformationFailureBatches +
@@ -806,11 +1062,11 @@ export class HomeComponent implements OnInit {
     return `Completed batches grouped ${bucket} and split into successful and attention outcomes.`;
   }
 
-  issueTrendTitle(granularity: TrendGranularity | undefined): string {
+  excludedTransactionsTrendTitle(granularity: TrendGranularity | undefined): string {
     if (!granularity) {
-      return 'Issue Driver Trend';
+      return 'Transaction Totals Trend';
     }
-    return `${granularity.charAt(0)}${granularity.slice(1).toLowerCase()} Issue Driver Trend`;
+    return `${granularity.charAt(0)}${granularity.slice(1).toLowerCase()} Transaction Totals`;
   }
 
   trendDateFormat(granularity: TrendGranularity): string {
@@ -843,25 +1099,26 @@ export class HomeComponent implements OnInit {
     return Math.max(760, 180 + periodCount * bucketWidth);
   }
 
-  heatmapCellColor(issueCount: number, batchesRan: number): string {
-    if (batchesRan === 0) {
+  excludedHeatmapCellColor(excludedCount: number, totalTransactions: number): string {
+    if (totalTransactions === 0) {
       return '#efeee9';
     }
-    if (issueCount === 0) {
+    if (excludedCount === 0) {
       return '#f9f5f5';
     }
-    const impact = issueCount / batchesRan;
-    return `rgba(196, 71, 79, ${0.14 + impact * 0.66})`;
+    const impact = excludedCount / totalTransactions;
+    return `rgba(240, 180, 0, ${0.18 + Math.min(impact * 6, 1) * 0.62})`;
   }
 
-  heatmapTextColor(issueCount: number, batchesRan: number): string {
-    const impact = batchesRan === 0 ? 0 : issueCount / batchesRan;
-    return impact >= 0.7 ? '#ffffff' : issueCount === 0 ? '#aaa9a1' : '#63343a';
+  excludedHeatmapTextColor(excludedCount: number, totalTransactions: number): string {
+    const impact = totalTransactions === 0 ? 0 : excludedCount / totalTransactions;
+    return Math.min(impact * 6, 1) >= 0.7 ? '#3a2e00' : excludedCount === 0 ? '#aaa9a1' : '#6b5400';
   }
 
-  issueCellTitle(label: string, issueCount: number, period: BatchHealthTrend): string {
-    const rate = period.batchesRan === 0 ? 0 : (issueCount * 100) / period.batchesRan;
-    return `${label}: ${issueCount} affected batches (${rate.toFixed(0)}%) from ${period.periodStart} to ${period.periodEnd}`;
+  excludedTransactionsCellTitle(period: BatchHealthTrend): string {
+    const total = period.totalReportedTransactions + period.totalExcludedTransactions;
+    const rate = total === 0 ? 0 : (period.totalExcludedTransactions * 100) / total;
+    return `Excluded transactions: ${period.totalExcludedTransactions} of ${total} (${rate.toFixed(1)}%) from ${period.periodStart} to ${period.periodEnd}`;
   }
 
   private loadDashboardDetails(): void {
@@ -874,11 +1131,14 @@ export class HomeComponent implements OnInit {
 
     this.dashboardLoading.set(true);
     this.dashboardError.set(null);
-    const params = new HttpParams()
+    let params = new HttpParams()
       .set('fromDate', period.fromDate)
       .set('toDate', period.toDate)
       .set('batchId', this.batchId().trim())
       .set('country', this.country());
+    if (this.reportGroupId() !== 'ALL') {
+      params = params.set('reportGroupId', this.reportGroupId());
+    }
 
     this.http.get<DashboardDetailsResponse>('/dashboardDetails', { params }).subscribe({
       next: details => {
@@ -888,7 +1148,9 @@ export class HomeComponent implements OnInit {
             ...period,
             transformationFailureBatches: period.transformationFailureBatches ?? 0,
             missingAttemptBatches: period.missingAttemptBatches ?? 0,
-            activityMissingBatches: period.activityMissingBatches ?? 0
+            activityMissingBatches: period.activityMissingBatches ?? 0,
+            totalReportedTransactions: period.totalReportedTransactions ?? 0,
+            totalExcludedTransactions: period.totalExcludedTransactions ?? 0
           }))
         });
         this.dashboardLoading.set(false);
@@ -924,6 +1186,7 @@ export class HomeComponent implements OnInit {
     const params = this.route.snapshot.queryParamMap;
     this.batchId.set(params.get('batchId') ?? '');
     this.country.set(params.get('country') ?? 'ALL');
+    this.reportGroupId.set(params.get('reportGroupId') ?? 'ALL');
     const fromDate = params.get('fromDate');
     const toDate = params.get('toDate');
     if (fromDate && toDate) {
@@ -943,9 +1206,14 @@ export class HomeComponent implements OnInit {
         fromDate: period?.fromDate ?? null,
         toDate: period?.toDate ?? null,
         batchId: this.batchId().trim() || null,
-        country: this.country()
+        country: this.country(),
+        reportGroupId: this.reportGroupId() === 'ALL' ? null : this.reportGroupId()
       }
     });
+  }
+
+  private selectedReportGroupIdOrNull(): number | null {
+    return this.reportGroupId() === 'ALL' ? null : Number(this.reportGroupId());
   }
 
   private toLocalDate(date: Date): string {

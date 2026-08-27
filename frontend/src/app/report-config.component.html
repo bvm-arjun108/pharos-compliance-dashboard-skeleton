@@ -36,7 +36,12 @@
       <article>
         <span>Objective reports</span>
         <strong>{{ result.summary.objectiveConfigurations }}</strong>
-        <small>{{ result.summary.totalConfigurations - result.summary.objectiveConfigurations }} subjective</small>
+        <small>Report type</small>
+      </article>
+      <article>
+        <span>Subjective reports</span>
+        <strong>{{ result.summary.totalConfigurations - result.summary.objectiveConfigurations }}</strong>
+        <small>Report type</small>
       </article>
     </section>
   }
@@ -236,8 +241,8 @@
           <div class="section-heading"><div><p>Strategy metadata</p><h3 id="strategy-heading">Exclusion & reconciliation</h3></div></div>
           <div class="strategy-grid">
             @for (card of strategyCards(details); track card.id) {
-              <details class="strategy-card" [class.strategy-card--empty]="!card.configured">
-                <summary>
+              <div class="strategy-card" [class.strategy-card--empty]="!card.configured">
+                <div class="strategy-card__heading">
                   <span class="strategy-summary-copy">
                     <strong>{{ card.title }}</strong>
                     <small>{{ card.preview }}</small>
@@ -245,10 +250,7 @@
                   <span class="strategy-status" [class.strategy-status--empty]="!card.configured">
                     {{ card.configured ? 'Configured' : 'Not configured' }}
                   </span>
-                  <svg class="strategy-chevron" viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="m6.5 8 3.5 3.5L13.5 8" />
-                  </svg>
-                </summary>
+                </div>
                 <div class="strategy-card__body">
                   @if (card.configured) {
                     <dl>
@@ -263,7 +265,7 @@
                     </div>
                   }
                 </div>
-              </details>
+              </div>
             }
           </div>
         </section>

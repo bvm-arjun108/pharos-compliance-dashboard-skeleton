@@ -29,6 +29,10 @@ public class CacheConfiguration {
   public static final String TRANSACTION_OUTCOME_BREAKDOWN = "transactionOutcomeBreakdown";
   public static final String TRANSACTION_STAGE_BREAKDOWN = "transactionStageBreakdown";
   public static final String TRANSACTION_EVIDENCE_RECORDS = "transactionEvidenceRecords";
+  public static final String PERIOD_TRANSACTION_AGGREGATE = "periodTransactionAggregate";
+  public static final String PERIOD_TRANSACTION_EVIDENCE_COUNT = "periodTransactionEvidenceCount";
+  public static final String PERIOD_TRANSACTION_EVIDENCE_RECORDS =
+      "periodTransactionEvidenceRecords";
 
   @Bean
   CacheManager cacheManager() {
@@ -39,7 +43,10 @@ public class CacheConfiguration {
             buildCache(TRANSACTION_EVIDENCE_COUNT, 10_000, Duration.ofMinutes(2)),
             buildCache(TRANSACTION_OUTCOME_BREAKDOWN, 10_000, Duration.ofMinutes(2)),
             buildCache(TRANSACTION_STAGE_BREAKDOWN, 10_000, Duration.ofMinutes(2)),
-            buildCache(TRANSACTION_EVIDENCE_RECORDS, 1_000, Duration.ofMinutes(2))));
+            buildCache(TRANSACTION_EVIDENCE_RECORDS, 1_000, Duration.ofMinutes(2)),
+            buildCache(PERIOD_TRANSACTION_AGGREGATE, 2_000, Duration.ofMinutes(2)),
+            buildCache(PERIOD_TRANSACTION_EVIDENCE_COUNT, 2_000, Duration.ofMinutes(2)),
+            buildCache(PERIOD_TRANSACTION_EVIDENCE_RECORDS, 500, Duration.ofMinutes(2))));
     return manager;
   }
 

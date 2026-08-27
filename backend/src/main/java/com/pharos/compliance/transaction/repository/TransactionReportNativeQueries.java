@@ -40,10 +40,13 @@ final class TransactionReportNativeQueries {
       """;
 
   /**
-   * Resolves each rule_hit row in this batch to its journey identifier, preferring the identifier
-   * -> external_txn_key bridge and automatically falling back to mtcn only when no identifier match
-   * exists. Both bridges are scoped by rpt_grp_id + efile_batch_id, per the validated batch bridge
-   * (never join on identifier/mtcn alone).
+   * Resolves each rule_hit row to its journey identifier, preferring the identifier ->
+   * external_txn_key bridge and automatically falling back to mtcn only when no identifier match
+   * exists. Rule hits are matched by rpt_grp_id + external_txn_key/mtcn only — deliberately NOT
+   * also restricted to rh.efile_batch_id = :batchId, because a rule hit's own processing batch can
+   * differ from the batch currently under investigation (e.g. it was originally filed under an
+   * earlier attempt). The identifier lookup itself still scopes journey rows to :batchId, since
+   * that determines which of *this batch's* transactions a given rule hit belongs to.
    */
   private static final String RULE_HIT_MATCHES_CTE =
       """
@@ -67,7 +70,6 @@ final class TransactionReportNativeQueries {
               ) AS matched_identifier
           FROM pharos.rule_hit rh
           WHERE rh.rpt_grp_id = :reportGroupId
-            AND rh.efile_batch_id = :batchId
       )
       """;
 
@@ -106,6 +108,7 @@ final class TransactionReportNativeQueries {
               CONCAT('JOURNEY:', journey.identifier) AS record_key,
               journey.identifier,
               journey.mtcn,
+              journey.batch_id AS evidence_batch_id,
               'JOURNEY' AS evidence_source,
               journey.stage,
               journey.status,
@@ -168,6 +171,7 @@ final class TransactionReportNativeQueries {
               COALESCE(exclusion_audit.external_txn_key::text, exclusion_audit.attempt_id::text)
                   AS identifier,
               exclusion_audit.mtcn,
+              exclusion_audit.processing_batch_id AS evidence_batch_id,
               'EXCLUSION_AUDIT' AS evidence_source,
               'EXCLUSION' AS stage,
               'EXCLUDED' AS status,
@@ -220,6 +224,7 @@ final class TransactionReportNativeQueries {
                   ':', rule_hit_matches.attempt_id) AS record_key,
               rule_hit_matches.matched_identifier AS identifier,
               rule_hit_matches.mtcn,
+              rule_hit_matches.efile_batch_id AS evidence_batch_id,
               'RULE_HIT' AS evidence_source,
               'RULE_HIT' AS stage,
               CASE WHEN rule_hit_matches.is_reported THEN 'REPORTED' ELSE 'NOT_REPORTED' END
@@ -284,8 +289,7 @@ final class TransactionReportNativeQueries {
           WHERE (:source = 'ALL' OR evidence_source = :source)
             AND (:search = ''
                  OR LOWER(identifier) LIKE LOWER(CONCAT('%', :search, '%'))
-                 OR LOWER(COALESCE(mtcn, '')) LIKE LOWER(CONCAT('%', :search, '%'))
-                 OR LOWER(COALESCE(rule_id, '')) LIKE LOWER(CONCAT('%', :search, '%')))
+                 OR LOWER(COALESCE(mtcn, '')) LIKE LOWER(CONCAT('%', :search, '%')))
             AND (
                 :metric = 'ALL'
                 OR (:metric IN ('SELECTED', 'ATTEMPTS_FOUND', 'EXPECTED_ELIGIBLE',
@@ -342,13 +346,20 @@ final class TransactionReportNativeQueries {
       )
       """;
 
-  /** stage_scoped narrowed by outcome too — both filters applied, for the record list itself. */
+  /**
+   * stage_scoped narrowed by outcome and literal status too — every filter the record list itself
+   * applies. Status is independent of outcome: outcome is a normalized bucket (SUCCESS/ERROR/
+   * PENDING/EXCLUDED) while status is the literal source value (e.g. FAILED vs ERROR both bucket to
+   * outcome ERROR, but are distinct statuses), so it is scoped here rather than folded into the
+   * stage/outcome CTEs that the (currently unrendered) breakdown queries also depend on.
+   */
   private static final String FILTERED_EVIDENCE_CTE =
       """
       , filtered_evidence AS (
           SELECT *
           FROM stage_scoped
           WHERE (:outcome = 'ALL' OR outcome = :outcome)
+            AND (:status = 'ALL' OR UPPER(COALESCE(status, '')) = :status)
       )
       """;
 
@@ -372,6 +383,7 @@ final class TransactionReportNativeQueries {
           record_key AS "recordKey",
           identifier AS "identifier",
           mtcn AS "mtcn",
+          evidence_batch_id AS "batchId",
           evidence_source AS "evidenceSource",
           stage AS "stage",
           status AS "status",
@@ -413,7 +425,10 @@ final class TransactionReportNativeQueries {
           transaction_sub_status AS "transactionSubStatus",
           rule_hits_json AS "ruleHitsJson"
       FROM filtered_evidence
-      ORDER BY modified_at DESC NULLS LAST, record_key
+      ORDER BY
+          CASE WHEN :sortDirection = 'ASC' THEN modified_at END ASC NULLS LAST,
+          CASE WHEN :sortDirection = 'DESC' THEN modified_at END DESC NULLS LAST,
+          record_key
       LIMIT :size OFFSET :offset
       """;
 

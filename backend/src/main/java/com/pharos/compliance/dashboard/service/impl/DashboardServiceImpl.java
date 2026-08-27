@@ -47,13 +47,15 @@ public class DashboardServiceImpl implements DashboardService {
 
   @Override
   public Mono<DashboardDetailsResponse> getDashboardDetails(
-      LocalDate fromDate, LocalDate toDate, String batchId, String country) {
+      LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId) {
     if (fromDate.isAfter(toDate)) {
       return Mono.error(new InvalidDateRangeException("fromDate must be on or before toDate"));
     }
 
     String normalizedBatchId = batchId == null ? "" : batchId.trim();
     String normalizedCountryCode = normalizeCountryCode(country);
+    boolean filterByReportGroup = reportGroupId != null;
+    int reportGroupIdFilter = filterByReportGroup ? reportGroupId : -1;
     TrendGranularity trendGranularity = TrendGranularity.forPeriod(fromDate, toDate);
     LocalDateTime fromTimestamp = fromDate.atStartOfDay();
     LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
@@ -69,7 +71,9 @@ public class DashboardServiceImpl implements DashboardService {
                               toTimestampExclusive,
                               normalizedBatchId,
                               countryFilter.enabled(),
-                              countryFilter.reportGroupIds()));
+                              countryFilter.reportGroupIds(),
+                              filterByReportGroup,
+                              reportGroupIdFilter));
               Mono<List<BatchHealthTrendResponse>> trend =
                   onJdbcScheduler(
                           () ->
@@ -81,7 +85,9 @@ public class DashboardServiceImpl implements DashboardService {
                                   trendGranularity.name(),
                                   normalizedBatchId,
                                   countryFilter.enabled(),
-                                  countryFilter.reportGroupIds()))
+                                  countryFilter.reportGroupIds(),
+                                  filterByReportGroup,
+                                  reportGroupIdFilter))
                       .map(
                           periods ->
                               periods.stream()
@@ -98,7 +104,9 @@ public class DashboardServiceImpl implements DashboardService {
                                   toTimestampExclusive,
                                   normalizedBatchId,
                                   countryFilter.enabled(),
-                                  countryFilter.reportGroupIds()))
+                                  countryFilter.reportGroupIds(),
+                                  filterByReportGroup,
+                                  reportGroupIdFilter))
                       .map(groups -> groups.stream().map(this::toReportGroupResponse).toList());
 
               return Mono.zip(counts, trend, reportGroups)
@@ -115,11 +123,12 @@ public class DashboardServiceImpl implements DashboardService {
         .doOnSubscribe(
             ignored ->
                 LOGGER.info(
-                    "Dashboard calculation started fromDate={} toDate={} country={} batchId={}",
+                    "Dashboard calculation started fromDate={} toDate={} country={} batchId={} reportGroupId={}",
                     fromDate,
                     toDate,
                     normalizedCountryCode,
-                    normalizedBatchId))
+                    normalizedBatchId,
+                    reportGroupId))
         .doOnSuccess(
             response ->
                 LOGGER.info(
@@ -178,7 +187,9 @@ public class DashboardServiceImpl implements DashboardService {
         period.getActivityMissingBatches(),
         period.getBatchesRan() == 0
             ? 0.0
-            : (period.getBatchesNeedingAttention() * 100.0) / period.getBatchesRan());
+            : (period.getBatchesNeedingAttention() * 100.0) / period.getBatchesRan(),
+        period.getTotalReportedTransactions(),
+        period.getTotalExcludedTransactions());
   }
 
   private ReportGroupAttentionResponse toReportGroupResponse(ReportGroupMetricsProjection group) {

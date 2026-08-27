@@ -73,5 +73,8 @@ public interface DashboardApi {
           String batchId,
       @Parameter(description = "Active report_group_config country code or ALL", example = "PT")
           @RequestParam(value = "country", defaultValue = "ALL")
-          String country);
+          String country,
+      @Parameter(description = "Exact report group ID", example = "1573742369")
+          @RequestParam(value = "reportGroupId", required = false)
+          Integer reportGroupId);
 }

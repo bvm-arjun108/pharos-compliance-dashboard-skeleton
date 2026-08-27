@@ -123,7 +123,6 @@ final class ReportGroupConfigNativeQueries {
       WITH ranked_configs AS (
           SELECT
               reg_rpt_type,
-              rpt_config_active_flag,
               ROW_NUMBER() OVER (
                   PARTITION BY rpt_grp_id
                   ORDER BY
@@ -136,7 +135,6 @@ final class ReportGroupConfigNativeQueries {
       SELECT DISTINCT BTRIM(reg_rpt_type) AS "reportType"
       FROM ranked_configs
       WHERE config_rank = 1
-        AND rpt_config_active_flag IS TRUE
         AND reg_rpt_type IS NOT NULL
         AND BTRIM(reg_rpt_type) <> ''
       ORDER BY "reportType"

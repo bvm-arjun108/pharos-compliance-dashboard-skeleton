@@ -144,7 +144,7 @@
 .explorer-toolbar {
   display: grid;
   margin-top: 18px;
-  grid-template-columns: minmax(210px, 1.2fr) minmax(145px, .75fr) minmax(165px, .85fr) minmax(185px, .9fr) auto auto;
+  grid-template-columns: minmax(210px, 1.2fr) minmax(145px, .75fr) minmax(180px, .85fr) auto auto;
   gap: 10px;
 }
 
@@ -588,7 +588,7 @@
   display: grid;
   margin-top: 16px;
   overflow: hidden;
-  grid-template-columns: minmax(250px, 1.8fr) repeat(3, minmax(100px, .6fr));
+  grid-template-columns: minmax(200px, 1.3fr) repeat(5, minmax(90px, .6fr));
   background: #232421;
   border: 1px solid #3d3e3a;
   border-top: 4px solid #ffdd00;
@@ -610,8 +610,8 @@
 }
 
 .preview-context-strip > div:last-child { border-right: 0; }
-.preview-context-strip span { color: #a5a69f; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
-.preview-context-strip strong { margin-top: 4px; overflow: hidden; color: #f5f5f1; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.preview-context-strip span { color: #a5a69f; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+.preview-context-strip strong { margin-top: 4px; color: #f5f5f1; font-size: 12px; line-height: 1.3; word-break: break-word; }
 
 .preview-section {
   margin-top: 22px;
@@ -712,9 +712,7 @@
   font-size: 11px;
 }
 
-.preview-section h3,
-.operational-context h3,
-.available-evidence h3 {
+.preview-section h3 {
   margin: 0 0 9px;
   color: #22221f;
   font-size: 14px;
@@ -829,6 +827,14 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.evidence-values--five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.evidence-values--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .evidence-values > div {
   min-width: 0;
   padding: 13px 10px 2px;
@@ -887,11 +893,9 @@
 }
 
 .evidence-values span {
-  overflow: hidden;
   color: #85837a;
   font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
 }
 
 .evidence-values strong {
@@ -903,84 +907,6 @@
 
 .evidence-values strong.issue-number {
   color: #864047;
-}
-
-.operational-context {
-  margin-top: 14px;
-}
-
-.operational-context > div {
-  display: grid;
-  overflow: hidden;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  background: #faf9f5;
-  border: 1px solid #e8e6dd;
-  border-radius: 7px;
-}
-
-.operational-context span {
-  display: flex;
-  min-height: 57px;
-  padding: 10px 14px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  color: #85837a;
-  border-right: 1px solid #e3e1d9;
-  font-size: 8px;
-}
-
-.operational-context span:last-child {
-  border-right: 0;
-}
-
-.operational-context strong {
-  color: #20201d;
-  font-size: 11px;
-}
-
-.available-evidence {
-  display: flex;
-  margin-top: 15px;
-  padding-top: 13px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-top: 1px solid #dedcd4;
-}
-
-.available-evidence h3 {
-  margin-bottom: 3px;
-}
-
-.available-evidence p {
-  margin: 0;
-  color: #85837a;
-  font-size: 8px;
-}
-
-.evidence-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.evidence-links button {
-  min-height: 35px;
-  padding: 0 12px;
-  color: #353530;
-  background: #fff;
-  border: 1px solid #cfcdc4;
-  border-radius: 6px;
-  font-size: 10px;
-}
-
-.evidence-links button:hover {
-  border-color: #9b998f;
-}
-
-.evidence-links button span {
-  margin-left: 15px;
 }
 
 .explorer-message,
@@ -1041,18 +967,6 @@
 
   .investigation-workspace {
     grid-template-columns: minmax(310px, 38%) minmax(0, 1fr);
-  }
-
-  .operational-context > div {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .operational-context span:nth-child(2) {
-    border-right: 0;
-  }
-
-  .operational-context span:nth-child(-n + 2) {
-    border-bottom: 1px solid #e3e1d9;
   }
 
   .evidence-grid {
@@ -1118,8 +1032,7 @@
     padding: 18px 15px;
   }
 
-  .preview-header,
-  .available-evidence {
+  .preview-header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1130,17 +1043,9 @@
     gap: 8px;
   }
 
-  .operational-context > div {
-    grid-template-columns: 1fr;
-  }
-
-  .operational-context span {
-    border-right: 0;
-    border-bottom: 1px solid #e3e1d9;
-  }
-
   .evidence-values--four,
-  .evidence-values--three {
+  .evidence-values--three,
+  .evidence-values--five {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

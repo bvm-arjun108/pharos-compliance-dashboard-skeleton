@@ -25,7 +25,7 @@ public class DatabaseCountryCatalog implements CountryCatalog {
   public CountryCatalogSnapshot getSnapshot() {
     Map<String, CountryAccumulator> countriesByCode = new LinkedHashMap<>();
     for (CountryMappingProjection mapping :
-        reportGroupConfigRepository.findActiveCountryMappings()) {
+        reportGroupConfigRepository.findCountryMappings()) {
       countriesByCode
           .computeIfAbsent(
               mapping.getCountryCode(),

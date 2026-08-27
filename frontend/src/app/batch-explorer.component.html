@@ -64,26 +64,17 @@
     </label>
 
     <label>
-      <span class="sr-only">Issue driver</span>
-      <select [value]="issueType()" (change)="setIssueType($event)">
-        <option value="ALL">All issue drivers</option>
-        <option value="ACTIVITY_MISSING">Activity missing</option>
-        <option value="MISSING_ATTEMPTS">Missing attempts</option>
-        <option value="TRANSFORMATION">Transformation skipped</option>
-        <option value="DUPLICATE_TRANSFORMATION">Duplicate transactions</option>
-        <option value="EXCLUSION">Exclusion reason</option>
-        <option value="SIMULATED">SML / simulated</option>
-        <option value="SOFT_DEDUP">Soft dedup dropped</option>
-      </select>
-    </label>
-
-    <label>
-      <span class="sr-only">Sort and filter by batch volume</span>
-      <select [value]="metricFocus()" (change)="setMetricFocus($event)">
-        <option value="DEFAULT">All batches</option>
-        <option value="REPORTED">Most transformer output first</option>
-        <option value="EXCLUDED">Most excluded transactions first</option>
-      </select>
+      <span class="sr-only">Report group</span>
+      @if (reportGroupOptions().length > 0) {
+        <select [ngModel]="reportGroupId()" (ngModelChange)="setReportGroupValue($event)" [ngModelOptions]="{standalone: true}">
+          <option [ngValue]="null">All report groups</option>
+          @for (option of reportGroupOptions(); track option.reportGroupId) {
+            <option [ngValue]="option.reportGroupId">{{ option.reportGroupName || 'Report group ' + option.reportGroupId }}</option>
+          }
+        </select>
+      } @else {
+        <select disabled aria-label="Report group options loading"><option>Loading report groups…</option></select>
+      }
     </label>
 
     <button type="submit" class="toolbar-apply">Apply</button>
@@ -225,17 +216,6 @@
             }
           </section>
 
-          @if (details.exclusionsAvailable) {
-            <section class="available-evidence" aria-labelledby="pending-evidence-heading">
-              <div>
-                <h3 id="pending-evidence-heading">Additional record-level evidence</h3>
-                <p>Exclusion audit records exist for this batch even though it has not been reconciled yet.</p>
-              </div>
-              <div class="evidence-links">
-                <button type="button" (click)="openBatchControlRoom('exclusions')">Exclusions <span>→</span></button>
-              </div>
-            </section>
-          }
         } @else {
         <header class="preview-header">
           <div>
@@ -257,18 +237,64 @@
         <section class="preview-context-strip" aria-label="Batch context">
           <div><span>Batch ID</span><strong>{{ details.batchId }}</strong></div>
           <div><span>Sequence</span><strong>{{ details.sequenceNumber }}</strong></div>
-          <div><span>Completed</span><strong>{{ details.completedAt | date:'h:mm a' }}</strong></div>
+          <div><span>Started</span><strong>{{ details.startedAt | date:'MMM d, h:mm a' }}</strong></div>
+          <div><span>Completed</span><strong>{{ details.completedAt | date:'MMM d, h:mm a' }}</strong></div>
           <div><span>Duration</span><strong>{{ formatDuration(details.durationSeconds) }}</strong></div>
+          <div><span>Batch Status</span><strong>{{ details.operationalStatus }}</strong></div>
         </section>
 
         <div class="evidence-grid">
           <section
-            id="transformation-evidence"
+            id="data-selection-evidence"
             class="evidence-panel"
-            aria-labelledby="transformation-evidence-heading"
+            aria-labelledby="data-selection-evidence-heading"
           >
             <div class="evidence-panel__heading">
-              <h3 id="transformation-evidence-heading">Transformation evidence</h3>
+              <h3 id="data-selection-evidence-heading">Data Selection</h3>
+              <span [class.bad]="details.missingAttempts > 0">{{ details.missingAttempts === 0 ? 'Complete' : 'Gap found' }}</span>
+            </div>
+            <p>Transactions selected for this batch, and the simulated, excluded, already-reported, soft-dedup, or missing-attempt reasons some didn't carry through cleanly.</p>
+            <div class="evidence-bar" role="img" [attr.aria-label]="details.missingAttempts + ' missing, ' + details.excludedTransactions + ' excluded, ' + details.simulatedTransactions + ' simulated, ' + details.alreadyReportedTransactions + ' already reported, ' + details.softDedupTransactions + ' soft-dedup dropped, out of ' + details.selectedTransactions + ' selected'">
+              @if (barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions) > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions), details.selectedTransactions)" [title]="barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions) + ' cleanly selected — click to view'" (click)="openTransactionReport('ATTEMPTS_FOUND')">{{ barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions) }}</span>
+              }
+              @if (details.missingAttempts > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--pending" [style.width.%]="barShare(details.missingAttempts, details.selectedTransactions)" [title]="details.missingAttempts + ' missing — click to view'" (click)="openTransactionReport('MISSING')">{{ details.missingAttempts }}</span>
+              }
+              @if (details.excludedTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--excluded" [style.width.%]="barShare(details.excludedTransactions, details.selectedTransactions)" [title]="details.excludedTransactions + ' excluded — click to view'" (click)="openTransactionReport('EXCLUDED')">{{ details.excludedTransactions }}</span>
+              }
+              @if (details.simulatedTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--simulated" [style.width.%]="barShare(details.simulatedTransactions, details.selectedTransactions)" [title]="details.simulatedTransactions + ' simulated (SML) — click to view'" (click)="openTransactionReport('SIMULATED')">{{ details.simulatedTransactions }}</span>
+              }
+              @if (details.alreadyReportedTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--already-reported" [style.width.%]="barShare(details.alreadyReportedTransactions, details.selectedTransactions)" [title]="details.alreadyReportedTransactions + ' already reported — click to view'" (click)="openTransactionReport('ALREADY_REPORTED')">{{ details.alreadyReportedTransactions }}</span>
+              }
+              @if (details.softDedupTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--soft-dedup" [style.width.%]="barShare(details.softDedupTransactions, details.selectedTransactions)" [title]="details.softDedupTransactions + ' soft-dedup dropped — click to view'" (click)="openTransactionReport('SOFT_DEDUP')">{{ details.softDedupTransactions }}</span>
+              }
+            </div>
+            <div class="evidence-values evidence-values--two">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SELECTED')" aria-label="View selected transaction evidence"><span>Selected data</span><strong>{{ details.selectedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><span>Filtered data</span><strong [class.issue-number]="filteredTransactions(details) > 0">{{ filteredTransactions(details) | number:'1.0-0' }}</strong></div>
+            </div>
+            <p class="evidence-panel__subheading">Filtered by reason</p>
+            <div class="evidence-values evidence-values--five">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SIMULATED')" aria-label="View simulated (SML) transaction evidence"><span>Simulated (SML)</span><strong>{{ details.simulatedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Excluded</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ALREADY_REPORTED')" aria-label="View already reported transaction evidence"><span>Already reported</span><strong>{{ details.alreadyReportedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SOFT_DEDUP')" aria-label="View soft-dedup dropped transaction evidence"><span>Soft-dedup dropped</span><strong>{{ details.softDedupTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing attempts</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+            </div>
+          </section>
+
+          <section
+            id="data-transformation-evidence"
+            class="evidence-panel"
+            aria-labelledby="data-transformation-evidence-heading"
+          >
+            <div class="evidence-panel__heading">
+              <h3 id="data-transformation-evidence-heading">Data Transformation</h3>
               <span [class.bad]="details.transformationFailures > 0">{{ details.transformationFailures === 0 ? 'No failures' : 'Failures found' }}</span>
             </div>
             <p>Transformation attempts and outcomes are shown independently from downstream reporting.</p>
@@ -288,76 +314,6 @@
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_ELIGIBLE')" aria-label="View actual eligible transaction evidence"><span>Actual eligible</span><strong>{{ details.actualTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('TRANSFORMED')" aria-label="View transformed transaction evidence"><span>Transformed</span><strong>{{ details.transformedActivities | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Failed</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-            </div>
-          </section>
-
-          <section
-            id="missing-attempt-evidence"
-            class="evidence-panel"
-            aria-labelledby="missing-attempt-evidence-heading"
-          >
-            <div class="evidence-panel__heading">
-              <h3 id="missing-attempt-evidence-heading">Missing attempt evidence</h3>
-              <span [class.bad]="details.missingAttempts > 0">{{ details.missingAttempts === 0 ? 'Complete' : 'Gap found' }}</span>
-            </div>
-            <p>Aggregate reconciliation evidence; transaction-level missing-attempt records are not available in Phase 1.</p>
-            <div class="evidence-bar" role="img" [attr.aria-label]="details.transactionAttemptsFound + ' attempts found, ' + details.missingAttempts + ' missing, out of ' + details.selectedTransactions + ' selected'">
-              @if (details.transactionAttemptsFound > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(details.transactionAttemptsFound, details.selectedTransactions)" [title]="details.transactionAttemptsFound + ' attempts found — click to view'" (click)="openTransactionReport('ATTEMPTS_FOUND')">{{ details.transactionAttemptsFound }}</span>
-              }
-              @if (details.missingAttempts > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--pending" [style.width.%]="barShare(details.missingAttempts, details.selectedTransactions)" [title]="details.missingAttempts + ' missing — click to view'" (click)="openTransactionReport('MISSING')">{{ details.missingAttempts }}</span>
-              }
-            </div>
-            <div class="evidence-values evidence-values--four">
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SELECTED')" aria-label="View selected transaction evidence"><span>Transactions selected</span><strong>{{ details.selectedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ATTEMPTS_FOUND')" aria-label="View transaction attempt evidence"><span>Attempts found</span><strong>{{ details.transactionAttemptsFound | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ATTEMPTS_FOUND')" aria-label="View transaction attempt coverage report"><span>Coverage</span><strong>{{ attemptCoverage(details) }}</strong><small>View report →</small></button></div>
-            </div>
-          </section>
-
-          <section
-            id="filtration-evidence"
-            class="evidence-panel"
-            aria-labelledby="filtration-evidence-heading"
-          >
-            <div class="evidence-panel__heading">
-              <h3 id="filtration-evidence-heading">Filtration error evidence</h3>
-              <span [class.bad]="details.filtrationErrors > 0">{{ details.filtrationErrors === 0 ? 'Balanced' : 'Variance found' }}</span>
-            </div>
-            <p>Expected and actual reportable transaction totals are compared after filtration.</p>
-            <div class="evidence-bar" role="img" [attr.aria-label]="details.actualReportableTransactions + ' actual reportable, ' + details.excludedTransactions + ' excluded, out of ' + details.expectedReportableTransactions + ' expected reportable'">
-              @if (details.actualReportableTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(details.actualReportableTransactions, details.expectedReportableTransactions)" [title]="details.actualReportableTransactions + ' actual reportable — click to view'" (click)="openTransactionReport('ACTUAL_REPORTABLE')">{{ details.actualReportableTransactions }}</span>
-              }
-              @if (details.excludedTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--excluded" [style.width.%]="barShare(details.excludedTransactions, details.expectedReportableTransactions)" [title]="details.excludedTransactions + ' rule-excluded — click to view'" (click)="openTransactionReport('EXCLUDED')">{{ details.excludedTransactions }}</span>
-              }
-              @if (details.simulatedTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--simulated" [style.width.%]="barShare(details.simulatedTransactions, details.expectedReportableTransactions)" [title]="details.simulatedTransactions + ' simulated (SML) — click to view'" (click)="openTransactionReport('SIMULATED')">{{ details.simulatedTransactions }}</span>
-              }
-              @if (details.alreadyReportedTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--already-reported" [style.width.%]="barShare(details.alreadyReportedTransactions, details.expectedReportableTransactions)" [title]="details.alreadyReportedTransactions + ' already reported — click to view'" (click)="openTransactionReport('ALREADY_REPORTED')">{{ details.alreadyReportedTransactions }}</span>
-              }
-              @if (details.softDedupTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--soft-dedup" [style.width.%]="barShare(details.softDedupTransactions, details.expectedReportableTransactions)" [title]="details.softDedupTransactions + ' soft-dedup dropped — click to view'" (click)="openTransactionReport('SOFT_DEDUP')">{{ details.softDedupTransactions }}</span>
-              }
-              @if (details.filtrationErrors > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--gap" [style.width.%]="barShare(details.filtrationErrors, details.expectedReportableTransactions)" [title]="'Variance: ' + details.filtrationErrors + ' — click to view'" (click)="openTransactionReport('FILTRATION_VARIANCE')">{{ details.filtrationErrors }}</span>
-              }
-            </div>
-            <div class="evidence-values evidence-values--four">
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_REPORTABLE')" aria-label="View expected reportable transaction evidence"><span>Expected reportable</span><strong>{{ details.expectedReportableTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_REPORTABLE')" aria-label="View actual reportable transaction evidence"><span>Actual reportable</span><strong>{{ details.actualReportableTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Rule exclusion</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTRATION_VARIANCE')" aria-label="View filtration variance transaction report"><span>Variance</span><strong [class.issue-number]="details.filtrationErrors > 0">{{ details.filtrationErrors | number:'1.0-0' }}</strong><small>View report →</small></button></div>
-            </div>
-            <p class="evidence-panel__subheading">Other excluded-transaction categories</p>
-            <div class="evidence-values evidence-values--three">
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SIMULATED')" aria-label="View simulated (SML) transaction evidence"><span>Simulated (SML)</span><strong>{{ details.simulatedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ALREADY_REPORTED')" aria-label="View already reported transaction evidence"><span>Already reported</span><strong>{{ details.alreadyReportedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SOFT_DEDUP')" aria-label="View soft-dedup dropped transaction evidence"><span>Soft-dedup dropped</span><strong>{{ details.softDedupTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
           </section>
 
@@ -388,29 +344,6 @@
 
         </div>
 
-        <section class="operational-context" aria-labelledby="operational-context-heading">
-          <h3 id="operational-context-heading">Operational context</h3>
-          <div>
-            <span>Started<strong>{{ details.startedAt | date:'MMM d, h:mm a' }}</strong></span>
-            <span>Completed<strong>{{ details.completedAt | date:'MMM d, h:mm a' }}</strong></span>
-            <span>Batch status<strong class="success-text">{{ details.operationalStatus }}</strong></span>
-            <span>Reporting status<strong [class.success-text]="details.status === 'SUCCESSFUL'" [class.attention-text]="details.status === 'ATTENTION'">{{ details.status }}</strong></span>
-          </div>
-        </section>
-
-        @if (hasEvidence(details)) {
-          <section class="available-evidence" aria-labelledby="available-evidence-heading">
-            <div>
-              <h3 id="available-evidence-heading">Additional record-level evidence</h3>
-              <p>Journey is latest-state evidence, not an event history.</p>
-            </div>
-            <div class="evidence-links">
-              @if (details.journeyAvailable) { <button type="button" (click)="openBatchControlRoom('journey')">Journey <span>→</span></button> }
-              @if (details.ruleHitsAvailable) { <button type="button" (click)="openBatchControlRoom('rule-hits')">Rule Hits <span>→</span></button> }
-              @if (details.exclusionsAvailable) { <button type="button" (click)="openBatchControlRoom('exclusions')">Exclusions <span>→</span></button> }
-            </div>
-          </section>
-        }
         }
 
         <section class="report-config-summary" aria-labelledby="report-config-heading">

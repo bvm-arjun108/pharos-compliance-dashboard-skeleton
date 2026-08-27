@@ -37,16 +37,15 @@ public interface ReportGroupConfigRepository
               rpt_grp_id AS "reportGroupId"
           FROM ranked_configs
           WHERE config_rank = 1
-            AND rpt_config_active_flag IS TRUE
             AND country_code IS NOT NULL
             AND BTRIM(country_code) <> ''
           ORDER BY "countryName", "countryCode", "reportGroupId"
           """,
       nativeQuery = true)
-  List<CountryMappingProjection> findActiveCountryMappings();
+  List<CountryMappingProjection> findCountryMappings();
 
   @Query(value = ReportGroupConfigNativeQueries.REPORT_TYPES, nativeQuery = true)
-  List<ReportTypeProjection> findActiveReportTypes();
+  List<ReportTypeProjection> findReportTypes();
 
   @Query(value = ReportGroupConfigNativeQueries.SUMMARY, nativeQuery = true)
   ReportConfigSummaryProjection getSummary(

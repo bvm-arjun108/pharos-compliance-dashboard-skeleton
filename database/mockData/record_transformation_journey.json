@@ -1819,5 +1819,563 @@
       "source": "PORTUGAL_OBJECTIVE"
     },
     "skip_reason": "SOFT_DEDUP_NEWER_RULE_HIT_SUPERSEDED"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000001",
+    "mtcn": "92627220000001",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:11.000Z",
+    "modified_timestamp": "2026-08-27T22:02:11.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000001",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000002",
+    "mtcn": "92627220000002",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:12.000Z",
+    "modified_timestamp": "2026-08-27T22:02:12.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000002",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000003",
+    "mtcn": "92627220000003",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:13.000Z",
+    "modified_timestamp": "2026-08-27T22:02:13.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000003",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000004",
+    "mtcn": "92627220000004",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:14.000Z",
+    "modified_timestamp": "2026-08-27T22:02:14.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000004",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000005",
+    "mtcn": "92627220000005",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:15.000Z",
+    "modified_timestamp": "2026-08-27T22:02:15.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000005",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000006",
+    "mtcn": "92627220000006",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:16.000Z",
+    "modified_timestamp": "2026-08-27T22:02:16.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000006",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000007",
+    "mtcn": "92627220000007",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:17.000Z",
+    "modified_timestamp": "2026-08-27T22:02:17.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000007",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000008",
+    "mtcn": "92627220000008",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)",
+    "created_timestamp": "2026-08-27T22:01:18.000Z",
+    "modified_timestamp": "2026-08-27T22:02:18.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000008",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "ALREADY_REPORTED_IN_PRIOR_BATCH"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828220000",
+    "identifier": "92608282200000001",
+    "mtcn": "92628220000001",
+    "stage": "TRANSACTION_JOIN",
+    "status": "ERROR",
+    "comments": "ATTEMPT_NOT_RECEIVED",
+    "created_timestamp": "2026-08-28T22:00:21.000Z",
+    "modified_timestamp": "2026-08-28T22:05:21.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000001",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"Exception\": \"Attempt - 9260828220000201 not yet recorded for the transaction.\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828220000",
+    "identifier": "92608282200000002",
+    "mtcn": "92628220000002",
+    "stage": "TRANSACTION_JOIN",
+    "status": "ERROR",
+    "comments": "ATTEMPT_NOT_RECEIVED",
+    "created_timestamp": "2026-08-28T22:00:22.000Z",
+    "modified_timestamp": "2026-08-28T22:05:22.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000002",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"Exception\": \"Attempt - 9260828220000202 not yet recorded for the transaction.\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828220000",
+    "identifier": "92608282200000003",
+    "mtcn": "92628220000003",
+    "stage": "TRANSACTION_JOIN",
+    "status": "ERROR",
+    "comments": "ATTEMPT_NOT_RECEIVED",
+    "created_timestamp": "2026-08-28T22:00:23.000Z",
+    "modified_timestamp": "2026-08-28T22:05:23.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-2200000003",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"Exception\": \"Attempt - 9260828220000203 not yet recorded for the transaction.\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829040000",
+    "identifier": "92608290400000001",
+    "mtcn": "92629040000001",
+    "stage": "TRANSFORMATION",
+    "status": "FAILED",
+    "comments": "TRANSFORMATION_VALIDATION_FAILED",
+    "created_timestamp": "2026-08-29T04:00:31.000Z",
+    "modified_timestamp": "2026-08-29T04:05:31.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-0400000001",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "MAPPING_VALIDATION_ERROR"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829040000",
+    "identifier": "92608290400000002",
+    "mtcn": "92629040000002",
+    "stage": "TRANSFORMATION",
+    "status": "FAILED",
+    "comments": "TRANSFORMATION_VALIDATION_FAILED",
+    "created_timestamp": "2026-08-29T04:00:32.000Z",
+    "modified_timestamp": "2026-08-29T04:05:32.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-0400000002",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "MAPPING_VALIDATION_ERROR"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829040000",
+    "identifier": "92608290400000003",
+    "mtcn": "92629040000003",
+    "stage": "TRANSFORMATION",
+    "status": "FAILED",
+    "comments": "TRANSFORMATION_VALIDATION_FAILED",
+    "created_timestamp": "2026-08-29T04:00:33.000Z",
+    "modified_timestamp": "2026-08-29T04:05:33.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-0400000003",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "MAPPING_VALIDATION_ERROR"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829040000",
+    "identifier": "92608290400000004",
+    "mtcn": "92629040000004",
+    "stage": "TRANSFORMATION",
+    "status": "FAILED",
+    "comments": "TRANSFORMATION_VALIDATION_FAILED",
+    "created_timestamp": "2026-08-29T04:00:34.000Z",
+    "modified_timestamp": "2026-08-29T04:05:34.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-0400000004",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "MAPPING_VALIDATION_ERROR"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828100000",
+    "identifier": "92608281000000001",
+    "mtcn": "92628100000001",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_SOFT_DEDUP",
+    "created_timestamp": "2026-08-28T10:01:41.000Z",
+    "modified_timestamp": "2026-08-28T10:02:41.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1000000001",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "SOFT_DEDUP_NEWER_RULE_HIT_SUPERSEDED"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828100000",
+    "identifier": "92608281000000002",
+    "mtcn": "92628100000002",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_SOFT_DEDUP",
+    "created_timestamp": "2026-08-28T10:01:42.000Z",
+    "modified_timestamp": "2026-08-28T10:02:42.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1000000002",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "SOFT_DEDUP_NEWER_RULE_HIT_SUPERSEDED"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828100000",
+    "identifier": "92608281000000003",
+    "mtcn": "92628100000003",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_SOFT_DEDUP",
+    "created_timestamp": "2026-08-28T10:01:43.000Z",
+    "modified_timestamp": "2026-08-28T10:02:43.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1000000003",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "SOFT_DEDUP_NEWER_RULE_HIT_SUPERSEDED"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828100000",
+    "identifier": "92608281000000004",
+    "mtcn": "92628100000004",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_SOFT_DEDUP",
+    "created_timestamp": "2026-08-28T10:01:44.000Z",
+    "modified_timestamp": "2026-08-28T10:02:44.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1000000004",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "SOFT_DEDUP_NEWER_RULE_HIT_SUPERSEDED"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260828100000",
+    "identifier": "92608281000000005",
+    "mtcn": "92628100000005",
+    "stage": "FILTRATION",
+    "status": "EXCLUDED",
+    "comments": "EXCLUDED_SOFT_DEDUP",
+    "created_timestamp": "2026-08-28T10:01:45.000Z",
+    "modified_timestamp": "2026-08-28T10:02:45.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1000000005",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "SOFT_DEDUP_NEWER_RULE_HIT_SUPERSEDED"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000001",
+    "mtcn": "92629160000001",
+    "stage": "SELECTION",
+    "status": "NOT_YET_REPORTED",
+    "comments": null,
+    "created_timestamp": "2026-08-29T16:00:51.000Z",
+    "modified_timestamp": "2026-08-29T16:00:51.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000001",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": null
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000002",
+    "mtcn": "92629160000002",
+    "stage": "SELECTION",
+    "status": "NOT_YET_REPORTED",
+    "comments": null,
+    "created_timestamp": "2026-08-29T16:00:52.000Z",
+    "modified_timestamp": "2026-08-29T16:00:52.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000002",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": null
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000003",
+    "mtcn": "92629160000003",
+    "stage": "SELECTION",
+    "status": "NOT_YET_REPORTED",
+    "comments": null,
+    "created_timestamp": "2026-08-29T16:00:53.000Z",
+    "modified_timestamp": "2026-08-29T16:00:53.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000003",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": null
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000004",
+    "mtcn": "92629160000004",
+    "stage": "SELECTION",
+    "status": "NOT_YET_REPORTED",
+    "comments": null,
+    "created_timestamp": "2026-08-29T16:00:54.000Z",
+    "modified_timestamp": "2026-08-29T16:00:54.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000004",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": null
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000005",
+    "mtcn": "92629160000005",
+    "stage": "SELECTION",
+    "status": "NOT_YET_REPORTED",
+    "comments": null,
+    "created_timestamp": "2026-08-29T16:00:55.000Z",
+    "modified_timestamp": "2026-08-29T16:00:55.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000005",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": null
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000006",
+    "mtcn": "92629160000006",
+    "stage": "TRANSACTION_JOIN",
+    "status": "ERROR",
+    "comments": "ATTEMPT_NOT_RECEIVED",
+    "created_timestamp": "2026-08-29T16:00:56.000Z",
+    "modified_timestamp": "2026-08-29T16:06:56.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000006",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"Exception\": \"Attempt - 9260829160000306 not yet recorded for the transaction.\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260829160000",
+    "identifier": "92608291600000007",
+    "mtcn": "92629160000007",
+    "stage": "TRANSACTION_JOIN",
+    "status": "ERROR",
+    "comments": "ATTEMPT_NOT_RECEIVED",
+    "created_timestamp": "2026-08-29T16:00:57.000Z",
+    "modified_timestamp": "2026-08-29T16:06:57.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": true,
+    "txn_metadata": {
+      "external_txn_key": "PT-1600000007",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"Exception\": \"Attempt - 9260829160000307 not yet recorded for the transaction.\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000009",
+    "mtcn": "92627220000009",
+    "stage": "TRANSFORMATION",
+    "status": "FAILURE",
+    "comments": "TRANSFORMATION_SKIPPED",
+    "created_timestamp": "2026-08-27T22:01:19.000Z",
+    "modified_timestamp": "2026-08-27T22:05:19.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-20260827-2200009",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"ConstraintName\": \"Mapping - TxnMetadata\", \"DataFragment\": \"<NULL value>\", \"ErrorCode\": \"0001\", \"Exception\": \"Not a valid date format. Expected format: \\\"yyyy-MM-dd HH:mm:ss\\\"\", \"Path\": \"RECORDS[1]/TXN_METADATA_LIST[1]/SEND_TIMESTAMP\", \"RuleSetName\": \"INVALID_DATE\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000010",
+    "mtcn": "92627220000010",
+    "stage": "TRANSFORMATION",
+    "status": "FAILURE",
+    "comments": "TRANSFORMATION_SKIPPED",
+    "created_timestamp": "2026-08-27T22:01:20.000Z",
+    "modified_timestamp": "2026-08-27T22:05:20.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-20260827-2200010",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"ConstraintName\": \"Mapping - TxnMetadata\", \"DataFragment\": \"<NULL value>\", \"ErrorCode\": \"0001\", \"Exception\": \"Not a valid date format. Expected format: \\\"yyyy-MM-dd HH:mm:ss\\\"\", \"Path\": \"RECORDS[1]/TXN_METADATA_LIST[1]/SEND_TIMESTAMP\", \"RuleSetName\": \"INVALID_DATE\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000011",
+    "mtcn": "92627220000011",
+    "stage": "TRANSFORMATION",
+    "status": "FAILURE",
+    "comments": "TRANSFORMATION_SKIPPED",
+    "created_timestamp": "2026-08-27T22:01:21.000Z",
+    "modified_timestamp": "2026-08-27T22:05:21.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-20260827-2200011",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"Exception\": \"Mandatory field AMOUNT not found\", \"Path\": \"RECORDS[1]/RECORD/TRANSACTION/CURRENCY_AMOUNT\", \"RuleSetName\": \"STRUCTURE\"}]"
+  },
+  {
+    "rpt_grp_id": 1000000007,
+    "batch_id": "BIN10000000007260827220000",
+    "identifier": "92608272200000012",
+    "mtcn": "92627220000012",
+    "stage": "TRANSFORMATION",
+    "status": "FAILURE",
+    "comments": "TRANSFORMATION_SKIPPED",
+    "created_timestamp": "2026-08-27T22:01:22.000Z",
+    "modified_timestamp": "2026-08-27T22:05:22.000Z",
+    "reporting_timestamp_latest": null,
+    "processing_complete": false,
+    "txn_metadata": {
+      "external_txn_key": "PT-20260827-2200012",
+      "source": "PORTUGAL_OBJECTIVE"
+    },
+    "skip_reason": "[{\"ConstraintName\": \"Mapping - TxnMetadata\", \"DataFragment\": \"<NULL value>\", \"ErrorCode\": \"0001\", \"Exception\": \"Not a valid date format. Expected format: \\\"yyyy-MM-dd HH:mm:ss\\\"\", \"Path\": \"RECORDS[1]/TXN_METADATA_LIST[1]/SEND_TIMESTAMP\", \"RuleSetName\": \"INVALID_DATE\"}]"
   }
 ]

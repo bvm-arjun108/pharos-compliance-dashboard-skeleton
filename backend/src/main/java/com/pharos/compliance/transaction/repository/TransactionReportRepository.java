@@ -3,6 +3,7 @@ package com.pharos.compliance.transaction.repository;
 import com.pharos.compliance.dashboard.entity.ReportTransformationReconciliationEntity;
 import com.pharos.compliance.dashboard.entity.ReportTransformationReconciliationId;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.Query;
@@ -30,6 +31,8 @@ public interface TransactionReportRepository
       @Param("source") String source,
       @Param("stage") String stage,
       @Param("outcome") String outcome,
+      @Param("status") String status,
+      @Param("sortDirection") String sortDirection,
       @Param("size") int size,
       @Param("offset") long offset);
 
@@ -41,7 +44,8 @@ public interface TransactionReportRepository
       @Param("search") String search,
       @Param("source") String source,
       @Param("stage") String stage,
-      @Param("outcome") String outcome);
+      @Param("outcome") String outcome,
+      @Param("status") String status);
 
   @Query(value = TransactionReportNativeQueries.OUTCOME_BREAKDOWN, nativeQuery = true)
   TransactionOutcomeBreakdownProjection findOutcomeBreakdown(
@@ -60,6 +64,50 @@ public interface TransactionReportRepository
       @Param("search") String search,
       @Param("source") String source,
       @Param("outcome") String outcome);
+
+  @Query(value = PeriodTransactionNativeQueries.AGGREGATE, nativeQuery = true)
+  PeriodAggregateProjection findPeriodAggregate(
+      @Param("fromTimestamp") LocalDateTime fromTimestamp,
+      @Param("toTimestampExclusive") LocalDateTime toTimestampExclusive,
+      @Param("filterByCountry") boolean filterByCountry,
+      @Param("reportGroupIds") List<Integer> reportGroupIds,
+      @Param("filterByReportGroup") boolean filterByReportGroup,
+      @Param("reportGroupId") int reportGroupId);
+
+  @Query(value = PeriodTransactionNativeQueries.EVIDENCE_RECORDS, nativeQuery = true)
+  List<TransactionEvidenceProjection> findPeriodEvidenceRecords(
+      @Param("fromTimestamp") LocalDateTime fromTimestamp,
+      @Param("toTimestampExclusive") LocalDateTime toTimestampExclusive,
+      @Param("filterByCountry") boolean filterByCountry,
+      @Param("reportGroupIds") List<Integer> reportGroupIds,
+      @Param("filterByReportGroup") boolean filterByReportGroup,
+      @Param("reportGroupId") int reportGroupId,
+      @Param("search") String search,
+      @Param("outcome") String outcome,
+      @Param("status") String status,
+      @Param("sortDirection") String sortDirection,
+      @Param("size") int size,
+      @Param("offset") long offset);
+
+  @Query(value = PeriodTransactionNativeQueries.EVIDENCE_COUNT, nativeQuery = true)
+  long countPeriodEvidenceRecords(
+      @Param("fromTimestamp") LocalDateTime fromTimestamp,
+      @Param("toTimestampExclusive") LocalDateTime toTimestampExclusive,
+      @Param("filterByCountry") boolean filterByCountry,
+      @Param("reportGroupIds") List<Integer> reportGroupIds,
+      @Param("filterByReportGroup") boolean filterByReportGroup,
+      @Param("reportGroupId") int reportGroupId,
+      @Param("search") String search,
+      @Param("outcome") String outcome,
+      @Param("status") String status);
+
+  interface PeriodAggregateProjection {
+    long getBatchCount();
+
+    long getTotalExcluded();
+
+    String getReportGroupName();
+  }
 
   interface TransactionReportContextProjection {
     int getReportGroupId();
@@ -111,6 +159,8 @@ public interface TransactionReportRepository
     String getIdentifier();
 
     String getMtcn();
+
+    String getBatchId();
 
     String getEvidenceSource();
 

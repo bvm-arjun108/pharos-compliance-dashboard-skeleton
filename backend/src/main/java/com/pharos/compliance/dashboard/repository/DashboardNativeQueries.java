@@ -11,6 +11,7 @@ final class DashboardNativeQueries {
             AND created_timestamp < :toTimestampExclusive
             AND (:batchId = '' OR LOWER(batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
             AND (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
+            AND (:filterByReportGroup = FALSE OR rpt_grp_id = :reportGroupId)
       ),
       rtr_aggregates AS (
           SELECT
@@ -64,6 +65,7 @@ final class DashboardNativeQueries {
             AND j.created_timestamp < :toTimestampExclusive
             AND (:batchId = '' OR LOWER(j.batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
             AND (:filterByCountry = FALSE OR j.rpt_grp_id IN (:reportGroupIds))
+            AND (:filterByReportGroup = FALSE OR j.rpt_grp_id = :reportGroupId)
             AND NOT EXISTS (
                 SELECT 1
                 FROM pharos.report_transformation_reconciliation r
@@ -116,6 +118,7 @@ final class DashboardNativeQueries {
             AND created_timestamp < :toTimestampExclusive
             AND (:batchId = '' OR LOWER(batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
             AND (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
+            AND (:filterByReportGroup = FALSE OR rpt_grp_id = :reportGroupId)
           GROUP BY rpt_grp_id
       )
       SELECT
@@ -177,12 +180,15 @@ final class DashboardNativeQueries {
               ) AS missing_attempt_batches,
               COUNT(DISTINCT (rpt_grp_id, batch_id, seq_no)) FILTER (
                   WHERE COALESCE(activity_missing, 0) > 0
-              ) AS activity_missing_batches
+              ) AS activity_missing_batches,
+              COALESCE(SUM(actual_reportable_txn), 0) AS total_reported_transactions,
+              COALESCE(SUM(excluded_txn), 0) AS total_excluded_transactions
           FROM pharos.report_transformation_reconciliation
           WHERE created_timestamp >= :fromTimestamp
             AND created_timestamp < :toTimestampExclusive
             AND (:batchId = '' OR LOWER(batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
             AND (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
+            AND (:filterByReportGroup = FALSE OR rpt_grp_id = :reportGroupId)
           GROUP BY 1
       )
       SELECT
@@ -193,7 +199,9 @@ final class DashboardNativeQueries {
           COALESCE(period_metrics.batches_needing_attention, 0) AS "batchesNeedingAttention",
           COALESCE(period_metrics.transformation_failure_batches, 0) AS "transformationFailureBatches",
           COALESCE(period_metrics.missing_attempt_batches, 0) AS "missingAttemptBatches",
-          COALESCE(period_metrics.activity_missing_batches, 0) AS "activityMissingBatches"
+          COALESCE(period_metrics.activity_missing_batches, 0) AS "activityMissingBatches",
+          COALESCE(period_metrics.total_reported_transactions, 0) AS "totalReportedTransactions",
+          COALESCE(period_metrics.total_excluded_transactions, 0) AS "totalExcludedTransactions"
       FROM periods
       LEFT JOIN period_metrics USING (period_start)
       ORDER BY periods.period_start

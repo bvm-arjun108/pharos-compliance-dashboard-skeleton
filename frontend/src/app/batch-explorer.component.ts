@@ -34,7 +34,6 @@ type TransactionMetric =
   | 'FILTRATION_VARIANCE'
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
-type ConditionalEvidence = 'journey' | 'rule-hits' | 'exclusions';
 
 interface CountryOption {
   code: string;
@@ -166,6 +165,7 @@ export class BatchExplorerComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly filterOptions = signal<BatchFilterOptionsResponse>({ countries: [] });
+  readonly reportGroupOptions = signal<ReportConfigSummary[]>([]);
   readonly response = signal<BatchExplorerResponse | null>(null);
   readonly selectedBatch = signal<BatchQueueItem | null>(null);
   readonly selectedDetails = signal<BatchDetailsResponse | null>(null);
@@ -204,12 +204,8 @@ export class BatchExplorerComponent implements OnInit {
     this.country.set(country);
   }
 
-  setIssueType(event: Event): void {
-    this.issueType.set((event.target as HTMLSelectElement).value as BatchIssueType);
-  }
-
-  setMetricFocus(event: Event): void {
-    this.metricFocus.set((event.target as HTMLSelectElement).value as BatchMetricFocus);
+  setReportGroupValue(value: number | null): void {
+    this.reportGroupId.set(value);
   }
 
   applyFilters(event: SubmitEvent): void {
@@ -217,6 +213,7 @@ export class BatchExplorerComponent implements OnInit {
     this.updateRoute({
       batchId: this.batchId().trim() || null,
       country: this.country(),
+      reportGroupId: this.reportGroupId(),
       issueType: this.issueType(),
       metricFocus: this.metricFocus(),
       page: 0
@@ -224,7 +221,7 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   clearFilters(): void {
-    this.updateRoute({ batchId: null, country: 'ALL', page: 0 });
+    this.updateRoute({ batchId: null, country: 'ALL', reportGroupId: null, page: 0 });
   }
 
   clearDrilldown(): void {
@@ -266,25 +263,6 @@ export class BatchExplorerComponent implements OnInit {
     void this.router.navigate(['/report-config'], {
       queryParams: { reportGroupId }
     });
-  }
-
-  openBatchControlRoom(evidence?: ConditionalEvidence): void {
-    const batch = this.selectedBatch();
-    if (!batch) {
-      return;
-    }
-    void this.router.navigate(
-      ['/batches/control-room', batch.reportGroupId, batch.batchId, batch.sequenceNumber],
-      {
-        queryParams: {
-          fromDate: this.fromDate(),
-          toDate: this.toDate(),
-          country: this.country(),
-          status: this.status(),
-          evidence: evidence ?? null
-        }
-      }
-    );
   }
 
   openTransactionReport(metric: TransactionMetric): void {
@@ -406,14 +384,6 @@ export class BatchExplorerComponent implements OnInit {
     return `${minutes}m ${String(remainingSeconds).padStart(2, '0')}s`;
   }
 
-  attemptCoverage(details: BatchDetailsResponse): string {
-    if (details.selectedTransactions === 0) {
-      return 'N/A';
-    }
-    return `${((details.transactionAttemptsFound / details.selectedTransactions) * 100).toFixed(1)}%`;
-  }
-
-
   barShare(numerator: number, denominator: number): number {
     return denominator <= 0 ? 0 : Math.min(100, (numerator / denominator) * 100);
   }
@@ -422,8 +392,16 @@ export class BatchExplorerComponent implements OnInit {
     return Math.max(0, denominator - parts.reduce((sum, part) => sum + part, 0));
   }
 
-  hasEvidence(details: BatchDetailsResponse): boolean {
-    return details.journeyAvailable || details.ruleHitsAvailable || details.exclusionsAvailable;
+  /** Total selected transactions that didn't carry through cleanly — the sum of every Data
+   *  Selection reason (missing attempt, excluded, simulated, already reported, soft-dedup). */
+  filteredTransactions(details: BatchDetailsResponse): number {
+    return (
+      details.missingAttempts +
+      details.excludedTransactions +
+      details.simulatedTransactions +
+      details.alreadyReportedTransactions +
+      details.softDedupTransactions
+    );
   }
 
   batchKey(batch: BatchQueueItem | null): string {
@@ -436,6 +414,15 @@ export class BatchExplorerComponent implements OnInit {
     this.http.get<BatchFilterOptionsResponse>('/api/v1/batches/filter-options').subscribe({
       next: options => this.filterOptions.set(options),
       error: () => this.filterOptions.set({ countries: [] })
+    });
+    this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs').subscribe({
+      next: response =>
+        this.reportGroupOptions.set(
+          [...response.configurations].sort((a, b) =>
+            (a.reportGroupName || '').localeCompare(b.reportGroupName || '')
+          )
+        ),
+      error: () => this.reportGroupOptions.set([])
     });
   }
 

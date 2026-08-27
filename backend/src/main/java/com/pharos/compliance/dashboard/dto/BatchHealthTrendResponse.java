@@ -14,4 +14,6 @@ public record BatchHealthTrendResponse(
     @Schema(example = "1") long missingAttemptBatches,
     @Schema(example = "1") long activityMissingBatches,
     @Schema(description = "Percentage of batches needing attention", example = "25.0")
-        double attentionRate) {}
+        double attentionRate,
+    @Schema(example = "2450") long totalReportedTransactions,
+    @Schema(example = "6") long totalExcludedTransactions) {}
