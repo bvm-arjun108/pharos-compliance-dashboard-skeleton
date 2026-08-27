@@ -104,7 +104,7 @@
                 </tr>
               </thead>
               <tbody>
-                @for (record of sortedTransactions(result.transactions); track record.recordKey) {
+                @for (record of result.transactions; track record.recordKey) {
                   <tr class="transaction-row" [class.transaction-row--expanded]="expandedRecordKey() === record.recordKey" (click)="toggleExpanded(record.recordKey)">
                     <th scope="row">
                       <strong>{{ record.identifier }}</strong>

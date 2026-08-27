@@ -265,22 +265,14 @@ export class TransactionReportComponent implements OnInit {
     this.status.set((event.target as HTMLSelectElement).value as TransactionStatus);
   }
 
-  /** Client-side only — re-orders the already-loaded page of records, no refetch. */
+  /** Server-side sort, same as every other filter here — a page is only a small window into a
+   *  much larger, independently-ordered result set (this report can back a table with millions
+   *  of rows in production), so sorting can only ever be correct if it's applied before LIMIT/
+   *  OFFSET at the database, not by re-arranging whatever one page happened to already load. */
   toggleSortDirection(): void {
-    this.sortDirection.set(this.sortDirection() === 'DESC' ? 'ASC' : 'DESC');
-  }
-
-  /** Sorts the current page's records by modifiedAt in-browser; nulls always sort last,
-   *  matching the backend's own NULLS LAST convention for the initial fetch order. */
-  sortedTransactions(transactions: TransactionEvidenceRecord[]): TransactionEvidenceRecord[] {
-    const ascending = this.sortDirection() === 'ASC';
-    return [...transactions].sort((a, b) => {
-      if (a.modifiedAt === null && b.modifiedAt === null) return 0;
-      if (a.modifiedAt === null) return 1;
-      if (b.modifiedAt === null) return -1;
-      const aTime = Date.parse(a.modifiedAt);
-      const bTime = Date.parse(b.modifiedAt);
-      return ascending ? aTime - bTime : bTime - aTime;
+    this.updateRoute({
+      sortDirection: this.sortDirection() === 'DESC' ? 'ASC' : 'DESC',
+      page: 0
     });
   }
 
