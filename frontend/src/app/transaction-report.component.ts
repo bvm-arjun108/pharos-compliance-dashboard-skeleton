@@ -19,6 +19,7 @@ type TransactionMetric =
   | 'SIMULATED'
   | 'ALREADY_REPORTED'
   | 'SOFT_DEDUP'
+  | 'FILTERED'
   | 'FILTRATION_VARIANCE'
   | 'RECONCILIATION_VARIANCE'
   | 'TRANSFORMER_OUTPUT';
@@ -129,23 +130,6 @@ interface RuleHitSummary {
   attemptId: number | null;
 }
 
-interface TransactionOutcomeBreakdown {
-  successCount: number;
-  errorCount: number;
-  pendingCount: number;
-  excludedCount: number;
-  totalCount: number;
-}
-
-interface TransactionStageBreakdown {
-  stage: string;
-  successCount: number;
-  errorCount: number;
-  pendingCount: number;
-  excludedCount: number;
-  totalCount: number;
-}
-
 /** Normalized shape the template renders, after tagging whichever backend response arrived
  *  (batch-scoped or period-wide) with its context's `kind`. */
 interface TransactionReportResponse {
@@ -157,8 +141,6 @@ interface TransactionReportResponse {
   matchingRecordCount: number;
   evidenceLevel: TransactionEvidenceLevel;
   evidenceMessage: string;
-  outcomeBreakdown?: TransactionOutcomeBreakdown;
-  stageBreakdown?: TransactionStageBreakdown[];
   transactions: TransactionEvidenceRecord[];
   search: string;
   source?: TransactionEvidenceSource;
@@ -179,8 +161,6 @@ interface RawBatchReportResponse {
   matchingRecordCount: number;
   evidenceLevel: TransactionEvidenceLevel;
   evidenceMessage: string;
-  outcomeBreakdown: TransactionOutcomeBreakdown;
-  stageBreakdown: TransactionStageBreakdown[];
   transactions: TransactionEvidenceRecord[];
   search: string;
   source: TransactionEvidenceSource;
@@ -396,14 +376,6 @@ export class TransactionReportComponent implements OnInit {
     void this.router.navigate(['/report-config'], {
       queryParams: { reportGroupId, status: 'ALL' }
     });
-  }
-
-  outcomeSummary(report: TransactionReportResponse): string {
-    const breakdown = report.outcomeBreakdown;
-    if (!breakdown) {
-      return '';
-    }
-    return `${breakdown.successCount} success, ${breakdown.errorCount} error, ${breakdown.pendingCount} pending, ${breakdown.excludedCount} excluded, out of ${breakdown.totalCount} total`;
   }
 
   /** "PORTUGAL OBJECTIVE" / "Report group 123" when scoped to one group, "All report groups"
@@ -668,7 +640,7 @@ export class TransactionReportComponent implements OnInit {
     const metrics: TransactionMetric[] = [
       'SELECTED', 'ATTEMPTS_FOUND', 'MISSING', 'EXPECTED_ELIGIBLE', 'ACTUAL_ELIGIBLE',
       'TRANSFORMED', 'FAILED', 'EXPECTED_REPORTABLE', 'ACTUAL_REPORTABLE', 'EXCLUDED',
-      'SIMULATED', 'ALREADY_REPORTED', 'SOFT_DEDUP',
+      'SIMULATED', 'ALREADY_REPORTED', 'SOFT_DEDUP', 'FILTERED',
       'FILTRATION_VARIANCE', 'RECONCILIATION_VARIANCE', 'TRANSFORMER_OUTPUT'
     ];
     return metrics.includes(value as TransactionMetric) ? (value as TransactionMetric) : 'ALL';

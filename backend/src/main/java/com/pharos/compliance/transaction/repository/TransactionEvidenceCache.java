@@ -3,9 +3,7 @@ package com.pharos.compliance.transaction.repository;
 import com.pharos.compliance.config.CacheConfiguration;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionEvidenceProjection;
-import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionOutcomeBreakdownProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionReportContextProjection;
-import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionStageBreakdownProjection;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -75,28 +73,6 @@ public class TransactionEvidenceCache {
       String status) {
     return repository.countEvidenceRecords(
         reportGroupId, batchId, metric, search, source, stage, outcome, status);
-  }
-
-  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_OUTCOME_BREAKDOWN)
-  public TransactionOutcomeBreakdownProjection findOutcomeBreakdown(
-      int reportGroupId,
-      String batchId,
-      String metric,
-      String search,
-      String source,
-      String stage) {
-    return repository.findOutcomeBreakdown(reportGroupId, batchId, metric, search, source, stage);
-  }
-
-  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_STAGE_BREAKDOWN)
-  public List<TransactionStageBreakdownProjection> findStageBreakdown(
-      int reportGroupId,
-      String batchId,
-      String metric,
-      String search,
-      String source,
-      String outcome) {
-    return repository.findStageBreakdown(reportGroupId, batchId, metric, search, source, outcome);
   }
 
   @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_AGGREGATE)

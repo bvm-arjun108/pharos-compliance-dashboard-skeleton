@@ -9,10 +9,8 @@ import com.pharos.compliance.reportgroup.service.CountryCatalog;
 import com.pharos.compliance.transaction.dto.PeriodTransactionContextResponse;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionEvidenceRecordResponse;
-import com.pharos.compliance.transaction.dto.TransactionOutcomeBreakdownResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportContextResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
-import com.pharos.compliance.transaction.dto.TransactionStageBreakdownResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
@@ -23,9 +21,7 @@ import com.pharos.compliance.transaction.model.TransactionStatus;
 import com.pharos.compliance.transaction.repository.TransactionEvidenceCache;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionEvidenceProjection;
-import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionOutcomeBreakdownProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionReportContextProjection;
-import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionStageBreakdownProjection;
 import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -33,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -115,22 +112,6 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   evidenceLevel(aggregateCount, availableRecordCount);
               CountryDefinition country =
                   countryCatalog.getSnapshot().getForReportGroup(reportGroupId);
-              TransactionOutcomeBreakdownProjection outcomeBreakdown =
-                  transactionEvidenceCache.findOutcomeBreakdown(
-                      reportGroupId,
-                      batchId,
-                      metric.name(),
-                      normalizedSearch,
-                      source.name(),
-                      stage.name());
-              List<TransactionStageBreakdownProjection> stageBreakdown =
-                  transactionEvidenceCache.findStageBreakdown(
-                      reportGroupId,
-                      batchId,
-                      metric.name(),
-                      normalizedSearch,
-                      source.name(),
-                      outcome.name());
 
               return new TransactionReportResponse(
                   toContext(context, country),
@@ -141,8 +122,6 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   matchingCount,
                   evidenceLevel,
                   evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
-                  toOutcomeBreakdown(outcomeBreakdown),
-                  toStageBreakdown(stageBreakdown),
                   evidence.stream().map(this::toEvidenceRecord).toList(),
                   normalizedSearch,
                   source,
@@ -153,29 +132,79 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   page,
                   size);
             })
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Transaction evidence query started reportGroupId={} batchId={} sequenceNumber={} metric={} source={} stage={} outcome={} status={} sortDirection={} search={} page={} size={}",
-                    reportGroupId,
-                    batchId,
-                    sequenceNumber,
-                    metric,
-                    source,
-                    stage,
-                    outcome,
-                    status,
-                    sortDirection,
-                    normalizedSearch,
-                    page,
-                    size))
-        .doOnSuccess(
-            response ->
-                LOGGER.info(
-                    "Transaction evidence query completed aggregateCount={} availableRecords={} evidenceLevel={}",
-                    response.aggregateCount(),
-                    response.availableRecordCount(),
-                    response.evidenceLevel()));
+        .transform(
+            mono ->
+                logQuery(
+                    mono,
+                    "Transaction evidence query",
+                    () ->
+                        LOGGER.debug(
+                            "Transaction evidence query filters reportGroupId={} batchId={}"
+                                + " sequenceNumber={} metric={} source={} stage={} outcome={}"
+                                + " status={} sortDirection={} searchLength={} page={} size={}",
+                            reportGroupId,
+                            batchId,
+                            sequenceNumber,
+                            metric,
+                            source,
+                            stage,
+                            outcome,
+                            status,
+                            sortDirection,
+                            normalizedSearch.length(),
+                            page,
+                            size),
+                    response ->
+                        "reportGroupId="
+                            + reportGroupId
+                            + " batchId="
+                            + batchId
+                            + " metric="
+                            + metric
+                            + " status="
+                            + status
+                            + " aggregateCount="
+                            + response.aggregateCount()
+                            + " availableRecords="
+                            + response.availableRecordCount()
+                            + " matchingRecords="
+                            + response.matchingRecordCount()
+                            + " evidenceLevel="
+                            + response.evidenceLevel()));
+  }
+
+  /**
+   * One log line per query, emitted on completion with its own duration, instead of a
+   * started/completed pair. Halves log volume per request and keeps each line self-contained, so a
+   * slow query is identifiable without correlating two entries. The request-level access log
+   * (RequestTracingWebFilter) already records method/path/status/duration for the HTTP call; this
+   * records the query underneath it, which can be a fraction of that time or nearly all of it.
+   *
+   * <p>The full filter set goes to DEBUG rather than INFO: at production request volume a
+   * twelve-field parameter dump on every call is noise, and the values that matter for triage are
+   * repeated on the INFO summary. Note the search term itself is deliberately never logged, only
+   * its length — operators search by MTCN and transaction identifier, so the raw term is customer
+   * transaction data that does not belong in application logs.
+   */
+  private <T> Mono<T> logQuery(
+      Mono<T> query, String label, Runnable logFilters, Function<T, String> summarize) {
+    return Mono.defer(
+        () -> {
+          long startedAt = System.nanoTime();
+          if (LOGGER.isDebugEnabled()) {
+            logFilters.run();
+          }
+          return query.doOnSuccess(
+              response -> {
+                if (response != null) {
+                  LOGGER.info(
+                      "{} completed {} durationMs={}",
+                      label,
+                      summarize.apply(response),
+                      (System.nanoTime() - startedAt) / 1_000_000);
+                }
+              });
+        });
   }
 
   @Override
@@ -287,27 +316,39 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                         size);
                   });
             })
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Period transaction evidence query started fromDate={} toDate={} country={} reportGroupId={} search={} outcome={} status={} sortDirection={} page={} size={}",
-                    fromDate,
-                    toDate,
-                    normalizedCountry,
-                    reportGroupId,
-                    normalizedSearch,
-                    outcome,
-                    status,
-                    sortDirection,
-                    page,
-                    size))
-        .doOnSuccess(
-            response ->
-                LOGGER.info(
-                    "Period transaction evidence query completed batchCount={} aggregateCount={} matchingRecords={}",
-                    response.context().batchCount(),
-                    response.aggregateCount(),
-                    response.matchingRecordCount()));
+        .transform(
+            mono ->
+                logQuery(
+                    mono,
+                    "Period transaction evidence query",
+                    () ->
+                        LOGGER.debug(
+                            "Period transaction evidence query filters fromDate={} toDate={}"
+                                + " country={} reportGroupId={} outcome={} status={}"
+                                + " sortDirection={} searchLength={} page={} size={}",
+                            fromDate,
+                            toDate,
+                            normalizedCountry,
+                            reportGroupId,
+                            outcome,
+                            status,
+                            sortDirection,
+                            normalizedSearch.length(),
+                            page,
+                            size),
+                    response ->
+                        "reportGroupId="
+                            + reportGroupId
+                            + " country="
+                            + normalizedCountry
+                            + " status="
+                            + status
+                            + " batchCount="
+                            + response.context().batchCount()
+                            + " aggregateCount="
+                            + response.aggregateCount()
+                            + " matchingRecords="
+                            + response.matchingRecordCount()));
   }
 
   private CountryFilter resolvePeriodCountryFilter(
@@ -390,31 +431,6 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         row.getRuleHitsJson());
   }
 
-  private TransactionOutcomeBreakdownResponse toOutcomeBreakdown(
-      TransactionOutcomeBreakdownProjection breakdown) {
-    return new TransactionOutcomeBreakdownResponse(
-        breakdown.getSuccessCount(),
-        breakdown.getErrorCount(),
-        breakdown.getPendingCount(),
-        breakdown.getExcludedCount(),
-        breakdown.getTotalCount());
-  }
-
-  private List<TransactionStageBreakdownResponse> toStageBreakdown(
-      List<TransactionStageBreakdownProjection> breakdown) {
-    return breakdown.stream()
-        .map(
-            row ->
-                new TransactionStageBreakdownResponse(
-                    row.getStage(),
-                    row.getSuccessCount(),
-                    row.getErrorCount(),
-                    row.getPendingCount(),
-                    row.getExcludedCount(),
-                    row.getTotalCount()))
-        .toList();
-  }
-
   private long aggregateCount(
       TransactionReportContextProjection context, TransactionMetric metric) {
     return switch (metric) {
@@ -431,6 +447,16 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case SIMULATED -> context.getSimulated();
       case ALREADY_REPORTED -> context.getAlreadyReported();
       case SOFT_DEDUP -> context.getSoftDedup();
+        // Mirrors the Data Selection card's "Filtered data" tile exactly: every reason a
+        // selected transaction did not carry through. Missing attempts are part of that
+        // total but have no record-level rows, so evidenceLevel/evidenceMessage will
+        // report the shortfall rather than the table silently coming up short.
+      case FILTERED ->
+          context.getMissingAttempts()
+              + context.getExcluded()
+              + context.getSimulated()
+              + context.getAlreadyReported()
+              + context.getSoftDedup();
       case FILTRATION_VARIANCE -> context.getFiltrationVariance();
       case RECONCILIATION_VARIANCE -> context.getReconciliationVariance();
     };
@@ -452,6 +478,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case SIMULATED -> "Simulated (SML) transactions";
       case ALREADY_REPORTED -> "Already reported transactions";
       case SOFT_DEDUP -> "Soft-dedup dropped transactions";
+      case FILTERED -> "Filtered transactions";
       case FILTRATION_VARIANCE -> "Filtration variance";
       case RECONCILIATION_VARIANCE -> "Reconciliation variance";
       case TRANSFORMER_OUTPUT -> "Transformer output";

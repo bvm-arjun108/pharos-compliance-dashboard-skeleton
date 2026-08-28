@@ -833,7 +833,10 @@ export class HomeComponent implements OnInit {
         fromDate: period.fromDate,
         toDate: period.toDate,
         country: this.country(),
-        reportGroupId: this.selectedReportGroupIdOrNull()
+        reportGroupId: this.selectedReportGroupIdOrNull(),
+        // Must be explicit: the period-wide view returns every evidence source, so without this
+        // the user lands on all transactions rather than the excluded count they clicked.
+        status: 'EXCLUDED'
       }
     });
   }
@@ -862,7 +865,10 @@ export class HomeComponent implements OnInit {
         fromDate: period.fromDate,
         toDate: period.toDate,
         country: this.country(),
-        reportGroupId: group.reportGroupId
+        reportGroupId: group.reportGroupId,
+        // See openExcludedTransactionsExplorer — the period view is not excluded-only, so the
+        // status the user clicked has to be carried through explicitly.
+        status: 'EXCLUDED'
       }
     });
   }

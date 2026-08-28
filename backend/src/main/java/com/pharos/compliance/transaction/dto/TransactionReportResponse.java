@@ -20,8 +20,6 @@ public record TransactionReportResponse(
     long matchingRecordCount,
     TransactionEvidenceLevel evidenceLevel,
     String evidenceMessage,
-    TransactionOutcomeBreakdownResponse outcomeBreakdown,
-    List<TransactionStageBreakdownResponse> stageBreakdown,
     List<TransactionEvidenceRecordResponse> transactions,
     String search,
     TransactionEvidenceSource source,

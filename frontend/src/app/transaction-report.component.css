@@ -205,10 +205,10 @@
 .transaction-table tbody small { max-width: 300px; margin-top: 4px; overflow: hidden; color: #85837a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .transaction-table time { color: #62615b; white-space: nowrap; }
 
+/* Used by the rule-hit list's reported/not-reported pill. The --error and --excluded variants
+   were removed: they were left over from the Outcome column, which no longer exists. */
 .outcome-pill { display: inline-flex; min-height: 23px; padding: 0 8px; align-items: center; color: #665620; background: #f4edce; border: 1px solid #ded29b; border-radius: 5px; font-size: 8px; font-weight: 900; text-transform: uppercase; }
 .outcome-pill--success { color: #356449; background: #e6f1e9; border-color: #c4dccb; }
-.outcome-pill--error { color: #864047; background: #f4e5e7; border-color: #e2c8cb; }
-.outcome-pill--excluded { color: #684b25; background: #f5eadb; border-color: #e1ccb0; }
 
 .transaction-row { cursor: pointer; }
 .transaction-row--expanded { background: #fffce9; }

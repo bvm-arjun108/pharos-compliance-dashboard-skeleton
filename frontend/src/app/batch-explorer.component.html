@@ -276,7 +276,7 @@
             </div>
             <div class="evidence-values evidence-values--two">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SELECTED')" aria-label="View selected transaction evidence"><span>Selected data</span><strong>{{ details.selectedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><span>Filtered data</span><strong [class.issue-number]="filteredTransactions(details) > 0">{{ filteredTransactions(details) | number:'1.0-0' }}</strong></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTERED')" aria-label="View filtered transaction evidence"><span>Filtered data</span><strong [class.issue-number]="filteredTransactions(details) > 0">{{ filteredTransactions(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
             <p class="evidence-panel__subheading">Filtered by reason</p>
             <div class="evidence-values evidence-values--five">

@@ -113,8 +113,7 @@ class ComplianceDashboardApplicationTest {
             <= response.batchesRan());
     assertTrue(response.transformationFailureBatches() <= response.batchesNeedingAttention());
     assertTrue(response.missingAttemptBatches() <= response.batchesNeedingAttention());
-    assertTrue(response.filtrationFailureBatches() <= response.batchesNeedingAttention());
-    assertTrue(response.reconciliationFailureBatches() <= response.batchesNeedingAttention());
+    assertTrue(response.activityMissingBatches() <= response.batchesNeedingAttention());
     assertTrue(response.totalReportedTransactions() >= 0);
     assertTrue(response.totalExcludedTransactions() >= 0);
     assertEquals(TrendGranularity.MONTHLY, response.trendGranularity());
@@ -127,8 +126,7 @@ class ComplianceDashboardApplicationTest {
                             == period.batchesRan()
                         && period.transformationFailureBatches() <= period.batchesNeedingAttention()
                         && period.missingAttemptBatches() <= period.batchesNeedingAttention()
-                        && period.filtrationFailureBatches() <= period.batchesNeedingAttention()
-                        && period.reconciliationFailureBatches() <= period.batchesNeedingAttention()
+                        && period.activityMissingBatches() <= period.batchesNeedingAttention()
                         && period.attentionRate() >= 0.0
                         && period.attentionRate() <= 100.0));
     for (int index = 1; index < response.batchHealthTrend().size(); index++) {
@@ -295,7 +293,8 @@ class ComplianceDashboardApplicationTest {
             .block(Duration.ofSeconds(10));
     DashboardDetailsResponse dashboard =
         dashboardService
-            .getDashboardDetails(LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), "", "RO")
+            .getDashboardDetails(
+                LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), "", "RO", null)
             .block(Duration.ofSeconds(10));
 
     assertNotNull(explorer);

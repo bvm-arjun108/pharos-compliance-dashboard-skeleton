@@ -47,24 +47,6 @@ public interface TransactionReportRepository
       @Param("outcome") String outcome,
       @Param("status") String status);
 
-  @Query(value = TransactionReportNativeQueries.OUTCOME_BREAKDOWN, nativeQuery = true)
-  TransactionOutcomeBreakdownProjection findOutcomeBreakdown(
-      @Param("reportGroupId") int reportGroupId,
-      @Param("batchId") String batchId,
-      @Param("metric") String metric,
-      @Param("search") String search,
-      @Param("source") String source,
-      @Param("stage") String stage);
-
-  @Query(value = TransactionReportNativeQueries.STAGE_BREAKDOWN, nativeQuery = true)
-  List<TransactionStageBreakdownProjection> findStageBreakdown(
-      @Param("reportGroupId") int reportGroupId,
-      @Param("batchId") String batchId,
-      @Param("metric") String metric,
-      @Param("search") String search,
-      @Param("source") String source,
-      @Param("outcome") String outcome);
-
   @Query(value = PeriodTransactionNativeQueries.AGGREGATE, nativeQuery = true)
   PeriodAggregateProjection findPeriodAggregate(
       @Param("fromTimestamp") LocalDateTime fromTimestamp,
@@ -241,31 +223,5 @@ public interface TransactionReportRepository
     String getTransactionSubStatus();
 
     String getRuleHitsJson();
-  }
-
-  interface TransactionOutcomeBreakdownProjection {
-    long getSuccessCount();
-
-    long getErrorCount();
-
-    long getPendingCount();
-
-    long getExcludedCount();
-
-    long getTotalCount();
-  }
-
-  interface TransactionStageBreakdownProjection {
-    String getStage();
-
-    long getSuccessCount();
-
-    long getErrorCount();
-
-    long getPendingCount();
-
-    long getExcludedCount();
-
-    long getTotalCount();
   }
 }
