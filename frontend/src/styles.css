@@ -588,11 +588,17 @@ main {
 .transaction-totals strong {
   display: block;
   margin-top: 6px;
+  overflow: hidden;
   color: #20201d;
-  font-size: 20px;
-  line-height: 1.15;
+  /* Scales down instead of wrapping: these sit two-across in a narrow column beside the gauge,
+     and a 7-figure total broke mid-digit ("4,072,27 / 9") at the previous fixed size. A number
+     split across two lines is harder to read than a slightly smaller one. */
+  font-size: clamp(14px, 1.35vw, 21px);
+  line-height: 1.2;
   letter-spacing: -.02em;
-  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .transaction-overview-body {
@@ -677,7 +683,9 @@ main {
 }
 .exclusion-alert__triangle { fill: var(--failure-red); }
 .exclusion-alert__mark { fill: #fff; }
-.exclusion-alert strong { display: block; color: #63343a; font-size: 22px; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.exclusion-alert strong { display: block; overflow: hidden; color: #63343a;
+  font-size: clamp(15px, 1.5vw, 23px); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .exclusion-alert span { display: block; margin-top: 1px; color: #76575b; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .kpi-card--transactions > .transaction-overview-note { margin-top: 12px; }
 
