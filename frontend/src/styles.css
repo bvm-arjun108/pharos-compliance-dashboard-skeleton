@@ -151,7 +151,7 @@ button, select { cursor: pointer; }
 .environment-badge span { width: 7px; height: 7px; background: #ffdd00; border-radius: 50%; }
 
 main {
-  width: min(1600px, 100%);
+  width: min(1760px, 100%);
   margin: 0 auto;
   padding: clamp(24px, 3vw, 38px) clamp(20px, 2.5vw, 40px) 72px;
 }
@@ -412,7 +412,7 @@ main {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 460px);
+  grid-template-columns: minmax(0, 1fr) minmax(430px, 580px);
   align-items: stretch;
   gap: 14px;
 }
@@ -434,7 +434,7 @@ main {
 
 .kpi-batch-group__cards {
   display: grid;
-  grid-template-columns: minmax(155px, .62fr) minmax(360px, 1.5fr) minmax(360px, 1.45fr);
+  grid-template-columns: minmax(140px, .62fr) minmax(290px, 1.5fr) minmax(290px, 1.45fr);
   align-items: stretch;
   gap: 14px;
 }
@@ -593,11 +593,12 @@ main {
   /* Scales down instead of wrapping: these sit two-across in a narrow column beside the gauge,
      and a 7-figure total broke mid-digit ("4,072,27 / 9") at the previous fixed size. A number
      split across two lines is harder to read than a slightly smaller one. */
-  font-size: clamp(14px, 1.35vw, 21px);
+  /* Never ellipsised: an exact figure that reads "4,072,2..." is worse than useless in a
+     compliance report. The layout above guarantees the room; this only scales the type. */
+  font-size: clamp(15px, 1.25vw, 21px);
   line-height: 1.2;
   letter-spacing: -.02em;
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -616,7 +617,7 @@ main {
   gap: 8px;
 }
 
-.exclusion-gauge { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; width: 190px; }
+.exclusion-gauge { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; width: 150px; }
 .exclusion-gauge__svg { display: block; width: 100%; height: auto; }
 .exclusion-gauge__band { fill: none; stroke-width: 18; stroke-linecap: round; }
 .exclusion-gauge__band--healthy { stroke: #6f927f; }
@@ -685,7 +686,7 @@ main {
 .exclusion-alert__mark { fill: #fff; }
 .exclusion-alert strong { display: block; overflow: hidden; color: #63343a;
   font-size: clamp(15px, 1.5vw, 23px); letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
 .exclusion-alert span { display: block; margin-top: 1px; color: #76575b; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .kpi-card--transactions > .transaction-overview-note { margin-top: 12px; }
 
