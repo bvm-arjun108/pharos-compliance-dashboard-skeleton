@@ -2,6 +2,7 @@ package com.pharos.compliance.transaction.api;
 
 import com.pharos.compliance.common.error.ApiErrorResponse;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
+import com.pharos.compliance.transaction.dto.TransactionRecordDetailResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
@@ -130,6 +131,13 @@ public interface TransactionReportApi {
       @Parameter(description = "Exact report group ID", example = "1573742369")
           @RequestParam(value = "reportGroupId", required = false)
           Integer reportGroupId,
+      @Parameter(
+              description =
+                  "Batch ID substring, mirroring the dashboard filter of the same name so this"
+                      + " drilldown covers exactly the batches that filter counted",
+              example = "BIN2289260820100000")
+          @RequestParam(value = "batchId", defaultValue = "")
+          String batchId,
       @RequestParam(value = "search", defaultValue = "") String search,
       @RequestParam(value = "outcome", defaultValue = "ALL") TransactionOutcome outcome,
       @RequestParam(value = "status", defaultValue = "ALL") TransactionStatus status,
@@ -137,4 +145,30 @@ public interface TransactionReportApi {
           TransactionSortDirection sortDirection,
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size);
+
+  @Operation(
+      operationId = "getTransactionRecordDetail",
+      summary = "Get the expanded detail for one transaction",
+      description =
+          "Returns the party, currency and rule-hit data behind a single row's Details panel."
+              + " Split from the list endpoint so that listing transactions does not join for"
+              + " fields the table never renders.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "200", description = "Detail returned successfully"),
+    @ApiResponse(
+        responseCode = "404",
+        description = "No evidence exists for that identifier in that batch",
+        content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+  })
+  @GetMapping(value = "/record-detail", produces = MediaType.APPLICATION_JSON_VALUE)
+  Mono<TransactionRecordDetailResponse> getRecordDetail(
+      @RequestParam("reportGroupId") @Min(1) int reportGroupId,
+      @RequestParam("batchId") @NotBlank String batchId,
+      @RequestParam("identifier") @NotBlank String identifier,
+      @Parameter(description = "The status filter the row was listed under, so the detail merges the same evidence sources")
+          @RequestParam(value = "status", defaultValue = "ALL")
+          TransactionStatus status,
+      @Parameter(description = "The metric the row was listed under, for the same reason as status")
+          @RequestParam(value = "metric", defaultValue = "ALL")
+          TransactionMetric metric);
 }

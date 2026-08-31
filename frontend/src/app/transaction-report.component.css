@@ -355,3 +355,13 @@
   .transaction-toolbar .transaction-apply,
   .transaction-toolbar .transaction-clear { width: 100%; }
 }
+
+.transaction-detail-status {
+  display: flex;
+  padding: 20px 24px;
+  align-items: center;
+  gap: 10px;
+  color: #74726a;
+  font-size: 11px;
+}
+.transaction-detail-status--error { color: #8c3f46; }

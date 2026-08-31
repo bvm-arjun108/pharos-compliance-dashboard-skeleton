@@ -70,34 +70,38 @@ interface PeriodReportContext {
 
 type ReportContext = BatchReportContext | PeriodReportContext;
 
+/** One row as rendered in the table. Detail-panel fields are fetched separately. */
 interface TransactionEvidenceRecord {
   recordKey: string;
+  reportGroupId: number;
   identifier: string;
   mtcn: string | null;
   batchId: string | null;
   source: Exclude<TransactionEvidenceSource, 'ALL'>;
-  stage: string | null;
   status: string | null;
-  outcome: Exclude<TransactionOutcome, 'ALL'>;
   comments: string | null;
   skipReason: string | null;
-  ruleId: string | null;
   exclusionReason: string | null;
-  exclusionStrategy: string | null;
   reportedBatchId: string | null;
-  reportingTimestamp: string | null;
   modifiedAt: string | null;
   processingComplete: boolean | null;
-  currencyAmount: number | null;
-  currencyCode: string | null;
-  transactionDate: string | null;
+}
+
+/** The expanded panel's payload, loaded on demand from /transactions/record-detail. */
+interface TransactionRecordDetail {
+  identifier: string;
+  ruleId: string | null;
+  exclusionStrategy: string | null;
+  bucketId: number | null;
+  attemptId: number | null;
+  galacticId: string | null;
   transactionSide: string | null;
   txnSource: string | null;
   activityType: string | null;
+  currencyAmount: number | null;
+  currencyCode: string | null;
+  transactionDate: string | null;
   sendDate: string | null;
-  galacticId: string | null;
-  bucketId: number | null;
-  attemptId: number | null;
   senderName: string | null;
   receiverName: string | null;
   senderCity: string | null;
@@ -224,6 +228,10 @@ export class TransactionReportComponent implements OnInit {
   readonly page = signal(0);
   readonly size = signal(25);
   readonly expandedRecordKey = signal<string | null>(null);
+  /** Cached per record so re-opening a row costs nothing; cleared whenever a new page loads. */
+  readonly recordDetails = signal<Record<string, TransactionRecordDetail>>({});
+  readonly detailLoadingKey = signal<string | null>(null);
+  readonly detailError = signal<string | null>(null);
 
   ngOnInit(): void {
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
@@ -453,24 +461,63 @@ export class TransactionReportComponent implements OnInit {
       .join(' ');
   }
 
-  ruleIdsDisplay(record: TransactionEvidenceRecord): string {
-    if (record.ruleId) {
-      return record.ruleId;
+  ruleIdsDisplay(detail: TransactionRecordDetail | null): string {
+    if (detail?.ruleId) {
+      return detail.ruleId;
     }
-    const ids = [...new Set(this.ruleHits(record).map(hit => hit.ruleId).filter((id): id is string => !!id))];
+    const ids = [...new Set(this.ruleHits(detail).map(hit => hit.ruleId).filter((id): id is string => !!id))];
     return ids.length > 0 ? ids.join(', ') : 'Not available';
   }
 
-  toggleExpanded(recordKey: string): void {
-    this.expandedRecordKey.set(this.expandedRecordKey() === recordKey ? null : recordKey);
+  toggleExpanded(record: TransactionEvidenceRecord): void {
+    if (this.expandedRecordKey() === record.recordKey) {
+      this.expandedRecordKey.set(null);
+      return;
+    }
+    this.expandedRecordKey.set(record.recordKey);
+    this.loadRecordDetail(record);
   }
 
-  ruleHits(record: TransactionEvidenceRecord): RuleHitSummary[] {
-    if (!record.ruleHitsJson) {
+  detailFor(record: TransactionEvidenceRecord): TransactionRecordDetail | null {
+    return this.recordDetails()[record.recordKey] ?? null;
+  }
+
+  /** The panel's data is not shipped with the list, so it is fetched the first time a row is
+   *  opened and then cached. Every field it shows costs a join the table itself does not need. */
+  private loadRecordDetail(record: TransactionEvidenceRecord): void {
+    if (this.recordDetails()[record.recordKey] || !record.batchId) {
+      return;
+    }
+    this.detailError.set(null);
+    this.detailLoadingKey.set(record.recordKey);
+    const params = new HttpParams()
+      .set('reportGroupId', record.reportGroupId)
+      .set('batchId', record.batchId)
+      .set('identifier', record.identifier)
+      // The row was merged under the current status filter; the detail must be scoped the same
+      // way or it merges evidence sources the row did not and disagrees with what was clicked.
+      .set('status', this.status())
+      .set('metric', this.metric());
+    this.http
+      .get<TransactionRecordDetail>('/api/v1/transactions/record-detail', { params })
+      .subscribe({
+        next: detail => {
+          this.recordDetails.update(current => ({ ...current, [record.recordKey]: detail }));
+          this.detailLoadingKey.set(null);
+        },
+        error: () => {
+          this.detailLoadingKey.set(null);
+          this.detailError.set('Transaction detail could not be loaded.');
+        }
+      });
+  }
+
+  ruleHits(detail: TransactionRecordDetail | null): RuleHitSummary[] {
+    if (!detail?.ruleHitsJson) {
       return [];
     }
     try {
-      const parsed = JSON.parse(record.ruleHitsJson);
+      const parsed = JSON.parse(detail.ruleHitsJson);
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
@@ -515,16 +562,18 @@ export class TransactionReportComponent implements OnInit {
     });
   }
 
-  formatCurrency(record: TransactionEvidenceRecord): string {
-    if (record.currencyAmount === null) {
+  formatCurrency(detail: TransactionRecordDetail | null): string {
+    if (!detail || detail.currencyAmount === null) {
       return 'Not available';
     }
-    return record.currencyCode
-      ? `${record.currencyCode} ${record.currencyAmount.toLocaleString()}`
-      : record.currencyAmount.toLocaleString();
+    return detail.currencyCode
+      ? `${detail.currencyCode} ${detail.currencyAmount.toLocaleString()}`
+      : detail.currencyAmount.toLocaleString();
   }
 
   private loadReport(): void {
+    this.recordDetails.set({});
+    this.detailError.set(null);
     this.loading.set(true);
     this.error.set(null);
     this.report.set(null);

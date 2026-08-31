@@ -23,6 +23,7 @@ final class TransactionEvidenceColumns {
   static final String JOURNEY_COLUMNS =
       """
               journey.identifier,
+              journey.rpt_grp_id AS report_group_id,
               journey.mtcn,
               journey.batch_id AS evidence_batch_id,
               'JOURNEY' AS evidence_source,
@@ -76,6 +77,7 @@ final class TransactionEvidenceColumns {
                   ':', exclusion_audit.attempt_id) AS record_key,
               COALESCE(exclusion_audit.external_txn_key::text, exclusion_audit.attempt_id::text)
                   AS identifier,
+              exclusion_audit.rpt_grp_id AS report_group_id,
               exclusion_audit.mtcn,
               exclusion_audit.processing_batch_id AS evidence_batch_id,
               'EXCLUSION_AUDIT' AS evidence_source,
@@ -111,6 +113,7 @@ final class TransactionEvidenceColumns {
               CONCAT('RULE_HIT:', rule_hit_matches.bucket_id, ':', rule_hit_matches.rule_id,
                   ':', rule_hit_matches.attempt_id) AS record_key,
               rule_hit_matches.matched_identifier AS identifier,
+              rule_hit_matches.rpt_grp_id AS report_group_id,
               rule_hit_matches.mtcn,
               rule_hit_matches.efile_batch_id AS evidence_batch_id,
               'RULE_HIT' AS evidence_source,
@@ -169,6 +172,8 @@ final class TransactionEvidenceColumns {
           SELECT
               evidence_batch_id,
               identifier,
+              (ARRAY_AGG(report_group_id ORDER BY source_rank, record_key)
+                  FILTER (WHERE report_group_id IS NOT NULL))[1] AS report_group_id,
               (ARRAY_AGG(record_key ORDER BY source_rank, record_key)
                   FILTER (WHERE record_key IS NOT NULL))[1] AS record_key,
               (ARRAY_AGG(mtcn ORDER BY source_rank, record_key)

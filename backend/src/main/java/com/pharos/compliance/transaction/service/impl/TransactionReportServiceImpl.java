@@ -9,6 +9,7 @@ import com.pharos.compliance.reportgroup.service.CountryCatalog;
 import com.pharos.compliance.transaction.dto.PeriodTransactionContextResponse;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionEvidenceRecordResponse;
+import com.pharos.compliance.transaction.dto.TransactionRecordDetailResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportContextResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
@@ -21,6 +22,7 @@ import com.pharos.compliance.transaction.model.TransactionStatus;
 import com.pharos.compliance.transaction.repository.TransactionEvidenceCache;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionEvidenceProjection;
+import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionRecordDetailProjection;
 import com.pharos.compliance.transaction.repository.TransactionReportRepository.TransactionReportContextProjection;
 import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.time.LocalDate;
@@ -213,6 +215,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       LocalDate toDate,
       String country,
       Integer reportGroupId,
+      String batchId,
       String search,
       TransactionOutcome outcome,
       TransactionStatus status,
@@ -223,6 +226,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       return Mono.error(new InvalidDateRangeException("fromDate must be on or before toDate"));
     }
     String normalizedSearch = search == null ? "" : search.trim();
+    String normalizedBatchId = batchId == null ? "" : batchId.trim();
     String normalizedCountry = normalizeCountryCode(country);
     boolean filterByReportGroup = reportGroupId != null;
     int reportGroupIdFilter = filterByReportGroup ? reportGroupId : -1;
@@ -244,7 +248,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                             countryFilter.enabled(),
                             countryFilter.reportGroupIds(),
                             filterByReportGroup,
-                            reportGroupIdFilter);
+                            reportGroupIdFilter,
+                            normalizedBatchId);
                     List<TransactionEvidenceProjection> evidence =
                         transactionEvidenceCache.findPeriodEvidenceRecords(
                             fromTimestamp,
@@ -253,6 +258,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                             countryFilter.reportGroupIds(),
                             filterByReportGroup,
                             reportGroupIdFilter,
+                            normalizedBatchId,
                             normalizedSearch,
                             outcome.name(),
                             status.name(),
@@ -267,6 +273,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                             countryFilter.reportGroupIds(),
                             filterByReportGroup,
                             reportGroupIdFilter,
+                            normalizedBatchId,
                             normalizedSearch,
                             outcome.name(),
                             status.name());
@@ -386,32 +393,35 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   private TransactionEvidenceRecordResponse toEvidenceRecord(TransactionEvidenceProjection row) {
     return new TransactionEvidenceRecordResponse(
         row.getRecordKey(),
+        row.getReportGroupId(),
         row.getIdentifier(),
         row.getMtcn(),
         row.getBatchId(),
-        TransactionEvidenceSource.valueOf(row.getEvidenceSource()),
-        row.getStage(),
+        row.getEvidenceSource(),
         row.getStatus(),
-        TransactionOutcome.valueOf(row.getOutcome()),
         row.getComments(),
         row.getSkipReason(),
-        row.getRuleId(),
         row.getExclusionReason(),
-        row.getExclusionStrategy(),
         row.getReportedBatchId(),
-        row.getReportingTimestamp(),
         row.getModifiedAt(),
-        row.getProcessingComplete(),
-        row.getCurrencyAmount(),
-        row.getCurrencyCode(),
-        row.getTransactionDate(),
+        row.getProcessingComplete());
+  }
+
+  private TransactionRecordDetailResponse toRecordDetail(TransactionRecordDetailProjection row) {
+    return new TransactionRecordDetailResponse(
+        row.getIdentifier(),
+        row.getRuleId(),
+        row.getExclusionStrategy(),
+        row.getBucketId(),
+        row.getAttemptId(),
+        row.getGalacticId(),
         row.getTransactionSide(),
         row.getTxnSource(),
         row.getActivityType(),
+        row.getCurrencyAmount(),
+        row.getCurrencyCode(),
+        row.getTransactionDate(),
         row.getSendDate(),
-        row.getGalacticId(),
-        row.getBucketId(),
-        row.getAttemptId(),
         row.getSenderName(),
         row.getReceiverName(),
         row.getSenderCity(),
@@ -429,6 +439,36 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         row.getTransactionStatus(),
         row.getTransactionSubStatus(),
         row.getRuleHitsJson());
+  }
+
+  @Override
+  public Mono<TransactionRecordDetailResponse> getRecordDetail(
+      int reportGroupId,
+      String batchId,
+      String identifier,
+      TransactionStatus status,
+      TransactionMetric metric) {
+    return onJdbcScheduler(
+            () ->
+                transactionEvidenceCache
+                    .findRecordDetail(reportGroupId, batchId, identifier, status.name(), metric.name())
+                    .map(this::toRecordDetail)
+                    .orElseThrow(
+                        () ->
+                            new ResourceNotFoundException(
+                                "No transaction evidence found for that identifier in this batch")))
+        .transform(
+            mono ->
+                logQuery(
+                    mono,
+                    "Transaction record detail query",
+                    () ->
+                        LOGGER.debug(
+                            "Transaction record detail reportGroupId={} batchId={}",
+                            reportGroupId,
+                            batchId),
+                    response ->
+                        "reportGroupId=" + reportGroupId + " batchId=" + batchId));
   }
 
   private long aggregateCount(

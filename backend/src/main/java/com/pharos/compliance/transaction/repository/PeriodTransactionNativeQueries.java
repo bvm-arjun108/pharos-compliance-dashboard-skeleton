@@ -19,6 +19,9 @@ final class PeriodTransactionNativeQueries {
             AND created_timestamp < :toTimestampExclusive
             AND (:filterByCountry = FALSE OR rpt_grp_id IN (:reportGroupIds))
             AND (:filterByReportGroup = FALSE OR rpt_grp_id = :reportGroupId)
+            -- Same substring match the dashboard KPI applies, so a Batch ID typed into the
+            -- dashboard filter narrows this drilldown to exactly the batches it counted.
+            AND (:batchId = '' OR LOWER(batch_id) LIKE LOWER(CONCAT('%', :batchId, '%')))
       )
       """;
 
@@ -139,81 +142,24 @@ final class PeriodTransactionNativeQueries {
           LIMIT :size OFFSET :offset
       )
       SELECT
-          page.record_key AS "recordKey",
-          page.identifier AS "identifier",
-          page.mtcn AS "mtcn",
-          page.evidence_batch_id AS "batchId",
-          page.evidence_source AS "evidenceSource",
-          page.stage AS "stage",
-          page.status AS "status",
-          page.outcome AS "outcome",
-          page.comments AS "comments",
-          page.skip_reason AS "skipReason",
-          page.rule_id AS "ruleId",
-          page.exclusion_reason AS "exclusionReason",
-          page.exclusion_strategy AS "exclusionStrategy",
-          page.reported_batch_id AS "reportedBatchId",
-          page.reporting_timestamp AS "reportingTimestamp",
-          page.modified_at AS "modifiedAt",
-          page.processing_complete AS "processingComplete",
-          CASE WHEN page.evidence_source = 'JOURNEY'
-               THEN COALESCE(rra.s_local_principal, rra.r_local_principal)
-               ELSE page.currency_amount END AS "currencyAmount",
-          CASE WHEN page.evidence_source = 'JOURNEY'
-               THEN COALESCE(rra.s_currency, rra.r_currency)
-               ELSE page.currency_code END AS "currencyCode",
-          CASE WHEN page.evidence_source = 'JOURNEY'
-               THEN COALESCE(rra.s_date, rra.r_date)
-               ELSE page.transaction_date END AS "transactionDate",
-          page.transaction_side AS "transactionSide",
-          page.txn_source AS "txnSource",
-          page.activity_type AS "activityType",
-          CASE WHEN page.evidence_source = 'JOURNEY'
-               THEN rra.group_send_date
-               ELSE page.send_date END AS "sendDate",
-          page.galactic_id AS "galacticId",
-          page.bucket_id AS "bucketId",
-          page.attempt_id AS "attemptId",
-          rra.s_party_name AS "senderName",
-          rra.r_party_name AS "receiverName",
-          rra.s_party_city AS "senderCity",
-          rra.s_party_country_of_residence AS "senderCountry",
-          rra.s_party_phone_number AS "senderPhone",
-          rra.s_party_date_of_birth AS "senderDateOfBirth",
-          rra.s_party_id_type AS "senderIdType",
-          rra.s_party_id_number AS "senderIdNumber",
-          rra.r_party_city AS "receiverCity",
-          rra.r_party_country_of_residence AS "receiverCountry",
-          rra.r_party_phone_number AS "receiverPhone",
-          rra.r_party_date_of_birth AS "receiverDateOfBirth",
-          rra.r_party_id_type AS "receiverIdType",
-          rra.r_party_id_number AS "receiverIdNumber",
-          rra.txn_status AS "transactionStatus",
-          rra.sub_status AS "transactionSubStatus",
-          COALESCE(rollup.rule_hits_json, '[]') AS "ruleHitsJson"
+          record_key AS "recordKey",
+          report_group_id AS "reportGroupId",
+          identifier AS "identifier",
+          mtcn AS "mtcn",
+          evidence_batch_id AS "batchId",
+          evidence_source AS "evidenceSource",
+          status AS "status",
+          comments AS "comments",
+          skip_reason AS "skipReason",
+          exclusion_reason AS "exclusionReason",
+          reported_batch_id AS "reportedBatchId",
+          modified_at AS "modifiedAt",
+          processing_complete AS "processingComplete"
       FROM page
-      LEFT JOIN pharos.reg_reportable_activity rra
-          ON rra.txn_sur_key = page.rra_key
-      LEFT JOIN LATERAL (
-          SELECT
-              json_agg(
-                  json_build_object(
-                      'ruleId', rhm.rule_id,
-                      'isReported', rhm.is_reported,
-                      'reportingTimestamp', rhm.reporting_timestamp::text,
-                      'bucketId', rhm.bucket_id,
-                      'attemptId', rhm.attempt_id
-                  )
-                  ORDER BY rhm.rule_id
-              )::text AS rule_hits_json
-          FROM rule_hit_matches rhm
-          WHERE rhm.matched_identifier IS NOT NULL
-            AND rhm.matched_identifier = page.identifier
-      ) rollup ON TRUE
       ORDER BY
-          CASE WHEN :sortDirection = 'ASC' THEN page.sort_ts END ASC NULLS LAST,
-          CASE WHEN :sortDirection = 'DESC' THEN page.sort_ts END DESC NULLS LAST,
-          page.record_key
+          CASE WHEN :sortDirection = 'ASC' THEN sort_ts END ASC NULLS LAST,
+          CASE WHEN :sortDirection = 'DESC' THEN sort_ts END DESC NULLS LAST,
+          record_key
       """;
 
   static final String EVIDENCE_COUNT =
