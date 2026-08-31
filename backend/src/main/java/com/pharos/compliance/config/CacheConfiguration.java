@@ -25,7 +25,6 @@ import org.springframework.context.annotation.Configuration;
 public class CacheConfiguration {
 
   public static final String TRANSACTION_REPORT_CONTEXT = "transactionReportContext";
-  public static final String TRANSACTION_RECORD_DETAIL = "transactionRecordDetail";
   public static final String TRANSACTION_EVIDENCE_COUNT = "transactionEvidenceCount";
   public static final String TRANSACTION_EVIDENCE_RECORDS = "transactionEvidenceRecords";
   public static final String PERIOD_TRANSACTION_AGGREGATE = "periodTransactionAggregate";
@@ -40,7 +39,6 @@ public class CacheConfiguration {
         List.of(
             buildCache(TRANSACTION_REPORT_CONTEXT, 5_000, Duration.ofMinutes(10)),
             buildCache(TRANSACTION_EVIDENCE_COUNT, 10_000, Duration.ofMinutes(2)),
-            buildCache(TRANSACTION_RECORD_DETAIL, 5_000, Duration.ofMinutes(2)),
             buildCache(TRANSACTION_EVIDENCE_RECORDS, 1_000, Duration.ofMinutes(2)),
             buildCache(PERIOD_TRANSACTION_AGGREGATE, 2_000, Duration.ofMinutes(2)),
             buildCache(PERIOD_TRANSACTION_EVIDENCE_COUNT, 2_000, Duration.ofMinutes(2)),

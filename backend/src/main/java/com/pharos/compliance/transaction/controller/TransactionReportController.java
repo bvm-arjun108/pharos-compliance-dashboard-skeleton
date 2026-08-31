@@ -2,7 +2,6 @@ package com.pharos.compliance.transaction.controller;
 
 import com.pharos.compliance.transaction.api.TransactionReportApi;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
-import com.pharos.compliance.transaction.dto.TransactionRecordDetailResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
@@ -51,7 +50,6 @@ public class TransactionReportController implements TransactionReportApi {
       LocalDate toDate,
       String country,
       Integer reportGroupId,
-      String batchId,
       String search,
       TransactionOutcome outcome,
       TransactionStatus status,
@@ -59,18 +57,7 @@ public class TransactionReportController implements TransactionReportApi {
       int page,
       int size) {
     return transactionReportService.getPeriodTransactionReport(
-        fromDate, toDate, country, reportGroupId, batchId, search, outcome, status, sortDirection,
-        page, size);
-  }
-
-  @Override
-  public Mono<TransactionRecordDetailResponse> getRecordDetail(
-      int reportGroupId,
-      String batchId,
-      String identifier,
-      TransactionStatus status,
-      TransactionMetric metric) {
-    return transactionReportService.getRecordDetail(
-        reportGroupId, batchId, identifier, status, metric);
+        fromDate, toDate, country, reportGroupId, search, outcome, status, sortDirection, page,
+        size);
   }
 }

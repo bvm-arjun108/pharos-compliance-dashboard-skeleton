@@ -105,7 +105,7 @@
               </thead>
               <tbody>
                 @for (record of result.transactions; track record.recordKey) {
-                  <tr class="transaction-row" [class.transaction-row--expanded]="expandedRecordKey() === record.recordKey" (click)="toggleExpanded(record)">
+                  <tr class="transaction-row" [class.transaction-row--expanded]="expandedRecordKey() === record.recordKey" (click)="toggleExpanded(record.recordKey)">
                     <th scope="row">
                       <strong>{{ record.identifier }}</strong>
                       <small>{{ record.mtcn ? 'MTCN ' + record.mtcn : 'MTCN unavailable' }}</small>
@@ -125,7 +125,7 @@
                     </td>
                     <td><time>{{ record.modifiedAt | date:'MMM d, y, h:mm a' }}</time></td>
                     <td class="transaction-row-toggle">
-                      <button type="button" class="detail-toggle" [attr.aria-expanded]="expandedRecordKey() === record.recordKey" (click)="$event.stopPropagation(); toggleExpanded(record)">
+                      <button type="button" class="detail-toggle" [attr.aria-expanded]="expandedRecordKey() === record.recordKey" (click)="$event.stopPropagation(); toggleExpanded(record.recordKey)">
                         {{ expandedRecordKey() === record.recordKey ? 'Hide details' : 'Details' }}
                       </button>
                     </td>
@@ -133,30 +133,25 @@
                   @if (expandedRecordKey() === record.recordKey) {
                     <tr class="transaction-detail-row">
                       <td colspan="7">
-                        @if (detailLoadingKey() === record.recordKey) {
-                          <div class="transaction-detail-status"><span class="loading-ring"></span>Loading transaction detail…</div>
-                        } @else if (detailError(); as detailErrorMessage) {
-                          <div class="transaction-detail-status transaction-detail-status--error">{{ detailErrorMessage }}</div>
-                        } @else if (detailFor(record); as detail) {
                         <div class="transaction-detail-section">
                           <p class="transaction-detail-heading">Transaction details</p>
                           <div class="transaction-detail-grid">
-                            <div><span>Sender</span><strong>{{ detail.senderName || 'Not available' }}</strong></div>
-                            <div><span>Sender ID</span><strong>{{ detail.senderIdType && detail.senderIdNumber ? detail.senderIdType + ' ' + detail.senderIdNumber : 'Not available' }}</strong></div>
-                            <div><span>Sender location</span><strong>{{ detail.senderCity && detail.senderCountry ? detail.senderCity + ', ' + detail.senderCountry : (detail.senderCountry || 'Not available') }}</strong></div>
-                            <div><span>Sender phone</span><strong>{{ detail.senderPhone || 'Not available' }}</strong></div>
-                            <div><span>Sender date of birth</span><strong>{{ detail.senderDateOfBirth || 'Not available' }}</strong></div>
-                            <div><span>Receiver</span><strong>{{ detail.receiverName || 'Not available' }}</strong></div>
-                            <div><span>Receiver ID</span><strong>{{ detail.receiverIdType && detail.receiverIdNumber ? detail.receiverIdType + ' ' + detail.receiverIdNumber : 'Not available' }}</strong></div>
-                            <div><span>Receiver location</span><strong>{{ detail.receiverCity && detail.receiverCountry ? detail.receiverCity + ', ' + detail.receiverCountry : (detail.receiverCountry || 'Not available') }}</strong></div>
-                            <div><span>Receiver phone</span><strong>{{ detail.receiverPhone || 'Not available' }}</strong></div>
-                            <div><span>Receiver date of birth</span><strong>{{ detail.receiverDateOfBirth || 'Not available' }}</strong></div>
-                            <div><span>Currency amount</span><strong>{{ formatCurrency(detail) }}</strong></div>
-                            <div><span>Transaction date</span><strong>{{ detail.transactionDate || 'Not available' }}</strong></div>
-                            <div><span>Send date</span><strong>{{ detail.sendDate || 'Not available' }}</strong></div>
-                            <div><span>Transaction side</span><strong>{{ detail.transactionSide || 'Not available' }}</strong></div>
-                            <div><span>Transaction status</span><strong>{{ detail.transactionStatus || 'Not available' }}</strong></div>
-                            <div><span>Sub status</span><strong>{{ detail.transactionSubStatus || 'Not available' }}</strong></div>
+                            <div><span>Sender</span><strong>{{ record.senderName || 'Not available' }}</strong></div>
+                            <div><span>Sender ID</span><strong>{{ record.senderIdType && record.senderIdNumber ? record.senderIdType + ' ' + record.senderIdNumber : 'Not available' }}</strong></div>
+                            <div><span>Sender location</span><strong>{{ record.senderCity && record.senderCountry ? record.senderCity + ', ' + record.senderCountry : (record.senderCountry || 'Not available') }}</strong></div>
+                            <div><span>Sender phone</span><strong>{{ record.senderPhone || 'Not available' }}</strong></div>
+                            <div><span>Sender date of birth</span><strong>{{ record.senderDateOfBirth || 'Not available' }}</strong></div>
+                            <div><span>Receiver</span><strong>{{ record.receiverName || 'Not available' }}</strong></div>
+                            <div><span>Receiver ID</span><strong>{{ record.receiverIdType && record.receiverIdNumber ? record.receiverIdType + ' ' + record.receiverIdNumber : 'Not available' }}</strong></div>
+                            <div><span>Receiver location</span><strong>{{ record.receiverCity && record.receiverCountry ? record.receiverCity + ', ' + record.receiverCountry : (record.receiverCountry || 'Not available') }}</strong></div>
+                            <div><span>Receiver phone</span><strong>{{ record.receiverPhone || 'Not available' }}</strong></div>
+                            <div><span>Receiver date of birth</span><strong>{{ record.receiverDateOfBirth || 'Not available' }}</strong></div>
+                            <div><span>Currency amount</span><strong>{{ formatCurrency(record) }}</strong></div>
+                            <div><span>Transaction date</span><strong>{{ record.transactionDate || 'Not available' }}</strong></div>
+                            <div><span>Send date</span><strong>{{ record.sendDate || 'Not available' }}</strong></div>
+                            <div><span>Transaction side</span><strong>{{ record.transactionSide || 'Not available' }}</strong></div>
+                            <div><span>Transaction status</span><strong>{{ record.transactionStatus || 'Not available' }}</strong></div>
+                            <div><span>Sub status</span><strong>{{ record.transactionSubStatus || 'Not available' }}</strong></div>
                             <div class="transaction-detail-grid-span"><span>Comments</span><strong>{{ record.comments || 'Not available' }}</strong></div>
                             <div class="transaction-detail-grid-span">
                               <span>Skip reason</span>
@@ -168,12 +163,12 @@
                         <div class="transaction-detail-section transaction-detail-section--rule">
                           <p class="transaction-detail-heading">
                             Rule hit details
-                            @if (ruleHits(detail).length > 1) { <span class="transaction-detail-heading__count">({{ ruleHits(detail).length }} rule hits)</span> }
+                            @if (ruleHits(record).length > 1) { <span class="transaction-detail-heading__count">({{ ruleHits(record).length }} rule hits)</span> }
                           </p>
                           <p class="transaction-detail-subnote">Every pharos.rule_hit record matched to this transaction's identifier, independent of this row's own evidence source.</p>
-                          @if (ruleHits(detail).length > 0) {
+                          @if (ruleHits(record).length > 0) {
                             <div class="rule-hit-list">
-                              @for (hit of ruleHits(detail); track hit.ruleId + ':' + hit.attemptId) {
+                              @for (hit of ruleHits(record); track hit.ruleId + ':' + hit.attemptId) {
                                 <div class="rule-hit-list__item">
                                   <span class="rule-hit-list__id">Rule {{ hit.ruleId }}</span>
                                   <span class="outcome-pill" [class.outcome-pill--success]="hit.isReported">{{ hit.isReported ? 'Reported' : 'Not reported' }}</span>
@@ -186,9 +181,9 @@
                           }
                           @if (record.source === 'RULE_HIT') {
                             <div class="transaction-detail-grid">
-                              <div><span>Source</span><strong>{{ detail.txnSource || 'Not available' }}</strong></div>
-                              <div><span>Activity type</span><strong>{{ detail.activityType || 'Not available' }}</strong></div>
-                              <div><span>Galactic ID</span><strong>{{ detail.galacticId || 'Not available' }}</strong></div>
+                              <div><span>Source</span><strong>{{ record.txnSource || 'Not available' }}</strong></div>
+                              <div><span>Activity type</span><strong>{{ record.activityType || 'Not available' }}</strong></div>
+                              <div><span>Galactic ID</span><strong>{{ record.galacticId || 'Not available' }}</strong></div>
                             </div>
                           }
                         </div>
@@ -196,20 +191,19 @@
                         <div class="transaction-detail-section transaction-detail-section--rule">
                           <p class="transaction-detail-heading">Rule hit exclusion audit</p>
                           <p class="transaction-detail-subnote">This row's own pharos.rule_hit_exclusion_audit record, if this evidence came from an exclusion.</p>
-                          @if (record.exclusionReason || detail.exclusionStrategy || record.source === 'EXCLUSION_AUDIT') {
+                          @if (record.exclusionReason || record.exclusionStrategy || record.source === 'EXCLUSION_AUDIT') {
                             <div class="transaction-detail-grid">
-                              <div><span>Exclusion rule ID</span><strong>{{ ruleIdsDisplay(detail) }}</strong></div>
+                              <div><span>Exclusion rule ID</span><strong>{{ ruleIdsDisplay(record) }}</strong></div>
                               <div><span>Exclusion reason</span><strong>{{ record.exclusionReason || 'Not available' }}</strong></div>
-                              <div><span>Exclusion strategy</span><strong>{{ detail.exclusionStrategy || 'Not available' }}</strong></div>
+                              <div><span>Exclusion strategy</span><strong>{{ record.exclusionStrategy || 'Not available' }}</strong></div>
                               <div><span>Reported batch</span><strong>{{ record.reportedBatchId || 'Not available' }}</strong></div>
-                              <div><span>Bucket ID</span><strong>{{ detail.bucketId ?? 'Not available' }}</strong></div>
-                              <div><span>Attempt ID</span><strong>{{ detail.attemptId ?? 'Not available' }}</strong></div>
+                              <div><span>Bucket ID</span><strong>{{ record.bucketId ?? 'Not available' }}</strong></div>
+                              <div><span>Attempt ID</span><strong>{{ record.attemptId ?? 'Not available' }}</strong></div>
                             </div>
                           } @else {
                             <p class="rule-hit-list__empty">No exclusion audit record for this transaction.</p>
                           }
                         </div>
-                        }
                       </td>
                     </tr>
                   }

@@ -240,78 +240,44 @@ final class TransactionReportNativeQueries {
           LIMIT :size OFFSET :offset
       )
       SELECT
-          record_key AS "recordKey",
-          report_group_id AS "reportGroupId",
-          identifier AS "identifier",
-          mtcn AS "mtcn",
-          evidence_batch_id AS "batchId",
-          evidence_source AS "evidenceSource",
-          status AS "status",
-          comments AS "comments",
-          skip_reason AS "skipReason",
-          exclusion_reason AS "exclusionReason",
-          reported_batch_id AS "reportedBatchId",
-          modified_at AS "modifiedAt",
-          processing_complete AS "processingComplete"
-      FROM page
-      ORDER BY
-          CASE WHEN :sortDirection = 'ASC' THEN sort_ts END ASC NULLS LAST,
-          CASE WHEN :sortDirection = 'DESC' THEN sort_ts END DESC NULLS LAST,
-          record_key
-      """;
-
-  /**
-   * The expanded-row payload for one transaction, fetched on demand.
-   *
-   * <p>Split out of EVIDENCE_RECORDS deliberately. The list renders six columns; this returns the
-   * ~29 fields behind the Details panel, and every one of them costs a join -- the
-   * reg_reportable_activity lookup for party/currency data and a rule-hit aggregation. Paying that
-   * for 25 rows to render at most one expanded row was the bulk of the list query's work.
-   *
-   * <p>Reuses the same evidence pipeline the list is built from, narrowed to a single
-   * (batch, identifier), so an opened row always shows the merged evidence its list row
-   * represents rather than a separately-derived view that could disagree with it.
-   */
-  static final String RECORD_DETAIL =
-      "WITH "
-          + RULE_HIT_MATCHES_CTE
-          + EVIDENCE_CTE
-          + METRIC_SCOPED_CTE
-          + """
-      , filtered_evidence AS (
-          SELECT * FROM metric_scoped
-          WHERE identifier = :identifier
-            -- Scoped by the requested status exactly as the list row was, so the merge here sees
-            -- the same evidence sources. Without it the panel merges sources the row did not,
-            -- and fields resolved by source priority (transaction date, galactic id, source,
-            -- activity type) disagree with the row that was opened.
-            AND (:status = 'ALL' OR UPPER(COALESCE(status, '')) = :status)
-      )
-      """
-          + TransactionEvidenceColumns.MERGED_CTE
-          + """
-      SELECT
-          merged.identifier AS "identifier",
-          merged.rule_id AS "ruleId",
-          merged.exclusion_strategy AS "exclusionStrategy",
-          merged.bucket_id AS "bucketId",
-          merged.attempt_id AS "attemptId",
-          merged.galactic_id AS "galacticId",
-          merged.transaction_side AS "transactionSide",
-          merged.txn_source AS "txnSource",
-          merged.activity_type AS "activityType",
-          CASE WHEN merged.evidence_source = 'JOURNEY'
+          page.record_key AS "recordKey",
+          page.identifier AS "identifier",
+          page.mtcn AS "mtcn",
+          page.evidence_batch_id AS "batchId",
+          page.evidence_source AS "evidenceSource",
+          page.stage AS "stage",
+          page.status AS "status",
+          page.outcome AS "outcome",
+          page.comments AS "comments",
+          page.skip_reason AS "skipReason",
+          page.rule_id AS "ruleId",
+          page.exclusion_reason AS "exclusionReason",
+          page.exclusion_strategy AS "exclusionStrategy",
+          page.reported_batch_id AS "reportedBatchId",
+          page.reporting_timestamp AS "reportingTimestamp",
+          page.modified_at AS "modifiedAt",
+          page.processing_complete AS "processingComplete",
+          -- Journey rows source these four from reg_reportable_activity, every other source
+          -- carries its own value; reproduces exactly what each UNION branch selected before the
+          -- enrichment join was deferred past pagination.
+          CASE WHEN page.evidence_source = 'JOURNEY'
                THEN COALESCE(rra.s_local_principal, rra.r_local_principal)
-               ELSE merged.currency_amount END AS "currencyAmount",
-          CASE WHEN merged.evidence_source = 'JOURNEY'
+               ELSE page.currency_amount END AS "currencyAmount",
+          CASE WHEN page.evidence_source = 'JOURNEY'
                THEN COALESCE(rra.s_currency, rra.r_currency)
-               ELSE merged.currency_code END AS "currencyCode",
-          CASE WHEN merged.evidence_source = 'JOURNEY'
+               ELSE page.currency_code END AS "currencyCode",
+          CASE WHEN page.evidence_source = 'JOURNEY'
                THEN COALESCE(rra.s_date, rra.r_date)
-               ELSE merged.transaction_date END AS "transactionDate",
-          CASE WHEN merged.evidence_source = 'JOURNEY'
+               ELSE page.transaction_date END AS "transactionDate",
+          page.transaction_side AS "transactionSide",
+          page.txn_source AS "txnSource",
+          page.activity_type AS "activityType",
+          CASE WHEN page.evidence_source = 'JOURNEY'
                THEN rra.group_send_date
-               ELSE merged.send_date END AS "sendDate",
+               ELSE page.send_date END AS "sendDate",
+          page.galactic_id AS "galacticId",
+          page.bucket_id AS "bucketId",
+          page.attempt_id AS "attemptId",
           rra.s_party_name AS "senderName",
           rra.r_party_name AS "receiverName",
           rra.s_party_city AS "senderCity",
@@ -329,9 +295,16 @@ final class TransactionReportNativeQueries {
           rra.txn_status AS "transactionStatus",
           rra.sub_status AS "transactionSubStatus",
           COALESCE(rollup.rule_hits_json, '[]') AS "ruleHitsJson"
-      FROM merged
+      FROM page
       LEFT JOIN pharos.reg_reportable_activity rra
-          ON rra.txn_sur_key = merged.rra_key
+          ON rra.txn_sur_key = page.rra_key
+      -- Aggregates the rule hits for this row on demand, for the page only. The previous shape
+      -- built a rule_hit_rollup CTE that aggregated every rule hit in the report group before the
+      -- join, whether or not those rows reached the page.
+      -- NOTE: keep apostrophes and double quotes out of SQL comments. Spring Data scans the
+      -- whole query text for parameter placeholders using a naive quote tracker that ignores
+      -- comments, so an unpaired quote character here fails bean creation at startup with an
+      -- opaque parser error rather than anything pointing back to this line.
       LEFT JOIN LATERAL (
           SELECT
               json_agg(
@@ -346,10 +319,12 @@ final class TransactionReportNativeQueries {
               )::text AS rule_hits_json
           FROM rule_hit_matches rhm
           WHERE rhm.matched_identifier IS NOT NULL
-            AND rhm.matched_identifier = merged.identifier
+            AND rhm.matched_identifier = page.identifier
       ) rollup ON TRUE
-      WHERE merged.evidence_batch_id = :batchId
-      LIMIT 1
+      ORDER BY
+          CASE WHEN :sortDirection = 'ASC' THEN page.sort_ts END ASC NULLS LAST,
+          CASE WHEN :sortDirection = 'DESC' THEN page.sort_ts END DESC NULLS LAST,
+          page.record_key
       """;
 
   /**

@@ -36,16 +36,6 @@ public interface TransactionReportRepository
       @Param("size") int size,
       @Param("offset") long offset);
 
-  @Query(value = TransactionReportNativeQueries.RECORD_DETAIL, nativeQuery = true)
-  Optional<TransactionRecordDetailProjection> findRecordDetail(
-      @Param("reportGroupId") int reportGroupId,
-      @Param("batchId") String batchId,
-      @Param("identifier") String identifier,
-      @Param("status") String status,
-      @Param("metric") String metric,
-      @Param("source") String source,
-      @Param("search") String search);
-
   @Query(value = TransactionReportNativeQueries.EVIDENCE_COUNT, nativeQuery = true)
   long countEvidenceRecords(
       @Param("reportGroupId") int reportGroupId,
@@ -64,8 +54,7 @@ public interface TransactionReportRepository
       @Param("filterByCountry") boolean filterByCountry,
       @Param("reportGroupIds") List<Integer> reportGroupIds,
       @Param("filterByReportGroup") boolean filterByReportGroup,
-      @Param("reportGroupId") int reportGroupId,
-      @Param("batchId") String batchId);
+      @Param("reportGroupId") int reportGroupId);
 
   @Query(value = PeriodTransactionNativeQueries.EVIDENCE_RECORDS, nativeQuery = true)
   List<TransactionEvidenceProjection> findPeriodEvidenceRecords(
@@ -75,7 +64,6 @@ public interface TransactionReportRepository
       @Param("reportGroupIds") List<Integer> reportGroupIds,
       @Param("filterByReportGroup") boolean filterByReportGroup,
       @Param("reportGroupId") int reportGroupId,
-      @Param("batchId") String batchId,
       @Param("search") String search,
       @Param("outcome") String outcome,
       @Param("status") String status,
@@ -91,7 +79,6 @@ public interface TransactionReportRepository
       @Param("reportGroupIds") List<Integer> reportGroupIds,
       @Param("filterByReportGroup") boolean filterByReportGroup,
       @Param("reportGroupId") int reportGroupId,
-      @Param("batchId") String batchId,
       @Param("search") String search,
       @Param("outcome") String outcome,
       @Param("status") String status);
@@ -148,12 +135,8 @@ public interface TransactionReportRepository
     long getReconciliationVariance();
   }
 
-  /** The list row. Detail-panel fields live on TransactionRecordDetailProjection, fetched on
-   *  demand, so the list query does not join for data the table never renders. */
   interface TransactionEvidenceProjection {
     String getRecordKey();
-
-    int getReportGroupId();
 
     String getIdentifier();
 
@@ -163,39 +146,29 @@ public interface TransactionReportRepository
 
     String getEvidenceSource();
 
+    String getStage();
+
     String getStatus();
+
+    String getOutcome();
 
     String getComments();
 
     String getSkipReason();
 
+    String getRuleId();
+
     String getExclusionReason();
 
+    String getExclusionStrategy();
+
     String getReportedBatchId();
+
+    String getReportingTimestamp();
 
     String getModifiedAt();
 
     Boolean getProcessingComplete();
-  }
-
-  interface TransactionRecordDetailProjection {
-    String getIdentifier();
-
-    String getRuleId();
-
-    String getExclusionStrategy();
-
-    Integer getBucketId();
-
-    Long getAttemptId();
-
-    String getGalacticId();
-
-    String getTransactionSide();
-
-    String getTxnSource();
-
-    String getActivityType();
 
     BigDecimal getCurrencyAmount();
 
@@ -203,7 +176,19 @@ public interface TransactionReportRepository
 
     String getTransactionDate();
 
+    String getTransactionSide();
+
+    String getTxnSource();
+
+    String getActivityType();
+
     String getSendDate();
+
+    String getGalacticId();
+
+    Integer getBucketId();
+
+    Long getAttemptId();
 
     String getSenderName();
 

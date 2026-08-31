@@ -1,27 +1,53 @@
 package com.pharos.compliance.transaction.dto;
 
+import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
+import com.pharos.compliance.transaction.model.TransactionOutcome;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.math.BigDecimal;
 
-/**
- * One row of the transaction evidence list — only the fields the table itself renders.
- *
- * <p>The Details panel's party, currency and rule-hit data is deliberately absent: it lives on
- * {@link TransactionRecordDetailResponse} and is fetched per row when a user expands one. Carrying
- * it here meant every list request joined reg_reportable_activity and aggregated rule hits for a
- * full page of rows to populate a panel that is usually never opened.
- */
-@Schema(description = "A single transaction evidence row as rendered in the list")
+@Schema(description = "One available latest-state journey or exclusion-audit record")
 public record TransactionEvidenceRecordResponse(
     String recordKey,
-    int reportGroupId,
     String identifier,
     String mtcn,
     String batchId,
-    String source,
+    TransactionEvidenceSource source,
+    String stage,
     String status,
+    TransactionOutcome outcome,
     String comments,
     String skipReason,
+    String ruleId,
     String exclusionReason,
+    String exclusionStrategy,
     String reportedBatchId,
+    String reportingTimestamp,
     String modifiedAt,
-    Boolean processingComplete) {}
+    Boolean processingComplete,
+    BigDecimal currencyAmount,
+    String currencyCode,
+    String transactionDate,
+    String transactionSide,
+    String txnSource,
+    String activityType,
+    String sendDate,
+    String galacticId,
+    Integer bucketId,
+    Long attemptId,
+    String senderName,
+    String receiverName,
+    String senderCity,
+    String senderCountry,
+    String senderPhone,
+    String senderDateOfBirth,
+    String senderIdType,
+    String senderIdNumber,
+    String receiverCity,
+    String receiverCountry,
+    String receiverPhone,
+    String receiverDateOfBirth,
+    String receiverIdType,
+    String receiverIdNumber,
+    String transactionStatus,
+    String transactionSubStatus,
+    String ruleHitsJson) {}

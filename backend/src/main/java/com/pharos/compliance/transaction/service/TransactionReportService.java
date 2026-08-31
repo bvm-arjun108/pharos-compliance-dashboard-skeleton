@@ -1,7 +1,6 @@
 package com.pharos.compliance.transaction.service;
 
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
-import com.pharos.compliance.transaction.dto.TransactionRecordDetailResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
@@ -33,18 +32,10 @@ public interface TransactionReportService {
       LocalDate toDate,
       String country,
       Integer reportGroupId,
-      String batchId,
       String search,
       TransactionOutcome outcome,
       TransactionStatus status,
       TransactionSortDirection sortDirection,
       int page,
       int size);
-
-  Mono<TransactionRecordDetailResponse> getRecordDetail(
-      int reportGroupId,
-      String batchId,
-      String identifier,
-      TransactionStatus status,
-      TransactionMetric metric);
 }
