@@ -6,8 +6,6 @@ spring:
   threads:
     virtual:
       enabled: true
-  reactor:
-    context-propagation: auto
   jpa:
     open-in-view: false
     hibernate:

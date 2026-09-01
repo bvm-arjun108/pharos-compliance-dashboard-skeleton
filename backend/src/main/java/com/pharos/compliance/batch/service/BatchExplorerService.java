@@ -7,13 +7,12 @@ import com.pharos.compliance.batch.model.BatchIssueType;
 import com.pharos.compliance.batch.model.BatchMetricFocus;
 import com.pharos.compliance.batch.model.BatchStatus;
 import java.time.LocalDate;
-import reactor.core.publisher.Mono;
 
 public interface BatchExplorerService {
 
-  Mono<BatchFilterOptionsResponse> getFilterOptions();
+  BatchFilterOptionsResponse getFilterOptions();
 
-  Mono<BatchExplorerResponse> getBatches(
+  BatchExplorerResponse getBatches(
       LocalDate fromDate,
       LocalDate toDate,
       BatchStatus status,
@@ -25,5 +24,5 @@ public interface BatchExplorerService {
       int page,
       int size);
 
-  Mono<BatchDetailsResponse> getBatchDetails(int reportGroupId, String batchId, int sequenceNumber);
+  BatchDetailsResponse getBatchDetails(int reportGroupId, String batchId, int sequenceNumber);
 }

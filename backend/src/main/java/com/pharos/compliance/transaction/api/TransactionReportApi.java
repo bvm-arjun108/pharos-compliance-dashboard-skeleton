@@ -27,7 +27,6 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import reactor.core.publisher.Mono;
 
 @Tag(
     name = "Transaction Evidence",
@@ -59,7 +58,7 @@ public interface TransactionReportApi {
         content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
   })
   @GetMapping(value = "/report", produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<TransactionReportResponse> getTransactionReport(
+  TransactionReportResponse getTransactionReport(
       @Parameter(description = "Report-group identifier", example = "1000000007")
           @RequestParam("reportGroupId")
           @Min(1) int reportGroupId,
@@ -109,7 +108,7 @@ public interface TransactionReportApi {
         content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
   })
   @GetMapping(value = "/period-report", produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<PeriodTransactionReportResponse> getPeriodTransactionReport(
+  PeriodTransactionReportResponse getPeriodTransactionReport(
       @Parameter(
               description = "Inclusive reporting-period start date",
               required = true,

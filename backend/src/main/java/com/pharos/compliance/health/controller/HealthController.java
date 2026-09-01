@@ -4,7 +4,6 @@ import com.pharos.compliance.health.api.HealthApi;
 import com.pharos.compliance.health.dto.HealthResponse;
 import com.pharos.compliance.health.service.HealthService;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Mono;
 
 @RestController
 public class HealthController implements HealthApi {
@@ -16,7 +15,7 @@ public class HealthController implements HealthApi {
   }
 
   @Override
-  public Mono<HealthResponse> health() {
+  public HealthResponse health() {
     return healthService.getHealth();
   }
 }

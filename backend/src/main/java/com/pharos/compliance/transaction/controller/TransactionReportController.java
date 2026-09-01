@@ -13,7 +13,6 @@ import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.time.LocalDate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Mono;
 
 @Validated
 @RestController
@@ -26,7 +25,7 @@ public class TransactionReportController implements TransactionReportApi {
   }
 
   @Override
-  public Mono<TransactionReportResponse> getTransactionReport(
+  public TransactionReportResponse getTransactionReport(
       int reportGroupId,
       String batchId,
       int sequenceNumber,
@@ -45,7 +44,7 @@ public class TransactionReportController implements TransactionReportApi {
   }
 
   @Override
-  public Mono<PeriodTransactionReportResponse> getPeriodTransactionReport(
+  public PeriodTransactionReportResponse getPeriodTransactionReport(
       LocalDate fromDate,
       LocalDate toDate,
       String country,

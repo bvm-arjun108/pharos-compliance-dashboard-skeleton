@@ -2,14 +2,13 @@ package com.pharos.compliance.dashboard.service;
 
 import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
 import java.time.LocalDate;
-import reactor.core.publisher.Mono;
 
 public interface DashboardService {
 
-  default Mono<DashboardDetailsResponse> getDashboardDetails(LocalDate fromDate, LocalDate toDate) {
+  default DashboardDetailsResponse getDashboardDetails(LocalDate fromDate, LocalDate toDate) {
     return getDashboardDetails(fromDate, toDate, "", "ALL", null);
   }
 
-  Mono<DashboardDetailsResponse> getDashboardDetails(
+  DashboardDetailsResponse getDashboardDetails(
       LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId);
 }

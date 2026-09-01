@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import reactor.core.publisher.Mono;
 
 @Tag(
     name = "Report Configuration",
@@ -40,7 +39,7 @@ public interface ReportConfigApi {
         @Header(name = "X-Span-Id", description = "Current server span identifier")
       })
   @GetMapping(value = "/filter-options", produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<ReportConfigFilterOptionsResponse> getFilterOptions();
+  ReportConfigFilterOptionsResponse getFilterOptions();
 
   @Operation(
       operationId = "getReportConfigs",
@@ -62,7 +61,7 @@ public interface ReportConfigApi {
         content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
   })
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<ReportConfigExplorerResponse> getReportConfigs(
+  ReportConfigExplorerResponse getReportConfigs(
       @Parameter(description = "Active report_group_config country code or ALL", example = "SG")
           @RequestParam(value = "country", defaultValue = "ALL")
           String country,
@@ -89,7 +88,7 @@ public interface ReportConfigApi {
   @GetMapping(
       value = "/{reportGroupId}/{reportSelectionVersionId}/{transformerVersionId}",
       produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<ReportConfigDetailsResponse> getReportConfigDetails(
+  ReportConfigDetailsResponse getReportConfigDetails(
       @PathVariable("reportGroupId") @Min(1) int reportGroupId,
       @PathVariable("reportSelectionVersionId") @Min(1) int reportSelectionVersionId,
       @PathVariable("transformerVersionId") @NotBlank String transformerVersionId);

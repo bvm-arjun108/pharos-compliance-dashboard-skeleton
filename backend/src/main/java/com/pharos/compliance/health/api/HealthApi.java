@@ -12,7 +12,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import reactor.core.publisher.Mono;
 
 @Tag(name = "Health", description = "Application and database connectivity checks")
 @RequestMapping("/api/v1")
@@ -37,5 +36,5 @@ public interface HealthApi {
         content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
   })
   @GetMapping(value = "/health", produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<HealthResponse> health();
+  HealthResponse health();
 }

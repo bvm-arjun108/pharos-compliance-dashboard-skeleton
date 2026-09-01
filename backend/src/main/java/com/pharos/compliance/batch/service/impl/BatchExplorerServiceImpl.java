@@ -26,13 +26,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
 
 @Service
 public class BatchExplorerServiceImpl implements BatchExplorerService {
@@ -42,30 +38,24 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
 
   private final BatchExplorerRepository batchExplorerRepository;
   private final CountryCatalog countryCatalog;
-  private final Scheduler jdbcScheduler;
 
   public BatchExplorerServiceImpl(
-      BatchExplorerRepository batchExplorerRepository,
-      CountryCatalog countryCatalog,
-      @Qualifier("jdbcScheduler") Scheduler jdbcScheduler) {
+      BatchExplorerRepository batchExplorerRepository, CountryCatalog countryCatalog) {
     this.batchExplorerRepository = batchExplorerRepository;
     this.countryCatalog = countryCatalog;
-    this.jdbcScheduler = jdbcScheduler;
   }
 
   @Override
-  public Mono<BatchFilterOptionsResponse> getFilterOptions() {
-    return onJdbcScheduler(countryCatalog::getSnapshot)
-        .map(
-            catalog ->
-                new BatchFilterOptionsResponse(
-                    catalog.countries().stream()
-                        .map(country -> new CountryOptionResponse(country.code(), country.name()))
-                        .toList()));
+  public BatchFilterOptionsResponse getFilterOptions() {
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    return new BatchFilterOptionsResponse(
+        catalog.countries().stream()
+            .map(country -> new CountryOptionResponse(country.code(), country.name()))
+            .toList());
   }
 
   @Override
-  public Mono<BatchExplorerResponse> getBatches(
+  public BatchExplorerResponse getBatches(
       LocalDate fromDate,
       LocalDate toDate,
       BatchStatus status,
@@ -77,7 +67,7 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
       int page,
       int size) {
     if (fromDate.isAfter(toDate)) {
-      return Mono.error(new InvalidDateRangeException("fromDate must be on or before toDate"));
+      throw new InvalidDateRangeException("fromDate must be on or before toDate");
     }
 
     String normalizedBatchId = batchId == null ? "" : batchId.trim();
@@ -86,131 +76,111 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
     long offset = (long) page * size;
 
-    return onJdbcScheduler(countryCatalog::getSnapshot)
-        .flatMap(
-            catalog -> {
-              CountryFilter countryFilter = resolveCountryFilter(catalog, normalizedCountryCode);
-              Mono<BatchSummaryProjection> summary =
-                  onJdbcScheduler(
-                      () ->
-                          batchExplorerRepository.getBatchSummary(
-                              fromTimestamp,
-                              toTimestampExclusive,
-                              normalizedBatchId,
-                              reportGroupId,
-                              countryFilter.enabled(),
-                              countryFilter.reportGroupIds()));
-              Mono<List<BatchQueueProjection>> queue =
-                  onJdbcScheduler(
-                      () ->
-                          batchExplorerRepository.getBatchQueue(
-                              fromTimestamp,
-                              toTimestampExclusive,
-                              normalizedBatchId,
-                              reportGroupId,
-                              countryFilter.enabled(),
-                              countryFilter.reportGroupIds(),
-                              status.name(),
-                              issueType.name(),
-                              metricFocus.name(),
-                              size,
-                              offset));
+    LOGGER.info(
+        "Batch Explorer query started fromDate={} toDate={} status={} issueType={} country={} batchId={} reportGroupId={} metricFocus={} page={} size={}",
+        fromDate,
+        toDate,
+        status,
+        issueType,
+        normalizedCountryCode,
+        normalizedBatchId,
+        reportGroupId,
+        metricFocus,
+        page,
+        size);
 
-              return Mono.zip(summary, queue)
-                  .map(
-                      tuple ->
-                          toExplorerResponse(
-                              tuple.getT1(),
-                              tuple.getT2(),
-                              catalog,
-                              fromDate,
-                              toDate,
-                              status,
-                              issueType,
-                              normalizedBatchId,
-                              countryFilter.countryCode(),
-                              reportGroupId,
-                              metricFocus,
-                              page,
-                              size));
-            })
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Batch Explorer query started fromDate={} toDate={} status={} issueType={} country={} batchId={} reportGroupId={} metricFocus={} page={} size={}",
-                    fromDate,
-                    toDate,
-                    status,
-                    issueType,
-                    normalizedCountryCode,
-                    normalizedBatchId,
-                    reportGroupId,
-                    metricFocus,
-                    page,
-                    size))
-        .doOnSuccess(
-            response ->
-                LOGGER.info(
-                    "Batch Explorer query completed matchingBatches={} returnedBatches={}",
-                    response.matchingBatches(),
-                    response.batches().size()));
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    CountryFilter countryFilter = resolveCountryFilter(catalog, normalizedCountryCode);
+    BatchSummaryProjection summary =
+        batchExplorerRepository.getBatchSummary(
+            fromTimestamp,
+            toTimestampExclusive,
+            normalizedBatchId,
+            reportGroupId,
+            countryFilter.enabled(),
+            countryFilter.reportGroupIds());
+    List<BatchQueueProjection> queue =
+        batchExplorerRepository.getBatchQueue(
+            fromTimestamp,
+            toTimestampExclusive,
+            normalizedBatchId,
+            reportGroupId,
+            countryFilter.enabled(),
+            countryFilter.reportGroupIds(),
+            status.name(),
+            issueType.name(),
+            metricFocus.name(),
+            size,
+            offset);
+
+    BatchExplorerResponse response =
+        toExplorerResponse(
+            summary,
+            queue,
+            catalog,
+            fromDate,
+            toDate,
+            status,
+            issueType,
+            normalizedBatchId,
+            countryFilter.countryCode(),
+            reportGroupId,
+            metricFocus,
+            page,
+            size);
+
+    LOGGER.info(
+        "Batch Explorer query completed matchingBatches={} returnedBatches={}",
+        response.matchingBatches(),
+        response.batches().size());
+    return response;
   }
 
   @Override
-  public Mono<BatchDetailsResponse> getBatchDetails(
-      int reportGroupId, String batchId, int sequenceNumber) {
-    Mono<BatchDetailsResponse> details =
+  public BatchDetailsResponse getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
+    LOGGER.info(
+        "Batch preview query started reportGroupId={} batchId={} sequenceNumber={}",
+        reportGroupId,
+        batchId,
+        sequenceNumber);
+
+    BatchDetailsResponse response =
         sequenceNumber == 0
             ? getNotYetReportedBatchDetails(reportGroupId, batchId)
             : getReconciledBatchDetails(reportGroupId, batchId, sequenceNumber);
 
-    return details
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Batch preview query started reportGroupId={} batchId={} sequenceNumber={}",
-                    reportGroupId,
-                    batchId,
-                    sequenceNumber))
-        .doOnSuccess(
-            response ->
-                LOGGER.info(
-                    "Batch preview query completed reportGroupId={} batchId={} sequenceNumber={} totalIssues={}",
-                    reportGroupId,
-                    batchId,
-                    sequenceNumber,
-                    response.totalIssues()));
+    LOGGER.info(
+        "Batch preview query completed reportGroupId={} batchId={} sequenceNumber={} totalIssues={}",
+        reportGroupId,
+        batchId,
+        sequenceNumber,
+        response.totalIssues());
+    return response;
   }
 
-  private Mono<BatchDetailsResponse> getReconciledBatchDetails(
+  private BatchDetailsResponse getReconciledBatchDetails(
       int reportGroupId, String batchId, int sequenceNumber) {
-    Mono<BatchDetailsProjection> details =
-        onJdbcScheduler(
-            () ->
-                batchExplorerRepository
-                    .getBatchDetails(reportGroupId, batchId, sequenceNumber)
-                    .orElseThrow(
-                        () ->
-                            new ResourceNotFoundException(
-                                "Batch was not found for the supplied report group and sequence")));
-    Mono<CountryCatalogSnapshot> catalog = onJdbcScheduler(countryCatalog::getSnapshot);
-    return Mono.zip(details, catalog).map(tuple -> toDetailsResponse(tuple.getT1(), tuple.getT2()));
+    BatchDetailsProjection details =
+        batchExplorerRepository
+            .getBatchDetails(reportGroupId, batchId, sequenceNumber)
+            .orElseThrow(
+                () ->
+                    new ResourceNotFoundException(
+                        "Batch was not found for the supplied report group and sequence"));
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    return toDetailsResponse(details, catalog);
   }
 
-  private Mono<BatchDetailsResponse> getNotYetReportedBatchDetails(
-      int reportGroupId, String batchId) {
-    Mono<NotYetReportedBatchDetailsProjection> details =
-        onJdbcScheduler(
-            () ->
-                batchExplorerRepository
-                    .getNotYetReportedBatchDetails(reportGroupId, batchId)
-                    .orElseThrow(
-                        () ->
-                            new ResourceNotFoundException(
-                                "Batch was not found for the supplied report group and batch id")));
-    Mono<CountryCatalogSnapshot> catalog = onJdbcScheduler(countryCatalog::getSnapshot);
-    return Mono.zip(details, catalog)
-        .map(tuple -> toDetailsResponseNotYetReported(tuple.getT1(), tuple.getT2()));
+  private BatchDetailsResponse getNotYetReportedBatchDetails(int reportGroupId, String batchId) {
+    NotYetReportedBatchDetailsProjection details =
+        batchExplorerRepository
+            .getNotYetReportedBatchDetails(reportGroupId, batchId)
+            .orElseThrow(
+                () ->
+                    new ResourceNotFoundException(
+                        "Batch was not found for the supplied report group and batch id"));
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    return toDetailsResponseNotYetReported(details, catalog);
   }
 
   private BatchExplorerResponse toExplorerResponse(
@@ -404,10 +374,6 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     return startedAt == null || completedAt == null
         ? 0
         : Math.max(0, Duration.between(startedAt, completedAt).toSeconds());
-  }
-
-  private <T> Mono<T> onJdbcScheduler(Callable<T> databaseCall) {
-    return Mono.fromCallable(databaseCall).subscribeOn(jdbcScheduler);
   }
 
   private record CountryFilter(String countryCode, boolean enabled, List<Integer> reportGroupIds) {}

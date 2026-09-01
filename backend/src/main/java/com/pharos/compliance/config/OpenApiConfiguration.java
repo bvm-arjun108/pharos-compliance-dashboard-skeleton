@@ -15,7 +15,7 @@ public class OpenApiConfiguration {
         .info(
             new Info()
                 .title("Pharos Compliance Operations API")
-                .description("Reactive APIs for the Phase 1 compliance operations dashboard.")
+                .description("APIs for the Phase 1 compliance operations dashboard.")
                 .version("v1")
                 .contact(new Contact().name("Pharos Compliance Engineering")));
   }

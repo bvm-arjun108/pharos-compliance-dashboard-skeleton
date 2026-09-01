@@ -1,9 +1,16 @@
 package com.pharos.compliance;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.pharos.compliance.batch.dto.BatchDetailsResponse;
 import com.pharos.compliance.batch.dto.BatchExplorerResponse;
@@ -21,25 +28,22 @@ import com.pharos.compliance.dashboard.service.DashboardService;
 import com.pharos.compliance.reportgroup.entity.ReportGroupConfigEntity;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManagerFactory;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.web.embedded.TomcatVirtualThreadsWebServerFactoryCustomizer;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
-import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.web.reactive.server.WebTestClient;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
-import reactor.test.StepVerifier;
+import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureWebTestClient
+@AutoConfigureMockMvc
 @AutoConfigureObservability
 class ComplianceDashboardApplicationTest {
 
@@ -51,14 +55,13 @@ class ComplianceDashboardApplicationTest {
 
   @Autowired private PostgresProperties postgresProperties;
 
-  @Autowired
-  @Qualifier("jdbcScheduler") private Scheduler jdbcScheduler;
+  @Autowired private ApplicationContext applicationContext;
 
   @Autowired private DashboardService dashboardService;
 
   @Autowired private BatchExplorerService batchExplorerService;
 
-  @Autowired private WebTestClient webTestClient;
+  @Autowired private MockMvc mockMvc;
 
   @Test
   void contextLoads() {}
@@ -96,8 +99,7 @@ class ComplianceDashboardApplicationTest {
     LocalDate fromDate = LocalDate.of(2026, 1, 1);
     LocalDate toDate = LocalDate.of(2026, 12, 31);
 
-    DashboardDetailsResponse response =
-        dashboardService.getDashboardDetails(fromDate, toDate).block(Duration.ofSeconds(10));
+    DashboardDetailsResponse response = dashboardService.getDashboardDetails(fromDate, toDate);
 
     assertNotNull(response);
     assertTrue(response.batchesRan() > 0);
@@ -164,18 +166,10 @@ class ComplianceDashboardApplicationTest {
   void aggregatesAdaptiveTrendBucketsInPostgres() {
     LocalDate start = LocalDate.of(2026, 1, 1);
 
-    DashboardDetailsResponse daily =
-        dashboardService
-            .getDashboardDetails(start, start.plusDays(30))
-            .block(Duration.ofSeconds(10));
-    DashboardDetailsResponse weekly =
-        dashboardService
-            .getDashboardDetails(start, start.plusDays(99))
-            .block(Duration.ofSeconds(10));
+    DashboardDetailsResponse daily = dashboardService.getDashboardDetails(start, start.plusDays(30));
+    DashboardDetailsResponse weekly = dashboardService.getDashboardDetails(start, start.plusDays(99));
     DashboardDetailsResponse monthly =
-        dashboardService
-            .getDashboardDetails(start, start.plusDays(120))
-            .block(Duration.ofSeconds(10));
+        dashboardService.getDashboardDetails(start, start.plusDays(120));
 
     assertNotNull(daily);
     assertNotNull(weekly);
@@ -190,11 +184,11 @@ class ComplianceDashboardApplicationTest {
 
   @Test
   void rejectsAnInvertedDashboardPeriod() {
-    StepVerifier.create(
+    assertThrows(
+        InvalidDateRangeException.class,
+        () ->
             dashboardService.getDashboardDetails(
-                LocalDate.of(2026, 8, 31), LocalDate.of(2026, 8, 1)))
-        .expectError(InvalidDateRangeException.class)
-        .verify(Duration.ofSeconds(5));
+                LocalDate.of(2026, 8, 31), LocalDate.of(2026, 8, 1)));
   }
 
   @Test
@@ -210,25 +204,21 @@ class ComplianceDashboardApplicationTest {
         entityManagerFactory.getMetamodel().entity(ReportTransformationReconciliationEntity.class));
     assertNotNull(entityManagerFactory.getMetamodel().entity(ReportGroupConfigEntity.class));
 
-    ThreadExecution execution =
-        Mono.fromCallable(
-                () ->
-                    new ThreadExecution(
-                        Thread.currentThread().isVirtual(), Thread.currentThread().getName()))
-            .subscribeOn(jdbcScheduler)
-            .block(Duration.ofSeconds(5));
-
-    assertNotNull(execution);
-    assertTrue(execution.virtual());
-    assertTrue(execution.name().startsWith("pharos-jdbc-"));
+    // jdbcScheduler no longer exists under Spring MVC -- blocking JDBC calls run directly on
+    // whichever thread is handling the request. The equivalent guarantee to prove is that Spring
+    // Boot actually wired Tomcat to hand every request its own virtual thread
+    // (spring.threads.virtual.enabled=true): EmbeddedWebServerFactoryCustomizerAutoConfiguration
+    // only registers this customizer bean when @ConditionalOnThreading(Threading.VIRTUAL) matches.
+    assertFalse(
+        applicationContext
+            .getBeansOfType(TomcatVirtualThreadsWebServerFactoryCustomizer.class)
+            .isEmpty());
   }
 
   @Test
   void keepsHeadlineAndDailyTrendDateBoundariesConsistent() {
     DashboardDetailsResponse response =
-        dashboardService
-            .getDashboardDetails(LocalDate.of(2026, 8, 16), LocalDate.of(2026, 8, 22))
-            .block(Duration.ofSeconds(10));
+        dashboardService.getDashboardDetails(LocalDate.of(2026, 8, 16), LocalDate.of(2026, 8, 22));
 
     assertNotNull(response);
     assertEquals(TrendGranularity.DAILY, response.trendGranularity());
@@ -238,32 +228,19 @@ class ComplianceDashboardApplicationTest {
   }
 
   @Test
-  void exposesReactiveDashboardApiWithTraceHeaders() {
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/dashboardDetails")
-                    .queryParam("fromDate", "2026-08-16")
-                    .queryParam("toDate", "2026-08-22")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectHeader()
-        .exists("X-Trace-Id")
-        .expectHeader()
-        .exists("X-Span-Id")
-        .expectBody()
-        .jsonPath("$.trendGranularity")
-        .isEqualTo("DAILY");
+  void exposesDashboardApiWithTraceHeaders() throws Exception {
+    mockMvc
+        .perform(
+            get("/dashboardDetails").param("fromDate", "2026-08-16").param("toDate", "2026-08-22"))
+        .andExpect(status().isOk())
+        .andExpect(header().exists("X-Trace-Id"))
+        .andExpect(header().exists("X-Span-Id"))
+        .andExpect(jsonPath("$.trendGranularity").value("DAILY"));
   }
 
   @Test
   void returnsBackendManagedCountryOptions() {
-    BatchFilterOptionsResponse response =
-        batchExplorerService.getFilterOptions().block(Duration.ofSeconds(5));
+    BatchFilterOptionsResponse response = batchExplorerService.getFilterOptions();
 
     assertNotNull(response);
     assertEquals(7, response.countries().size());
@@ -278,24 +255,20 @@ class ComplianceDashboardApplicationTest {
   @Test
   void mapsOneCountryFilterToAllConfiguredReportGroups() {
     BatchExplorerResponse explorer =
-        batchExplorerService
-            .getBatches(
-                LocalDate.of(2026, 8, 20),
-                LocalDate.of(2026, 8, 22),
-                BatchStatus.ALL,
-                BatchIssueType.ALL,
-                "",
-                "RO",
-                null,
-                BatchMetricFocus.DEFAULT,
-                0,
-                50)
-            .block(Duration.ofSeconds(10));
+        batchExplorerService.getBatches(
+            LocalDate.of(2026, 8, 20),
+            LocalDate.of(2026, 8, 22),
+            BatchStatus.ALL,
+            BatchIssueType.ALL,
+            "",
+            "RO",
+            null,
+            BatchMetricFocus.DEFAULT,
+            0,
+            50);
     DashboardDetailsResponse dashboard =
-        dashboardService
-            .getDashboardDetails(
-                LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), "", "RO", null)
-            .block(Duration.ofSeconds(10));
+        dashboardService.getDashboardDetails(
+            LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), "", "RO", null);
 
     assertNotNull(explorer);
     assertNotNull(dashboard);
@@ -310,109 +283,62 @@ class ComplianceDashboardApplicationTest {
   }
 
   @Test
-  void exposesDatabaseBackedReportConfigWorkspace() {
-    webTestClient
-        .get()
-        .uri("/api/v1/report-configs/filter-options")
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectHeader()
-        .exists("X-Trace-Id")
-        .expectBody()
-        .jsonPath("$.countries.length()")
-        .isEqualTo(7)
-        .jsonPath("$.reportTypes.length()")
-        .isEqualTo(2);
+  void exposesDatabaseBackedReportConfigWorkspace() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/report-configs/filter-options"))
+        .andExpect(status().isOk())
+        .andExpect(header().exists("X-Trace-Id"))
+        .andExpect(jsonPath("$.countries.length()").value(7))
+        .andExpect(jsonPath("$.reportTypes.length()").value(2));
 
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/api/v1/report-configs")
-                    .queryParam("country", "SG")
-                    .queryParam("status", "ACTIVE")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectHeader()
-        .exists("X-Span-Id")
-        .expectBody()
-        .jsonPath("$.summary.totalConfigurations")
-        .isEqualTo(2)
-        .jsonPath("$.summary.activeConfigurations")
-        .isEqualTo(2)
-        .jsonPath("$.configurations.length()")
-        .isEqualTo(2)
-        .jsonPath("$.configurations[0].countryCode")
-        .isEqualTo("SG");
+    mockMvc
+        .perform(get("/api/v1/report-configs").param("country", "SG").param("status", "ACTIVE"))
+        .andExpect(status().isOk())
+        .andExpect(header().exists("X-Span-Id"))
+        .andExpect(jsonPath("$.summary.totalConfigurations").value(2))
+        .andExpect(jsonPath("$.summary.activeConfigurations").value(2))
+        .andExpect(jsonPath("$.configurations.length()").value(2))
+        .andExpect(jsonPath("$.configurations[0].countryCode").value("SG"));
   }
 
   @Test
-  void filtersReportConfigurationsByExactReportGroupId() {
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/api/v1/report-configs")
-                    .queryParam("reportGroupId", 1573742369)
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectBody()
-        .jsonPath("$.summary.totalConfigurations")
-        .isEqualTo(1)
-        .jsonPath("$.configurations.length()")
-        .isEqualTo(1)
-        .jsonPath("$.configurations[0].reportGroupId")
-        .isEqualTo(1573742369)
-        .jsonPath("$.reportGroupId")
-        .isEqualTo(1573742369);
+  void filtersReportConfigurationsByExactReportGroupId() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/report-configs").param("reportGroupId", "1573742369"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary.totalConfigurations").value(1))
+        .andExpect(jsonPath("$.configurations.length()").value(1))
+        .andExpect(jsonPath("$.configurations[0].reportGroupId").value(1573742369))
+        .andExpect(jsonPath("$.reportGroupId").value(1573742369));
   }
 
   @Test
-  void returnsStructuredReportConfigDetails() {
-    webTestClient
-        .get()
-        .uri("/api/v1/report-configs/1573742369/1/1.0")
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectBody()
-        .jsonPath("$.identity.reportGroupName")
-        .isEqualTo("SINGAPORE MONTHLY OBJECTIVE")
-        .jsonPath("$.identity.countryCode")
-        .isEqualTo("SG")
-        .jsonPath("$.versioning.transformerVersionId")
-        .isEqualTo("1.0")
-        .jsonPath("$.processingBehavior.partialReport")
-        .isEqualTo(true)
-        .jsonPath("$.mapping.serviceName")
-        .isEqualTo("SingaporeMonthlyObjectiveService")
-        .jsonPath("$.strategies.reconciliationStrategyMetadata")
-        .isNotEmpty();
+  void returnsStructuredReportConfigDetails() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/report-configs/1573742369/1/1.0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.identity.reportGroupName").value("SINGAPORE MONTHLY OBJECTIVE"))
+        .andExpect(jsonPath("$.identity.countryCode").value("SG"))
+        .andExpect(jsonPath("$.versioning.transformerVersionId").value("1.0"))
+        .andExpect(jsonPath("$.processingBehavior.partialReport").value(true))
+        .andExpect(jsonPath("$.mapping.serviceName").value("SingaporeMonthlyObjectiveService"))
+        .andExpect(jsonPath("$.strategies.reconciliationStrategyMetadata").isNotEmpty());
   }
 
   @Test
   void returnsPrioritizedBatchQueueAndCompositeBatchPreview() {
     BatchExplorerResponse explorer =
-        batchExplorerService
-            .getBatches(
-                LocalDate.of(2026, 8, 16),
-                LocalDate.of(2026, 8, 22),
-                BatchStatus.ALL,
-                BatchIssueType.ALL,
-                "",
-                "PT",
-                null,
-                BatchMetricFocus.DEFAULT,
-                0,
-                50)
-            .block(Duration.ofSeconds(10));
+        batchExplorerService.getBatches(
+            LocalDate.of(2026, 8, 16),
+            LocalDate.of(2026, 8, 22),
+            BatchStatus.ALL,
+            BatchIssueType.ALL,
+            "",
+            "PT",
+            null,
+            BatchMetricFocus.DEFAULT,
+            0,
+            50);
 
     assertNotNull(explorer);
     assertFalse(explorer.batches().isEmpty());
@@ -426,10 +352,8 @@ class ComplianceDashboardApplicationTest {
 
     var selected = explorer.batches().getFirst();
     BatchDetailsResponse details =
-        batchExplorerService
-            .getBatchDetails(
-                selected.reportGroupId(), selected.batchId(), selected.sequenceNumber())
-            .block(Duration.ofSeconds(10));
+        batchExplorerService.getBatchDetails(
+            selected.reportGroupId(), selected.batchId(), selected.sequenceNumber());
 
     assertNotNull(details);
     assertEquals(selected.batchId(), details.batchId());
@@ -449,64 +373,48 @@ class ComplianceDashboardApplicationTest {
   }
 
   @Test
-  void exposesReactiveBatchExplorerApiWithTraceHeaders() {
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/api/v1/batches")
-                    .queryParam("fromDate", "2026-08-16")
-                    .queryParam("toDate", "2026-08-22")
-                    .queryParam("country", "PT")
-                    .queryParam("status", "ATTENTION")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectHeader()
-        .exists("X-Trace-Id")
-        .expectHeader()
-        .exists("X-Span-Id")
-        .expectBody()
-        .jsonPath("$.country")
-        .isEqualTo("PT")
-        .jsonPath("$.status")
-        .isEqualTo("ATTENTION")
-        .jsonPath("$.batches[0].totalIssues")
-        .isNumber();
+  void exposesBatchExplorerApiWithTraceHeaders() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/batches")
+                .param("fromDate", "2026-08-16")
+                .param("toDate", "2026-08-22")
+                .param("country", "PT")
+                .param("status", "ATTENTION"))
+        .andExpect(status().isOk())
+        .andExpect(header().exists("X-Trace-Id"))
+        .andExpect(header().exists("X-Span-Id"))
+        .andExpect(jsonPath("$.country").value("PT"))
+        .andExpect(jsonPath("$.status").value("ATTENTION"))
+        .andExpect(jsonPath("$.batches[0].totalIssues").isNumber());
   }
 
   @Test
   void drillsIntoOneReportGroupAndSelectedMetric() {
     BatchExplorerResponse transformationBatches =
-        batchExplorerService
-            .getBatches(
-                LocalDate.of(2026, 8, 16),
-                LocalDate.of(2026, 8, 22),
-                BatchStatus.ATTENTION,
-                BatchIssueType.TRANSFORMATION,
-                "",
-                "PT",
-                1000000007,
-                BatchMetricFocus.DEFAULT,
-                0,
-                50)
-            .block(Duration.ofSeconds(10));
+        batchExplorerService.getBatches(
+            LocalDate.of(2026, 8, 16),
+            LocalDate.of(2026, 8, 22),
+            BatchStatus.ATTENTION,
+            BatchIssueType.TRANSFORMATION,
+            "",
+            "PT",
+            1000000007,
+            BatchMetricFocus.DEFAULT,
+            0,
+            50);
     BatchExplorerResponse excludedBatches =
-        batchExplorerService
-            .getBatches(
-                LocalDate.of(2026, 8, 16),
-                LocalDate.of(2026, 8, 22),
-                BatchStatus.ALL,
-                BatchIssueType.ALL,
-                "",
-                "PT",
-                1000000007,
-                BatchMetricFocus.EXCLUDED,
-                0,
-                50)
-            .block(Duration.ofSeconds(10));
+        batchExplorerService.getBatches(
+            LocalDate.of(2026, 8, 16),
+            LocalDate.of(2026, 8, 22),
+            BatchStatus.ALL,
+            BatchIssueType.ALL,
+            "",
+            "PT",
+            1000000007,
+            BatchMetricFocus.EXCLUDED,
+            0,
+            50);
 
     assertNotNull(transformationBatches);
     assertEquals(4, transformationBatches.matchingBatches());
@@ -529,139 +437,81 @@ class ComplianceDashboardApplicationTest {
   }
 
   @Test
-  void returnsFullExclusionTransactionEvidenceForOneBatch() {
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/api/v1/transactions/report")
-                    .queryParam("reportGroupId", 1000000007)
-                    .queryParam("batchId", "BIN10000000007260822100000")
-                    .queryParam("sequenceNumber", 1)
-                    .queryParam("metric", "EXCLUDED")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectHeader()
-        .exists("X-Trace-Id")
-        .expectHeader()
-        .exists("X-Span-Id")
-        .expectBody()
-        .jsonPath("$.metric")
-        .isEqualTo("EXCLUDED")
-        .jsonPath("$.aggregateCount")
-        .isEqualTo(5)
-        .jsonPath("$.availableRecordCount")
-        .isEqualTo(5)
-        .jsonPath("$.evidenceLevel")
-        .isEqualTo("RECORD_LEVEL")
-        .jsonPath("$.transactions.length()")
-        .isEqualTo(5)
-        .jsonPath("$.transactions[0].source")
-        .isEqualTo("EXCLUSION_AUDIT")
-        .jsonPath("$.transactions[0].outcome")
-        .isEqualTo("EXCLUDED");
+  void returnsFullExclusionTransactionEvidenceForOneBatch() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/transactions/report")
+                .param("reportGroupId", "1000000007")
+                .param("batchId", "BIN10000000007260822100000")
+                .param("sequenceNumber", "1")
+                .param("metric", "EXCLUDED"))
+        .andExpect(status().isOk())
+        .andExpect(header().exists("X-Trace-Id"))
+        .andExpect(header().exists("X-Span-Id"))
+        .andExpect(jsonPath("$.metric").value("EXCLUDED"))
+        .andExpect(jsonPath("$.aggregateCount").value(5))
+        .andExpect(jsonPath("$.availableRecordCount").value(5))
+        .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"))
+        .andExpect(jsonPath("$.transactions.length()").value(5))
+        .andExpect(jsonPath("$.transactions[0].source").value("EXCLUSION_AUDIT"))
+        .andExpect(jsonPath("$.transactions[0].outcome").value("EXCLUDED"));
 
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/api/v1/transactions/report")
-                    .queryParam("reportGroupId", 1000000007)
-                    .queryParam("batchId", "BIN10000000007260822100000")
-                    .queryParam("sequenceNumber", 1)
-                    .queryParam("metric", "EXCLUDED")
-                    .queryParam("outcome", "ERROR")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectBody()
-        .jsonPath("$.availableRecordCount")
-        .isEqualTo(5)
-        .jsonPath("$.matchingRecordCount")
-        .isEqualTo(0)
-        .jsonPath("$.evidenceLevel")
-        .isEqualTo("RECORD_LEVEL");
+    mockMvc
+        .perform(
+            get("/api/v1/transactions/report")
+                .param("reportGroupId", "1000000007")
+                .param("batchId", "BIN10000000007260822100000")
+                .param("sequenceNumber", "1")
+                .param("metric", "EXCLUDED")
+                .param("outcome", "ERROR"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.availableRecordCount").value(5))
+        .andExpect(jsonPath("$.matchingRecordCount").value(0))
+        .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"));
   }
 
   @Test
-  void identifiesAggregateOnlyTransactionEvidenceWithoutInventingRows() {
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/api/v1/transactions/report")
-                    .queryParam("reportGroupId", 1000000007)
-                    .queryParam("batchId", "BIN10000000007260819121604")
-                    .queryParam("sequenceNumber", 1)
-                    .queryParam("metric", "FAILED")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectBody()
-        .jsonPath("$.aggregateCount")
-        .isEqualTo(32)
-        .jsonPath("$.availableRecordCount")
-        .isEqualTo(0)
-        .jsonPath("$.evidenceLevel")
-        .isEqualTo("AGGREGATE_ONLY")
-        .jsonPath("$.transactions.length()")
-        .isEqualTo(0)
-        .jsonPath("$.evidenceMessage")
-        .isNotEmpty();
+  void identifiesAggregateOnlyTransactionEvidenceWithoutInventingRows() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/transactions/report")
+                .param("reportGroupId", "1000000007")
+                .param("batchId", "BIN10000000007260819121604")
+                .param("sequenceNumber", "1")
+                .param("metric", "FAILED"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.aggregateCount").value(32))
+        .andExpect(jsonPath("$.availableRecordCount").value(0))
+        .andExpect(jsonPath("$.evidenceLevel").value("AGGREGATE_ONLY"))
+        .andExpect(jsonPath("$.transactions.length()").value(0))
+        .andExpect(jsonPath("$.evidenceMessage").isNotEmpty());
   }
 
   @Test
-  void returnsStructuredTraceableErrors() {
-    webTestClient
-        .get()
-        .uri(
-            uriBuilder ->
-                uriBuilder
-                    .path("/dashboardDetails")
-                    .queryParam("fromDate", "2026-08-31")
-                    .queryParam("toDate", "2026-08-01")
-                    .build())
-        .exchange()
-        .expectStatus()
-        .isBadRequest()
-        .expectHeader()
-        .exists("X-Trace-Id")
-        .expectBody()
-        .jsonPath("$.code")
-        .isEqualTo("INVALID_DATE_RANGE")
-        .jsonPath("$.traceId")
-        .isNotEmpty()
-        .jsonPath("$.spanId")
-        .isNotEmpty();
+  void returnsStructuredTraceableErrors() throws Exception {
+    mockMvc
+        .perform(
+            get("/dashboardDetails").param("fromDate", "2026-08-31").param("toDate", "2026-08-01"))
+        .andExpect(status().isBadRequest())
+        .andExpect(header().exists("X-Trace-Id"))
+        .andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"))
+        .andExpect(jsonPath("$.traceId").isNotEmpty())
+        .andExpect(jsonPath("$.spanId").isNotEmpty());
   }
 
   @Test
-  void publishesOpenApiDocumentationFromApiInterfaces() {
-    webTestClient
-        .get()
-        .uri("/v3/api-docs")
-        .exchange()
-        .expectStatus()
-        .isOk()
-        .expectBody(String.class)
-        .value(
-            document -> {
-              assertTrue(document.contains("Pharos Compliance Operations API"));
-              assertTrue(document.contains("getDashboardDetails"));
-              assertTrue(document.contains("getBatchExplorer"));
-              assertTrue(document.contains("getBatchPreview"));
-              assertTrue(document.contains("getReportConfigs"));
-              assertTrue(document.contains("getReportConfigDetails"));
-              assertTrue(document.contains("getTransactionEvidenceReport"));
-              assertTrue(document.contains("X-Trace-Id"));
-            });
+  void publishesOpenApiDocumentationFromApiInterfaces() throws Exception {
+    mockMvc
+        .perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("Pharos Compliance Operations API")))
+        .andExpect(content().string(containsString("getDashboardDetails")))
+        .andExpect(content().string(containsString("getBatchExplorer")))
+        .andExpect(content().string(containsString("getBatchPreview")))
+        .andExpect(content().string(containsString("getReportConfigs")))
+        .andExpect(content().string(containsString("getReportConfigDetails")))
+        .andExpect(content().string(containsString("getTransactionEvidenceReport")))
+        .andExpect(content().string(containsString("X-Trace-Id")));
   }
 
   private record DatabaseMetadata(
@@ -670,6 +520,4 @@ class ComplianceDashboardApplicationTest {
       String reconciliationTable,
       String exclusionTable,
       String reportGroupConfigTable) {}
-
-  private record ThreadExecution(boolean virtual, String name) {}
 }

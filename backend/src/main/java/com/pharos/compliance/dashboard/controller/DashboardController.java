@@ -6,7 +6,6 @@ import com.pharos.compliance.dashboard.service.DashboardService;
 import java.time.LocalDate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Mono;
 
 @Validated
 @RestController
@@ -19,7 +18,7 @@ public class DashboardController implements DashboardApi {
   }
 
   @Override
-  public Mono<DashboardDetailsResponse> getDashboardDetails(
+  public DashboardDetailsResponse getDashboardDetails(
       LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId) {
     return dashboardService.getDashboardDetails(fromDate, toDate, batchId, country, reportGroupId);
   }

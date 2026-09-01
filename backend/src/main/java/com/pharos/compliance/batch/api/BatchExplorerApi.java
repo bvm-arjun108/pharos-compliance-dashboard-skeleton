@@ -26,7 +26,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import reactor.core.publisher.Mono;
 
 @Tag(
     name = "Batch Explorer",
@@ -47,7 +46,7 @@ public interface BatchExplorerApi {
         @Header(name = "X-Span-Id", description = "Current server span identifier")
       })
   @GetMapping(value = "/filter-options", produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<BatchFilterOptionsResponse> getFilterOptions();
+  BatchFilterOptionsResponse getFilterOptions();
 
   @Operation(
       operationId = "getBatchExplorer",
@@ -73,7 +72,7 @@ public interface BatchExplorerApi {
         content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
   })
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<BatchExplorerResponse> getBatches(
+  BatchExplorerResponse getBatches(
       @Parameter(description = "Inclusive reporting-period start date", example = "2026-08-16")
           @RequestParam("fromDate")
           @NotNull @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
@@ -123,7 +122,7 @@ public interface BatchExplorerApi {
   @GetMapping(
       value = "/{reportGroupId}/{batchId}/{sequenceNumber}",
       produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<BatchDetailsResponse> getBatchDetails(
+  BatchDetailsResponse getBatchDetails(
       @PathVariable("reportGroupId") @Min(1) int reportGroupId,
       @PathVariable("batchId") @NotBlank String batchId,
       @Parameter(

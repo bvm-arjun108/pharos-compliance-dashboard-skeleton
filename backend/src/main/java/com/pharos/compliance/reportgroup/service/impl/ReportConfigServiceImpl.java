@@ -18,13 +18,9 @@ import com.pharos.compliance.reportgroup.service.CountryCatalog;
 import com.pharos.compliance.reportgroup.service.ReportConfigService;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
 
 @Service
 public class ReportConfigServiceImpl implements ReportConfigService {
@@ -33,99 +29,81 @@ public class ReportConfigServiceImpl implements ReportConfigService {
 
   private final ReportGroupConfigRepository reportGroupConfigRepository;
   private final CountryCatalog countryCatalog;
-  private final Scheduler jdbcScheduler;
 
   public ReportConfigServiceImpl(
-      ReportGroupConfigRepository reportGroupConfigRepository,
-      CountryCatalog countryCatalog,
-      @Qualifier("jdbcScheduler") Scheduler jdbcScheduler) {
+      ReportGroupConfigRepository reportGroupConfigRepository, CountryCatalog countryCatalog) {
     this.reportGroupConfigRepository = reportGroupConfigRepository;
     this.countryCatalog = countryCatalog;
-    this.jdbcScheduler = jdbcScheduler;
   }
 
   @Override
-  public Mono<ReportConfigFilterOptionsResponse> getFilterOptions() {
-    return onJdbcScheduler(
-        () -> {
-          CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-          List<ReportConfigCountryOptionResponse> countries =
-              catalog.countries().stream()
-                  .map(
-                      country ->
-                          new ReportConfigCountryOptionResponse(country.code(), country.name()))
-                  .toList();
-          List<String> reportTypes =
-              reportGroupConfigRepository.findReportTypes().stream()
-                  .map(type -> type.getReportType())
-                  .toList();
-          return new ReportConfigFilterOptionsResponse(countries, reportTypes);
-        });
+  public ReportConfigFilterOptionsResponse getFilterOptions() {
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    List<ReportConfigCountryOptionResponse> countries =
+        catalog.countries().stream()
+            .map(country -> new ReportConfigCountryOptionResponse(country.code(), country.name()))
+            .toList();
+    List<String> reportTypes =
+        reportGroupConfigRepository.findReportTypes().stream()
+            .map(type -> type.getReportType())
+            .toList();
+    return new ReportConfigFilterOptionsResponse(countries, reportTypes);
   }
 
   @Override
-  public Mono<ReportConfigExplorerResponse> getReportConfigs(
+  public ReportConfigExplorerResponse getReportConfigs(
       String country, ReportConfigStatus status, String reportType, Integer reportGroupId) {
     String normalizedCountry = normalizeCountry(country);
     String normalizedReportType = normalizeFilter(reportType);
 
-    return onJdbcScheduler(
-            () -> {
-              CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-              validateCountry(catalog, normalizedCountry);
-              ReportConfigSummaryProjection summary =
-                  reportGroupConfigRepository.getSummary(
-                      normalizedCountry, status.name(), normalizedReportType, reportGroupId);
-              List<ReportConfigListItemResponse> configurations =
-                  reportGroupConfigRepository
-                      .findReportConfigs(
-                          normalizedCountry, status.name(), normalizedReportType, reportGroupId)
-                      .stream()
-                      .map(this::toListItem)
-                      .toList();
-              return new ReportConfigExplorerResponse(
-                  toSummary(summary),
-                  configurations,
-                  normalizedCountry,
-                  status,
-                  normalizedReportType,
-                  reportGroupId);
-            })
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Report configuration query started country={} status={} reportType={} reportGroupId={}",
-                    normalizedCountry,
-                    status,
-                    normalizedReportType,
-                    reportGroupId))
-        .doOnSuccess(
-            response ->
-                LOGGER.info(
-                    "Report configuration query completed matchingConfigurations={}",
-                    response.configurations().size()));
+    LOGGER.info(
+        "Report configuration query started country={} status={} reportType={} reportGroupId={}",
+        normalizedCountry,
+        status,
+        normalizedReportType,
+        reportGroupId);
+
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    validateCountry(catalog, normalizedCountry);
+    ReportConfigSummaryProjection summary =
+        reportGroupConfigRepository.getSummary(
+            normalizedCountry, status.name(), normalizedReportType, reportGroupId);
+    List<ReportConfigListItemResponse> configurations =
+        reportGroupConfigRepository
+            .findReportConfigs(normalizedCountry, status.name(), normalizedReportType, reportGroupId)
+            .stream()
+            .map(this::toListItem)
+            .toList();
+    ReportConfigExplorerResponse response =
+        new ReportConfigExplorerResponse(
+            toSummary(summary),
+            configurations,
+            normalizedCountry,
+            status,
+            normalizedReportType,
+            reportGroupId);
+
+    LOGGER.info(
+        "Report configuration query completed matchingConfigurations={}",
+        response.configurations().size());
+    return response;
   }
 
   @Override
-  public Mono<ReportConfigDetailsResponse> getReportConfigDetails(
+  public ReportConfigDetailsResponse getReportConfigDetails(
       int reportGroupId, int reportSelectionVersionId, String transformerVersionId) {
-    return onJdbcScheduler(
-            () ->
-                reportGroupConfigRepository
-                    .findReportConfigDetails(
-                        reportGroupId, reportSelectionVersionId, transformerVersionId)
-                    .orElseThrow(
-                        () ->
-                            new ResourceNotFoundException(
-                                "Report-group configuration was not found")))
-        .map(this::toDetails)
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Report configuration details query started reportGroupId={} selectionVersion={} transformerVersion={}",
-                    reportGroupId,
-                    reportSelectionVersionId,
-                    transformerVersionId));
+    LOGGER.info(
+        "Report configuration details query started reportGroupId={} selectionVersion={} transformerVersion={}",
+        reportGroupId,
+        reportSelectionVersionId,
+        transformerVersionId);
+
+    ReportConfigDetailsProjection config =
+        reportGroupConfigRepository
+            .findReportConfigDetails(reportGroupId, reportSelectionVersionId, transformerVersionId)
+            .orElseThrow(
+                () -> new ResourceNotFoundException("Report-group configuration was not found"));
+    return toDetails(config);
   }
 
   private ReportConfigSummaryResponse toSummary(ReportConfigSummaryProjection summary) {
@@ -212,9 +190,5 @@ public class ReportConfigServiceImpl implements ReportConfigService {
 
   private String normalizeFilter(String value) {
     return value == null || value.isBlank() ? "ALL" : value.trim();
-  }
-
-  private <T> Mono<T> onJdbcScheduler(Callable<T> databaseCall) {
-    return Mono.fromCallable(databaseCall).subscribeOn(jdbcScheduler);
   }
 }

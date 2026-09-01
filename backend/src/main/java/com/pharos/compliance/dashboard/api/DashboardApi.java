@@ -17,7 +17,6 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import reactor.core.publisher.Mono;
 
 @Tag(
     name = "Compliance Dashboard",
@@ -53,7 +52,7 @@ public interface DashboardApi {
         content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
   })
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  Mono<DashboardDetailsResponse> getDashboardDetails(
+  DashboardDetailsResponse getDashboardDetails(
       @Parameter(
               description = "Inclusive reporting-period start date",
               required = true,

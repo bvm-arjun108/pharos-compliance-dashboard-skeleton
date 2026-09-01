@@ -19,13 +19,9 @@ import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
 
 @Service
 public class DashboardServiceImpl implements DashboardService {
@@ -34,22 +30,17 @@ public class DashboardServiceImpl implements DashboardService {
 
   private final DashboardRepository dashboardRepository;
   private final CountryCatalog countryCatalog;
-  private final Scheduler jdbcScheduler;
 
-  public DashboardServiceImpl(
-      DashboardRepository dashboardRepository,
-      CountryCatalog countryCatalog,
-      @Qualifier("jdbcScheduler") Scheduler jdbcScheduler) {
+  public DashboardServiceImpl(DashboardRepository dashboardRepository, CountryCatalog countryCatalog) {
     this.dashboardRepository = dashboardRepository;
     this.countryCatalog = countryCatalog;
-    this.jdbcScheduler = jdbcScheduler;
   }
 
   @Override
-  public Mono<DashboardDetailsResponse> getDashboardDetails(
+  public DashboardDetailsResponse getDashboardDetails(
       LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId) {
     if (fromDate.isAfter(toDate)) {
-      return Mono.error(new InvalidDateRangeException("fromDate must be on or before toDate"));
+      throw new InvalidDateRangeException("fromDate must be on or before toDate");
     }
 
     String normalizedBatchId = batchId == null ? "" : batchId.trim();
@@ -59,84 +50,69 @@ public class DashboardServiceImpl implements DashboardService {
     TrendGranularity trendGranularity = TrendGranularity.forPeriod(fromDate, toDate);
     LocalDateTime fromTimestamp = fromDate.atStartOfDay();
     LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
-    return onJdbcScheduler(countryCatalog::getSnapshot)
-        .flatMap(
-            catalog -> {
-              CountryFilter countryFilter = resolveCountryFilter(catalog, normalizedCountryCode);
-              Mono<DashboardCountsProjection> counts =
-                  onJdbcScheduler(
-                      () ->
-                          dashboardRepository.getDashboardCounts(
-                              fromTimestamp,
-                              toTimestampExclusive,
-                              normalizedBatchId,
-                              countryFilter.enabled(),
-                              countryFilter.reportGroupIds(),
-                              filterByReportGroup,
-                              reportGroupIdFilter));
-              Mono<List<BatchHealthTrendResponse>> trend =
-                  onJdbcScheduler(
-                          () ->
-                              dashboardRepository.getBatchHealthTrend(
-                                  fromTimestamp,
-                                  toTimestampExclusive,
-                                  fromDate,
-                                  toDate,
-                                  trendGranularity.name(),
-                                  normalizedBatchId,
-                                  countryFilter.enabled(),
-                                  countryFilter.reportGroupIds(),
-                                  filterByReportGroup,
-                                  reportGroupIdFilter))
-                      .map(
-                          periods ->
-                              periods.stream()
-                                  .map(
-                                      period ->
-                                          toTrendResponse(
-                                              period, fromDate, toDate, trendGranularity))
-                                  .toList());
-              Mono<List<ReportGroupAttentionResponse>> reportGroups =
-                  onJdbcScheduler(
-                          () ->
-                              dashboardRepository.getReportGroupsRequiringAttention(
-                                  fromTimestamp,
-                                  toTimestampExclusive,
-                                  normalizedBatchId,
-                                  countryFilter.enabled(),
-                                  countryFilter.reportGroupIds(),
-                                  filterByReportGroup,
-                                  reportGroupIdFilter))
-                      .map(groups -> groups.stream().map(this::toReportGroupResponse).toList());
 
-              return Mono.zip(counts, trend, reportGroups)
-                  .map(
-                      tuple ->
-                          toDashboardResponse(
-                              tuple.getT1(),
-                              trendGranularity,
-                              tuple.getT2(),
-                              tuple.getT3(),
-                              fromDate,
-                              toDate));
-            })
-        .doOnSubscribe(
-            ignored ->
-                LOGGER.info(
-                    "Dashboard calculation started fromDate={} toDate={} country={} batchId={} reportGroupId={}",
-                    fromDate,
-                    toDate,
-                    normalizedCountryCode,
-                    normalizedBatchId,
-                    reportGroupId))
-        .doOnSuccess(
-            response ->
-                LOGGER.info(
-                    "Dashboard calculation completed fromDate={} toDate={} batchesRan={} batchesNeedingAttention={}",
-                    fromDate,
-                    toDate,
-                    response.batchesRan(),
-                    response.batchesNeedingAttention()));
+    LOGGER.info(
+        "Dashboard calculation started fromDate={} toDate={} country={} batchId={} reportGroupId={}",
+        fromDate,
+        toDate,
+        normalizedCountryCode,
+        normalizedBatchId,
+        reportGroupId);
+
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    CountryFilter countryFilter = resolveCountryFilter(catalog, normalizedCountryCode);
+
+    DashboardCountsProjection counts =
+        dashboardRepository.getDashboardCounts(
+            fromTimestamp,
+            toTimestampExclusive,
+            normalizedBatchId,
+            countryFilter.enabled(),
+            countryFilter.reportGroupIds(),
+            filterByReportGroup,
+            reportGroupIdFilter);
+
+    List<BatchHealthTrendResponse> trend =
+        dashboardRepository
+            .getBatchHealthTrend(
+                fromTimestamp,
+                toTimestampExclusive,
+                fromDate,
+                toDate,
+                trendGranularity.name(),
+                normalizedBatchId,
+                countryFilter.enabled(),
+                countryFilter.reportGroupIds(),
+                filterByReportGroup,
+                reportGroupIdFilter)
+            .stream()
+            .map(period -> toTrendResponse(period, fromDate, toDate, trendGranularity))
+            .toList();
+
+    List<ReportGroupAttentionResponse> reportGroups =
+        dashboardRepository
+            .getReportGroupsRequiringAttention(
+                fromTimestamp,
+                toTimestampExclusive,
+                normalizedBatchId,
+                countryFilter.enabled(),
+                countryFilter.reportGroupIds(),
+                filterByReportGroup,
+                reportGroupIdFilter)
+            .stream()
+            .map(this::toReportGroupResponse)
+            .toList();
+
+    DashboardDetailsResponse response =
+        toDashboardResponse(counts, trendGranularity, trend, reportGroups, fromDate, toDate);
+
+    LOGGER.info(
+        "Dashboard calculation completed fromDate={} toDate={} batchesRan={} batchesNeedingAttention={}",
+        fromDate,
+        toDate,
+        response.batchesRan(),
+        response.batchesNeedingAttention());
+    return response;
   }
 
   private DashboardDetailsResponse toDashboardResponse(
@@ -215,10 +191,6 @@ public class DashboardServiceImpl implements DashboardService {
           case MONTHLY -> periodStart.with(TemporalAdjusters.lastDayOfMonth());
         };
     return calculatedEnd.isAfter(requestedToDate) ? requestedToDate : calculatedEnd;
-  }
-
-  private <T> Mono<T> onJdbcScheduler(Callable<T> databaseCall) {
-    return Mono.fromCallable(databaseCall).subscribeOn(jdbcScheduler);
   }
 
   private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {

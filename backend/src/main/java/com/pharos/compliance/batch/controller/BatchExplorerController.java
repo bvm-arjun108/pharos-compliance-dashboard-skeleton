@@ -11,7 +11,6 @@ import com.pharos.compliance.batch.service.BatchExplorerService;
 import java.time.LocalDate;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
-import reactor.core.publisher.Mono;
 
 @Validated
 @RestController
@@ -24,12 +23,12 @@ public class BatchExplorerController implements BatchExplorerApi {
   }
 
   @Override
-  public Mono<BatchFilterOptionsResponse> getFilterOptions() {
+  public BatchFilterOptionsResponse getFilterOptions() {
     return batchExplorerService.getFilterOptions();
   }
 
   @Override
-  public Mono<BatchExplorerResponse> getBatches(
+  public BatchExplorerResponse getBatches(
       LocalDate fromDate,
       LocalDate toDate,
       BatchStatus status,
@@ -54,8 +53,7 @@ public class BatchExplorerController implements BatchExplorerApi {
   }
 
   @Override
-  public Mono<BatchDetailsResponse> getBatchDetails(
-      int reportGroupId, String batchId, int sequenceNumber) {
+  public BatchDetailsResponse getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
     return batchExplorerService.getBatchDetails(reportGroupId, batchId, sequenceNumber);
   }
 }

@@ -6,6 +6,7 @@ import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.common.exception.ResourceNotFoundException;
 import com.pharos.compliance.common.tracing.TraceContextAccessor;
 import com.pharos.compliance.common.tracing.TraceContextAccessor.TraceIdentifiers;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.time.OffsetDateTime;
 import org.slf4j.Logger;
@@ -13,11 +14,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.ServerWebInputException;
-import reactor.core.publisher.Mono;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -33,86 +33,90 @@ public class ApiExceptionHandler {
   }
 
   @ExceptionHandler(InvalidDateRangeException.class)
-  public Mono<ResponseEntity<ApiErrorResponse>> handleInvalidDateRange(
-      InvalidDateRangeException exception, ServerWebExchange exchange) {
+  public ResponseEntity<ApiErrorResponse> handleInvalidDateRange(
+      InvalidDateRangeException exception, HttpServletRequest request) {
     return errorResponse(
         HttpStatus.BAD_REQUEST,
         "INVALID_DATE_RANGE",
         exception.getMessage(),
-        exchange,
+        request,
         exception,
         false);
   }
 
-  @ExceptionHandler({ServerWebInputException.class, ConstraintViolationException.class})
-  public Mono<ResponseEntity<ApiErrorResponse>> handleInvalidRequest(
-      Exception exception, ServerWebExchange exchange) {
+  @ExceptionHandler({
+    MethodArgumentTypeMismatchException.class,
+    MissingServletRequestParameterException.class,
+    ConstraintViolationException.class
+  })
+  public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
+      Exception exception, HttpServletRequest request) {
     return errorResponse(
         HttpStatus.BAD_REQUEST,
         "INVALID_REQUEST",
         requestValidationMessage(exception),
-        exchange,
+        request,
         exception,
         false);
   }
 
   @ExceptionHandler(InvalidRequestException.class)
-  public Mono<ResponseEntity<ApiErrorResponse>> handleInvalidRequest(
-      InvalidRequestException exception, ServerWebExchange exchange) {
+  public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
+      InvalidRequestException exception, HttpServletRequest request) {
     return errorResponse(
         HttpStatus.BAD_REQUEST,
         "INVALID_REQUEST",
         exception.getMessage(),
-        exchange,
+        request,
         exception,
         false);
   }
 
   @ExceptionHandler(ResourceNotFoundException.class)
-  public Mono<ResponseEntity<ApiErrorResponse>> handleResourceNotFound(
-      ResourceNotFoundException exception, ServerWebExchange exchange) {
+  public ResponseEntity<ApiErrorResponse> handleResourceNotFound(
+      ResourceNotFoundException exception, HttpServletRequest request) {
     return errorResponse(
         HttpStatus.NOT_FOUND,
         "RESOURCE_NOT_FOUND",
         exception.getMessage(),
-        exchange,
+        request,
         exception,
         false);
   }
 
   @ExceptionHandler({DatabaseUnavailableException.class, DataAccessException.class})
-  public Mono<ResponseEntity<ApiErrorResponse>> handleDatabaseUnavailable(
-      Exception exception, ServerWebExchange exchange) {
+  public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(
+      Exception exception, HttpServletRequest request) {
     return errorResponse(
         HttpStatus.SERVICE_UNAVAILABLE,
         "DATABASE_UNAVAILABLE",
         "The compliance database is temporarily unavailable",
-        exchange,
+        request,
         exception,
         true);
   }
 
   @ExceptionHandler(Throwable.class)
-  public Mono<ResponseEntity<ApiErrorResponse>> handleUnexpectedError(
-      Throwable exception, ServerWebExchange exchange) {
+  public ResponseEntity<ApiErrorResponse> handleUnexpectedError(
+      Throwable exception, HttpServletRequest request) {
     return errorResponse(
         HttpStatus.INTERNAL_SERVER_ERROR,
         "INTERNAL_ERROR",
         GENERIC_ERROR_MESSAGE,
-        exchange,
+        request,
         exception,
         true);
   }
 
-  private Mono<ResponseEntity<ApiErrorResponse>> errorResponse(
+  private ResponseEntity<ApiErrorResponse> errorResponse(
       HttpStatus status,
       String code,
       String message,
-      ServerWebExchange exchange,
+      HttpServletRequest request,
       Throwable exception,
       boolean includeStackTrace) {
     TraceIdentifiers identifiers = traceContextAccessor.current();
-    String path = exchange.getRequest().getPath().value();
+    String path = request.getRequestURI();
     if (includeStackTrace) {
       LOGGER.error(
           "Request failed code={} status={} path={} message={}",
@@ -139,13 +143,16 @@ public class ApiExceptionHandler {
             path,
             identifiers.traceId(),
             identifiers.spanId());
-    return Mono.just(ResponseEntity.status(status).body(body));
+    return ResponseEntity.status(status).body(body);
   }
 
   private String requestValidationMessage(Exception exception) {
-    if (exception instanceof ServerWebInputException inputException
-        && inputException.getReason() != null) {
-      return inputException.getReason();
+    if (exception instanceof MethodArgumentTypeMismatchException typeMismatch) {
+      return "Invalid value '"
+          + typeMismatch.getValue()
+          + "' for parameter '"
+          + typeMismatch.getName()
+          + "'";
     }
     return exception.getMessage() == null ? "The request is invalid" : exception.getMessage();
   }

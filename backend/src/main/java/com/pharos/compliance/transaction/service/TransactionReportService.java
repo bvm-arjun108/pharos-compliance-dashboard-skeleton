@@ -9,11 +9,10 @@ import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
 import java.time.LocalDate;
-import reactor.core.publisher.Mono;
 
 public interface TransactionReportService {
 
-  Mono<TransactionReportResponse> getTransactionReport(
+  TransactionReportResponse getTransactionReport(
       int reportGroupId,
       String batchId,
       int sequenceNumber,
@@ -27,7 +26,7 @@ public interface TransactionReportService {
       int page,
       int size);
 
-  Mono<PeriodTransactionReportResponse> getPeriodTransactionReport(
+  PeriodTransactionReportResponse getPeriodTransactionReport(
       LocalDate fromDate,
       LocalDate toDate,
       String country,

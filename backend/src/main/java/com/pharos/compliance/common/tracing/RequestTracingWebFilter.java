@@ -1,23 +1,23 @@
 package com.pharos.compliance.common.tracing;
 
 import com.pharos.compliance.common.tracing.TraceContextAccessor.TraceIdentifiers;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ServerWebExchange;
-import org.springframework.web.server.WebFilter;
-import org.springframework.web.server.WebFilterChain;
-import reactor.core.publisher.Mono;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
-public class RequestTracingWebFilter implements WebFilter {
+public class RequestTracingWebFilter extends OncePerRequestFilter {
 
   public static final String TRACE_ID_HEADER = "X-Trace-Id";
   public static final String SPAN_ID_HEADER = "X-Span-Id";
@@ -31,37 +31,41 @@ public class RequestTracingWebFilter implements WebFilter {
   }
 
   @Override
-  @NonNull public Mono<Void> filter(@NonNull ServerWebExchange exchange, @NonNull WebFilterChain chain) {
+  protected void doFilterInternal(
+      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+      throws ServletException, IOException {
     Instant startedAt = Instant.now();
-    String method = exchange.getRequest().getMethod().name();
-    String path = exchange.getRequest().getPath().value();
+    String method = request.getMethod();
+    String path = request.getRequestURI();
 
     LOGGER.info("HTTP request started method={} path={}", method, path);
-    exchange
-        .getResponse()
-        .beforeCommit(
-            () -> {
-              TraceIdentifiers identifiers = traceContextAccessor.current();
-              if (!"-".equals(identifiers.traceId())) {
-                exchange.getResponse().getHeaders().set(TRACE_ID_HEADER, identifiers.traceId());
-                exchange.getResponse().getHeaders().set(SPAN_ID_HEADER, identifiers.spanId());
-              }
-              return Mono.empty();
-            });
 
-    return chain
-        .filter(exchange)
-        .doFinally(
-            signalType -> {
-              HttpStatusCode status = exchange.getResponse().getStatusCode();
-              long durationMs = Duration.between(startedAt, Instant.now()).toMillis();
-              LOGGER.info(
-                  "HTTP request completed method={} path={} status={} durationMs={} signal={}",
-                  method,
-                  path,
-                  status == null ? 200 : status.value(),
-                  durationMs,
-                  signalType);
-            });
+    // Set before the chain runs, not in a finally block: trace/span identifiers are available
+    // synchronously at request start (TraceContextAccessor doesn't depend on downstream
+    // processing), and the Servlet spec forbids setting headers once the response is committed —
+    // a handler that streams its body early could otherwise commit the response before a
+    // finally-block header write ever runs.
+    TraceIdentifiers identifiers = traceContextAccessor.current();
+    if (!"-".equals(identifiers.traceId())) {
+      response.setHeader(TRACE_ID_HEADER, identifiers.traceId());
+      response.setHeader(SPAN_ID_HEADER, identifiers.spanId());
+    }
+
+    String signal = "completed";
+    try {
+      filterChain.doFilter(request, response);
+    } catch (ServletException | IOException | RuntimeException exception) {
+      signal = "error";
+      throw exception;
+    } finally {
+      long durationMs = Duration.between(startedAt, Instant.now()).toMillis();
+      LOGGER.info(
+          "HTTP request completed method={} path={} status={} durationMs={} signal={}",
+          method,
+          path,
+          response.getStatus(),
+          durationMs,
+          signal);
+    }
   }
 }
