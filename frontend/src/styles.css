@@ -1,5 +1,10 @@
 :root {
   --failure-red: #c4474f;
+  /* Single source of truth for the page grid. The header bar, the view nav and
+     main all share these so their content sits on one vertical line at every
+     width -- change the cap here, not in the three rules below. */
+  --page-max: 1760px;
+  --page-pad: clamp(20px, 2.5vw, 40px);
   font-family: Inter, Arial, Helvetica, sans-serif;
   color: #202020;
   background: #f4f3ef;
@@ -44,7 +49,10 @@ button, select { cursor: pointer; }
 .header-primary {
   display: flex;
   height: 88px;
-  padding: 0 clamp(20px, 2.5vw, 40px);
+  /* Background and the yellow rule stay edge-to-edge; the padding centres the
+     brand/title on the same line as main's content once the viewport passes
+     --page-max. Below that the max() collapses to the plain gutter. */
+  padding: 0 max(var(--page-pad), calc((100% - var(--page-max)) / 2 + var(--page-pad)));
   align-items: center;
   gap: 28px;
   border-bottom: 4px solid #ffdd00;
@@ -63,10 +71,10 @@ button, select { cursor: pointer; }
 
 .view-nav__inner {
   display: flex;
-  width: min(1600px, 100%);
+  width: min(var(--page-max), 100%);
   height: 100%;
   margin: 0 auto;
-  padding: 0 clamp(20px, 2.5vw, 40px);
+  padding: 0 var(--page-pad);
   align-items: stretch;
   gap: 34px;
 }
@@ -151,9 +159,9 @@ button, select { cursor: pointer; }
 .environment-badge span { width: 7px; height: 7px; background: #ffdd00; border-radius: 50%; }
 
 main {
-  width: min(1760px, 100%);
+  width: min(var(--page-max), 100%);
   margin: 0 auto;
-  padding: clamp(24px, 3vw, 38px) clamp(20px, 2.5vw, 40px) 72px;
+  padding: clamp(24px, 3vw, 38px) var(--page-pad) 72px;
 }
 
 .planned-view { max-width: 1050px; }
