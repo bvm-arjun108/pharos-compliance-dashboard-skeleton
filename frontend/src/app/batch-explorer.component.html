@@ -356,11 +356,12 @@
           @if (reportConfigLoading()) {
             <p class="report-config-summary__empty">Loading configuration…</p>
           } @else if (reportConfigSummary(); as config) {
-            <div class="evidence-values evidence-values--four">
+            <div class="evidence-values evidence-values--five">
+              <div><span>Report group ID</span><strong>{{ config.reportGroupId }}</strong></div>
               <div><span>Report type</span><strong>{{ config.reportType || 'Not set' }}</strong></div>
               <div><span>Status</span><strong [class.success-text]="config.active" [class.attention-text]="!config.active">{{ config.active ? 'Active' : 'Inactive' }}</strong></div>
               <div><span>Mapping service</span><strong>{{ config.mappingServiceName || 'Not set' }}</strong></div>
-              <div><span>Versions</span><strong>Sel {{ config.reportSelectionVersionId }} · Xform {{ config.transformerVersionId }}</strong></div>
+              <div><span>Report selection version</span><strong>{{ config.reportSelectionVersionId }}</strong></div>
             </div>
           } @else {
             <p class="report-config-summary__empty">No report_group_config record found for this report group.</p>

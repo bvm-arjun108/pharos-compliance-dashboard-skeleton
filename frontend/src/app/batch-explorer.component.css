@@ -831,6 +831,19 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+/* The report configuration card is the one --five row whose cells are not all short
+   numbers: mapping service names run to 35 characters (SingaporeSemiAnnualObjectiveService)
+   and wrapped onto a second line at an equal 1fr. Widen that column at the expense of the
+   four short ones. Scoped to this card so the "filtered by reason" --five row, which is all
+   short counts, keeps its equal columns. Kept above the 600px breakpoint so it cannot
+   out-specify the 2-column mobile fallback below. */
+@media (min-width: 601px) {
+  .report-config-summary .evidence-values--five {
+    grid-template-columns:
+        minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 2fr) minmax(0, 0.9fr);
+  }
+}
+
 .evidence-values--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
