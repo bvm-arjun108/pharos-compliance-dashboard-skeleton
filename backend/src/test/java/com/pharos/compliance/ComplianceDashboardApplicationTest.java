@@ -22,16 +22,16 @@ import com.pharos.compliance.batch.service.BatchExplorerService;
 import com.pharos.compliance.common.exception.InvalidDateRangeException;
 import com.pharos.compliance.config.PostgresProperties;
 import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
-import com.pharos.compliance.dashboard.entity.ReportTransformationReconciliationEntity;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.service.DashboardService;
-import com.pharos.compliance.reportgroup.entity.ReportGroupConfigEntity;
 import com.zaxxer.hikari.HikariDataSource;
-import jakarta.persistence.EntityManagerFactory;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import javax.sql.DataSource;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.web.embedded.TomcatVirtualThreadsWebServerFactoryCustomizer;
@@ -51,7 +51,7 @@ class ComplianceDashboardApplicationTest {
 
   @Autowired private DataSource dataSource;
 
-  @Autowired private EntityManagerFactory entityManagerFactory;
+  @Autowired private DSLContext dslContext;
 
   @Autowired private PostgresProperties postgresProperties;
 
@@ -192,17 +192,20 @@ class ComplianceDashboardApplicationTest {
   }
 
   @Test
-  void usesPostgresJpaWithProductionStyleJdbcConfigurationAndVirtualThreads() {
+  void usesPostgresJooqWithProductionStyleJdbcConfigurationAndVirtualThreads() {
     assertTrue(dataSource instanceof HikariDataSource);
     HikariDataSource hikariDataSource = (HikariDataSource) dataSource;
     assertTrue(hikariDataSource.getJdbcUrl().startsWith("jdbc:postgresql://"));
     assertEquals("org.postgresql.Driver", hikariDataSource.getDriverClassName());
     assertEquals(120000L, hikariDataSource.getConnectionTimeout());
     assertEquals(postgresProperties.url(), hikariDataSource.getJdbcUrl());
-    assertTrue(entityManagerFactory.isOpen());
-    assertNotNull(
-        entityManagerFactory.getMetamodel().entity(ReportTransformationReconciliationEntity.class));
-    assertNotNull(entityManagerFactory.getMetamodel().entity(ReportGroupConfigEntity.class));
+
+    // Proves the DSLContext Spring Boot auto-configured from that same HikariDataSource is
+    // correctly wired end to end: it dialect-detected Postgres, and a trivial live query round
+    // trips through it -- the jOOQ-era equivalent of the old JPA/Hibernate metamodel checks this
+    // replaced (jOOQ has no metamodel; a real connection round trip is the closest analogous proof).
+    assertEquals(SQLDialect.POSTGRES, dslContext.configuration().dialect());
+    assertEquals(1, dslContext.fetchValue(DSL.one()));
 
     // jdbcScheduler no longer exists under Spring MVC -- blocking JDBC calls run directly on
     // whichever thread is handling the request. The equivalent guarantee to prove is that Spring
