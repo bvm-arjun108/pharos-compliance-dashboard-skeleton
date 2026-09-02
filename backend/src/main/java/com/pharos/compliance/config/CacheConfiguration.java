@@ -20,6 +20,14 @@ import org.springframework.context.annotation.Configuration;
  * are tiny and reused often, while evidence-page entries hold up to 200 full records each and have
  * a much larger effective key space (free-text search is part of the key) — that one is kept
  * smaller and shorter-lived to bound memory.
+ *
+ * <p>{@link #COUNTRY_CATALOG} follows the same reasoning for a different reason: report-group
+ * configuration has no write path yet (see README), so the country-to-report-group mapping it's
+ * derived from cannot change during the application's lifetime today. It's a single, parameterless,
+ * fully immutable snapshot re-derived from a full-table scan on every call otherwise, and is read by
+ * nine call sites across four services. Once report-group config write operations exist, revisit
+ * this TTL (or add explicit eviction on write) since a write could then go unreflected for up to
+ * {@code expireAfterWrite}.
  */
 @Configuration(proxyBeanMethods = false)
 public class CacheConfiguration {
@@ -29,6 +37,7 @@ public class CacheConfiguration {
   public static final String PERIOD_TRANSACTION_AGGREGATE = "periodTransactionAggregate";
   public static final String PERIOD_TRANSACTION_EVIDENCE_COUNT = "periodTransactionEvidenceCount";
   public static final String PERIOD_TRANSACTION_EVIDENCE_RECORDS = "periodTransactionEvidenceRecords";
+  public static final String COUNTRY_CATALOG = "countryCatalog";
 
   @Bean
   CacheManager cacheManager() {
@@ -38,7 +47,8 @@ public class CacheConfiguration {
         buildCache(TRANSACTION_EVIDENCE_RECORDS, 1_000, Duration.ofMinutes(2)),
         buildCache(PERIOD_TRANSACTION_AGGREGATE, 2_000, Duration.ofMinutes(2)),
         buildCache(PERIOD_TRANSACTION_EVIDENCE_COUNT, 2_000, Duration.ofMinutes(2)),
-        buildCache(PERIOD_TRANSACTION_EVIDENCE_RECORDS, 500, Duration.ofMinutes(2))));
+        buildCache(PERIOD_TRANSACTION_EVIDENCE_RECORDS, 500, Duration.ofMinutes(2)),
+        buildCache(COUNTRY_CATALOG, 1, Duration.ofMinutes(5))));
     return manager;
   }
 
