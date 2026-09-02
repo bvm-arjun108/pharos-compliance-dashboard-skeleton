@@ -2,6 +2,7 @@ spring:
   application:
     name: pharos-compliance-dashboard
   main:
+    banner-mode: off
     keep-alive: true
   threads:
     virtual:
@@ -9,6 +10,8 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+  jooq:
+    sql-dialect: POSTGRES
 
 common:
   postgres:
@@ -47,5 +50,17 @@ logging:
   include-application-name: false
   level:
     com.pharos.compliance: INFO
+    # The listener emits SQL only at DEBUG. Set JOOQ_SQL_LOG_LEVEL=OFF in environments where
+    # query text and inlined bind values must not be written to logs.
+    com.pharos.compliance.common.jooq.logging.PrettySqlExecuteListener: ${JOOQ_SQL_LOG_LEVEL:DEBUG}
+    com.zaxxer.hikari: WARN
+    org.apache.catalina: WARN
+    org.jooq.Constants: WARN
+    org.jooq.impl.DefaultExecuteContext.logVersionSupport: WARN
+    org.jooq.tools.LoggerListener: OFF
+    org.springframework.boot.actuate.endpoint.web.EndpointLinksResolver: WARN
+    org.springframework.boot.web.embedded.tomcat.TomcatWebServer: WARN
+    org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext: WARN
+    org.springframework.web.servlet.DispatcherServlet: WARN
   pattern:
-    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([${spring.application.name:pharos},trace=%X{traceId:-},span=%X{spanId:-}]){cyan} %clr([%-18.18thread]){magenta} %clr(%logger{32}){blue} %clr(:){faint} %msg%n%wEx"
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%-5level) %clr(%replace([trace=%X{traceId} span=%X{spanId}] ){'\\[trace= span=\\] ',''}){faint}%clr(%logger{0}){cyan} %clr(—){faint} %msg%n%wEx"

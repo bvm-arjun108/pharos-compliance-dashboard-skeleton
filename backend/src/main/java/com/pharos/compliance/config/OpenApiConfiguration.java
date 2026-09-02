@@ -8,15 +8,13 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration(proxyBeanMethods = false)
 public class OpenApiConfiguration {
-
   @Bean
   OpenAPI pharosOpenApi() {
     return new OpenAPI()
-        .info(
-            new Info()
-                .title("Pharos Compliance Operations API")
-                .description("APIs for the Phase 1 compliance operations dashboard.")
-                .version("v1")
-                .contact(new Contact().name("Pharos Compliance Engineering")));
+      .info(new Info()
+        .title("Pharos Compliance Operations API")
+        .description("APIs for the Phase 1 compliance operations dashboard.")
+        .version("v1")
+        .contact(new Contact().name("Pharos Compliance Engineering")));
   }
 }

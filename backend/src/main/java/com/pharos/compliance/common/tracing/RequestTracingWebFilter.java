@@ -18,12 +18,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 public class RequestTracingWebFilter extends OncePerRequestFilter {
-
   public static final String TRACE_ID_HEADER = "X-Trace-Id";
   public static final String SPAN_ID_HEADER = "X-Span-Id";
-
   private static final Logger LOGGER = LoggerFactory.getLogger(RequestTracingWebFilter.class);
-
   private final TraceContextAccessor traceContextAccessor;
 
   public RequestTracingWebFilter(TraceContextAccessor traceContextAccessor) {
@@ -31,15 +28,13 @@ public class RequestTracingWebFilter extends OncePerRequestFilter {
   }
 
   @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+  protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
     Instant startedAt = Instant.now();
     String method = request.getMethod();
     String path = request.getRequestURI();
 
-    LOGGER.info("HTTP request started method={} path={}", method, path);
-
+    LOGGER.debug("HTTP request received | method={} | path={}", method, path);
     // Set before the chain runs, not in a finally block: trace/span identifiers are available
     // synchronously at request start (TraceContextAccessor doesn't depend on downstream
     // processing), and the Servlet spec forbids setting headers once the response is committed —
@@ -51,21 +46,18 @@ public class RequestTracingWebFilter extends OncePerRequestFilter {
       response.setHeader(SPAN_ID_HEADER, identifiers.spanId());
     }
 
-    String signal = "completed";
+    boolean failed = false;
     try {
       filterChain.doFilter(request, response);
     } catch (ServletException | IOException | RuntimeException exception) {
-      signal = "error";
+      failed = true;
       throw exception;
     } finally {
       long durationMs = Duration.between(startedAt, Instant.now()).toMillis();
-      LOGGER.info(
-          "HTTP request completed method={} path={} status={} durationMs={} signal={}",
-          method,
-          path,
-          response.getStatus(),
-          durationMs,
-          signal);
+      int status = response.getStatus();
+      String result = failed || status >= 500 ? "FAILED" : status >= 400 ? "REJECTED" : "SUCCESS";
+      LOGGER.info("HTTP request completed | method={} | path={} | status={} | result={} | duration={}ms", method, path, status, result,
+          durationMs);
     }
   }
 }

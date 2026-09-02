@@ -1,6 +1,8 @@
 package com.pharos.compliance.transaction.model;
 
-/** The literal status value on a piece of evidence, independent of its normalized outcome. */
+/**
+ * The literal status value on a piece of evidence, independent of its normalized outcome.
+ */
 public enum TransactionStatus {
   ALL,
   SUCCESS,

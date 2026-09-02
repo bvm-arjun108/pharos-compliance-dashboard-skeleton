@@ -17,6 +17,7 @@
 
     <properties>
         <java.version>21</java.version>
+        <prince-of-space.version>2.2.0</prince-of-space.version>
         <spotless-maven-plugin.version>3.10.0</spotless-maven-plugin.version>
         <!-- jOOQ codegen connects at build time only, to read the schema; the app itself still
              connects only through the HikariDataSource built in DatabaseConfiguration. Same
@@ -130,7 +131,16 @@
                 <version>${spotless-maven-plugin.version}</version>
                 <configuration>
                     <java>
-                        <googleJavaFormat/>
+                        <princeOfSpace>
+                            <version>${prince-of-space.version}</version>
+                            <indentStyle>SPACES</indentStyle>
+                            <indentSize>2</indentSize>
+                            <lineLength>140</lineLength>
+                            <wrapStyle>WIDE</wrapStyle>
+                            <closingParenOnNewLine>false</closingParenOnNewLine>
+                            <trailingCommas>false</trailingCommas>
+                            <javaLanguageLevel>21</javaLanguageLevel>
+                        </princeOfSpace>
                         <removeUnusedImports/>
                         <formatAnnotations/>
                     </java>

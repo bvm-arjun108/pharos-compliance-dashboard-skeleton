@@ -6,9 +6,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class TraceContextAccessor {
-
   private static final String UNAVAILABLE = "-";
-
   private final Tracer tracer;
 
   public TraceContextAccessor(Tracer tracer) {

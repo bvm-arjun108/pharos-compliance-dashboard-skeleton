@@ -9,20 +9,10 @@ import com.pharos.compliance.batch.model.BatchStatus;
 import java.time.LocalDate;
 
 public interface BatchExplorerService {
-
   BatchFilterOptionsResponse getFilterOptions();
 
-  BatchExplorerResponse getBatches(
-      LocalDate fromDate,
-      LocalDate toDate,
-      BatchStatus status,
-      BatchIssueType issueType,
-      String batchId,
-      String country,
-      Integer reportGroupId,
-      BatchMetricFocus metricFocus,
-      int page,
-      int size);
+  BatchExplorerResponse getBatches(LocalDate fromDate, LocalDate toDate, BatchStatus status, BatchIssueType issueType, String batchId,
+      String country, Integer reportGroupId, BatchMetricFocus metricFocus, int page, int size);
 
   BatchDetailsResponse getBatchDetails(int reportGroupId, String batchId, int sequenceNumber);
 }

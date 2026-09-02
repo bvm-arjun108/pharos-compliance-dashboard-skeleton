@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 @RestController
 public class BatchExplorerController implements BatchExplorerApi {
-
   private final BatchExplorerService batchExplorerService;
 
   public BatchExplorerController(BatchExplorerService batchExplorerService) {
@@ -28,28 +27,9 @@ public class BatchExplorerController implements BatchExplorerApi {
   }
 
   @Override
-  public BatchExplorerResponse getBatches(
-      LocalDate fromDate,
-      LocalDate toDate,
-      BatchStatus status,
-      BatchIssueType issueType,
-      String batchId,
-      String country,
-      Integer reportGroupId,
-      BatchMetricFocus metricFocus,
-      int page,
-      int size) {
-    return batchExplorerService.getBatches(
-        fromDate,
-        toDate,
-        status,
-        issueType,
-        batchId,
-        country,
-        reportGroupId,
-        metricFocus,
-        page,
-        size);
+  public BatchExplorerResponse getBatches(LocalDate fromDate, LocalDate toDate, BatchStatus status, BatchIssueType issueType, String batchId,
+      String country, Integer reportGroupId, BatchMetricFocus metricFocus, int page, int size) {
+    return batchExplorerService.getBatches(fromDate, toDate, status, issueType, batchId, country, reportGroupId, metricFocus, page, size);
   }
 
   @Override

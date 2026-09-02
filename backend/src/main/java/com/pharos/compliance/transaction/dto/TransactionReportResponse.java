@@ -11,21 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 @Schema(description = "Transaction evidence report for one reconciliation batch and metric")
-public record TransactionReportResponse(
-    TransactionReportContextResponse context,
-    TransactionMetric metric,
-    String metricLabel,
-    long aggregateCount,
-    long availableRecordCount,
-    long matchingRecordCount,
-    TransactionEvidenceLevel evidenceLevel,
-    String evidenceMessage,
-    List<TransactionEvidenceRecordResponse> transactions,
-    String search,
-    TransactionEvidenceSource source,
-    TransactionStage stage,
-    TransactionOutcome outcome,
-    TransactionStatus status,
-    TransactionSortDirection sortDirection,
-    int page,
-    int size) {}
+public record TransactionReportResponse(TransactionReportContextResponse context, TransactionMetric metric, String metricLabel,
+    long aggregateCount, long availableRecordCount, long matchingRecordCount, TransactionEvidenceLevel evidenceLevel, String evidenceMessage,
+    List<TransactionEvidenceRecordResponse> transactions, String search, TransactionEvidenceSource source, TransactionStage stage,
+    TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection, int page, int size) {}

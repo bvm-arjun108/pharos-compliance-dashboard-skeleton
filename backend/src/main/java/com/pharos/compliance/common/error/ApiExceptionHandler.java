@@ -21,11 +21,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
-
   private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
-  private static final String GENERIC_ERROR_MESSAGE =
-      "An unexpected error occurred while processing the request";
-
+  private static final String GENERIC_ERROR_MESSAGE = "An unexpected error occurred while processing the request";
   private final TraceContextAccessor traceContextAccessor;
 
   public ApiExceptionHandler(TraceContextAccessor traceContextAccessor) {
@@ -33,126 +30,55 @@ public class ApiExceptionHandler {
   }
 
   @ExceptionHandler(InvalidDateRangeException.class)
-  public ResponseEntity<ApiErrorResponse> handleInvalidDateRange(
-      InvalidDateRangeException exception, HttpServletRequest request) {
-    return errorResponse(
-        HttpStatus.BAD_REQUEST,
-        "INVALID_DATE_RANGE",
-        exception.getMessage(),
-        request,
-        exception,
-        false);
+  public ResponseEntity<ApiErrorResponse> handleInvalidDateRange(InvalidDateRangeException exception, HttpServletRequest request) {
+    return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", exception.getMessage(), request, exception, false);
   }
 
-  @ExceptionHandler({
-    MethodArgumentTypeMismatchException.class,
-    MissingServletRequestParameterException.class,
-    ConstraintViolationException.class
-  })
-  public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
-      Exception exception, HttpServletRequest request) {
-    return errorResponse(
-        HttpStatus.BAD_REQUEST,
-        "INVALID_REQUEST",
-        requestValidationMessage(exception),
-        request,
-        exception,
-        false);
+  @ExceptionHandler({MethodArgumentTypeMismatchException.class,
+      MissingServletRequestParameterException.class, ConstraintViolationException.class})
+  public ResponseEntity<ApiErrorResponse> handleInvalidRequest(Exception exception, HttpServletRequest request) {
+    return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", requestValidationMessage(exception), request, exception, false);
   }
 
   @ExceptionHandler(InvalidRequestException.class)
-  public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
-      InvalidRequestException exception, HttpServletRequest request) {
-    return errorResponse(
-        HttpStatus.BAD_REQUEST,
-        "INVALID_REQUEST",
-        exception.getMessage(),
-        request,
-        exception,
-        false);
+  public ResponseEntity<ApiErrorResponse> handleInvalidRequest(InvalidRequestException exception, HttpServletRequest request) {
+    return errorResponse(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage(), request, exception, false);
   }
 
   @ExceptionHandler(ResourceNotFoundException.class)
-  public ResponseEntity<ApiErrorResponse> handleResourceNotFound(
-      ResourceNotFoundException exception, HttpServletRequest request) {
-    return errorResponse(
-        HttpStatus.NOT_FOUND,
-        "RESOURCE_NOT_FOUND",
-        exception.getMessage(),
-        request,
-        exception,
-        false);
+  public ResponseEntity<ApiErrorResponse> handleResourceNotFound(ResourceNotFoundException exception, HttpServletRequest request) {
+    return errorResponse(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", exception.getMessage(), request, exception, false);
   }
 
   @ExceptionHandler({DatabaseUnavailableException.class, DataAccessException.class})
-  public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(
-      Exception exception, HttpServletRequest request) {
-    return errorResponse(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        "DATABASE_UNAVAILABLE",
-        "The compliance database is temporarily unavailable",
-        request,
-        exception,
-        true);
+  public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(Exception exception, HttpServletRequest request) {
+    return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE", "The compliance database is temporarily unavailable",
+        request, exception, true);
   }
 
   @ExceptionHandler(Throwable.class)
-  public ResponseEntity<ApiErrorResponse> handleUnexpectedError(
-      Throwable exception, HttpServletRequest request) {
-    return errorResponse(
-        HttpStatus.INTERNAL_SERVER_ERROR,
-        "INTERNAL_ERROR",
-        GENERIC_ERROR_MESSAGE,
-        request,
-        exception,
-        true);
+  public ResponseEntity<ApiErrorResponse> handleUnexpectedError(Throwable exception, HttpServletRequest request) {
+    return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", GENERIC_ERROR_MESSAGE, request, exception, true);
   }
 
-  private ResponseEntity<ApiErrorResponse> errorResponse(
-      HttpStatus status,
-      String code,
-      String message,
-      HttpServletRequest request,
-      Throwable exception,
-      boolean includeStackTrace) {
+  private ResponseEntity<ApiErrorResponse> errorResponse(HttpStatus status, String code, String message, HttpServletRequest request,
+      Throwable exception, boolean includeStackTrace) {
     TraceIdentifiers identifiers = traceContextAccessor.current();
     String path = request.getRequestURI();
     if (includeStackTrace) {
-      LOGGER.error(
-          "Request failed code={} status={} path={} message={}",
-          code,
-          status.value(),
-          path,
-          exception.getMessage(),
+      LOGGER.error("Request failed | code={} | status={} | path={} | message={}", code, status.value(), path, exception.getMessage(),
           exception);
     } else {
-      LOGGER.warn(
-          "Request rejected code={} status={} path={} message={}",
-          code,
-          status.value(),
-          path,
-          exception.getMessage());
+      LOGGER.warn("Request rejected | code={} | status={} | path={} | message={}", code, status.value(), path, exception.getMessage());
     }
-    ApiErrorResponse body =
-        new ApiErrorResponse(
-            OffsetDateTime.now(),
-            status.value(),
-            status.getReasonPhrase(),
-            code,
-            message,
-            path,
-            identifiers.traceId(),
-            identifiers.spanId());
+    ApiErrorResponse body = new ApiErrorResponse(OffsetDateTime.now(), status.value(), status.getReasonPhrase(), code, message, path,
+        identifiers.traceId(), identifiers.spanId());
     return ResponseEntity.status(status).body(body);
   }
 
   private String requestValidationMessage(Exception exception) {
     if (exception instanceof MethodArgumentTypeMismatchException typeMismatch) {
-      return "Invalid value '"
-          + typeMismatch.getValue()
-          + "' for parameter '"
-          + typeMismatch.getName()
-          + "'";
+      return "Invalid value '" + typeMismatch.getValue() + "' for parameter '" + typeMismatch.getName() + "'";
     }
     return exception.getMessage() == null ? "The request is invalid" : exception.getMessage();
   }

@@ -8,10 +8,7 @@ import java.util.Optional;
 import java.util.Set;
 
 public final class CountryCatalogSnapshot {
-
-  private static final CountryDefinition UNCONFIGURED_COUNTRY =
-      new CountryDefinition("UNCONFIGURED", "Not configured", Set.of());
-
+  private static final CountryDefinition UNCONFIGURED_COUNTRY = new CountryDefinition("UNCONFIGURED", "Not configured", Set.of());
   private final List<CountryDefinition> countries;
   private final Map<String, CountryDefinition> countriesByCode;
   private final Map<Integer, CountryDefinition> countriesByReportGroup;
@@ -42,7 +39,9 @@ public final class CountryCatalogSnapshot {
 
   private Map<Integer, CountryDefinition> indexByReportGroup(List<CountryDefinition> definitions) {
     Map<Integer, CountryDefinition> result = new HashMap<>();
-    definitions.forEach(country -> country.reportGroupIds().forEach(id -> result.put(id, country)));
+    definitions.forEach(country -> country
+      .reportGroupIds()
+      .forEach(id -> result.put(id, country)));
     return Map.copyOf(result);
   }
 }

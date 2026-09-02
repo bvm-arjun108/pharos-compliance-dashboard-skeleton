@@ -11,9 +11,9 @@ import com.pharos.compliance.reportgroup.dto.ReportConfigSummaryResponse;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
 import com.pharos.compliance.reportgroup.model.ReportConfigStatus;
 import com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository;
-import com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository.ReportConfigDetailsProjection;
-import com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository.ReportConfigListProjection;
-import com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository.ReportConfigSummaryProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportConfigDetailsProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportConfigListProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportConfigSummaryProjection;
 import com.pharos.compliance.reportgroup.service.CountryCatalog;
 import com.pharos.compliance.reportgroup.service.ReportConfigService;
 import java.util.List;
@@ -24,14 +24,11 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ReportConfigServiceImpl implements ReportConfigService {
-
   private static final Logger LOGGER = LoggerFactory.getLogger(ReportConfigServiceImpl.class);
-
   private final ReportGroupConfigRepository reportGroupConfigRepository;
   private final CountryCatalog countryCatalog;
 
-  public ReportConfigServiceImpl(
-      ReportGroupConfigRepository reportGroupConfigRepository, CountryCatalog countryCatalog) {
+  public ReportConfigServiceImpl(ReportGroupConfigRepository reportGroupConfigRepository, CountryCatalog countryCatalog) {
     this.reportGroupConfigRepository = reportGroupConfigRepository;
     this.countryCatalog = countryCatalog;
   }
@@ -40,142 +37,89 @@ public class ReportConfigServiceImpl implements ReportConfigService {
   public ReportConfigFilterOptionsResponse getFilterOptions() {
     CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
     List<ReportConfigCountryOptionResponse> countries =
-        catalog.countries().stream()
-            .map(country -> new ReportConfigCountryOptionResponse(country.code(), country.name()))
-            .toList();
-    List<String> reportTypes =
-        reportGroupConfigRepository.findReportTypes().stream()
-            .map(type -> type.getReportType())
-            .toList();
+        catalog
+      .countries()
+      .stream()
+      .map(country -> new ReportConfigCountryOptionResponse(country.code(), country.name()))
+      .toList();
+    List<String> reportTypes = reportGroupConfigRepository
+      .findReportTypes()
+      .stream()
+      .map(type -> type.reportType())
+      .toList();
     return new ReportConfigFilterOptionsResponse(countries, reportTypes);
   }
 
   @Override
-  public ReportConfigExplorerResponse getReportConfigs(
-      String country, ReportConfigStatus status, String reportType, Integer reportGroupId) {
+  public ReportConfigExplorerResponse getReportConfigs(String country, ReportConfigStatus status, String reportType, Integer reportGroupId) {
     String normalizedCountry = normalizeCountry(country);
     String normalizedReportType = normalizeFilter(reportType);
+    long startedAt = System.nanoTime();
 
-    LOGGER.info(
-        "Report configuration query started country={} status={} reportType={} reportGroupId={}",
-        normalizedCountry,
-        status,
-        normalizedReportType,
-        reportGroupId);
+    LOGGER.debug("Report configuration scope resolved | country={} | status={} | reportType={} | reportGroupId={}", normalizedCountry,
+        status, normalizedReportType, reportGroupId == null ? "ALL" : reportGroupId);
 
     CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
     validateCountry(catalog, normalizedCountry);
     ReportConfigSummaryProjection summary =
-        reportGroupConfigRepository.getSummary(
-            normalizedCountry, status.name(), normalizedReportType, reportGroupId);
-    List<ReportConfigListItemResponse> configurations =
-        reportGroupConfigRepository
-            .findReportConfigs(normalizedCountry, status.name(), normalizedReportType, reportGroupId)
-            .stream()
-            .map(this::toListItem)
-            .toList();
+        reportGroupConfigRepository.getSummary(normalizedCountry, status.name(), normalizedReportType, reportGroupId);
+    List<ReportConfigListItemResponse> configurations = reportGroupConfigRepository
+      .findReportConfigs(normalizedCountry, status.name(), normalizedReportType, reportGroupId)
+      .stream()
+      .map(this::toListItem)
+      .toList();
     ReportConfigExplorerResponse response =
-        new ReportConfigExplorerResponse(
-            toSummary(summary),
-            configurations,
-            normalizedCountry,
-            status,
-            normalizedReportType,
-            reportGroupId);
+        new ReportConfigExplorerResponse(toSummary(summary), configurations, normalizedCountry, status, normalizedReportType, reportGroupId);
 
-    LOGGER.info(
-        "Report configuration query completed matchingConfigurations={}",
-        response.configurations().size());
+    LOGGER.info("Report configuration catalog ready | country={} | status={} | reportType={} | reportGroupId={} | matched={} | total={}"
+        + " | active={} | representedCountries={} | duration={}ms", normalizedCountry, status, normalizedReportType,
+        reportGroupId == null ? "ALL" : reportGroupId, response.configurations().size(), response.summary().totalConfigurations(),
+        response.summary().activeConfigurations(), response.summary().representedCountries(), (System.nanoTime() - startedAt) / 1_000_000);
     return response;
   }
 
   @Override
-  public ReportConfigDetailsResponse getReportConfigDetails(
-      int reportGroupId, int reportSelectionVersionId, String transformerVersionId) {
-    LOGGER.info(
-        "Report configuration details query started reportGroupId={} selectionVersion={} transformerVersion={}",
-        reportGroupId,
-        reportSelectionVersionId,
-        transformerVersionId);
+  public ReportConfigDetailsResponse getReportConfigDetails(int reportGroupId, int reportSelectionVersionId, String transformerVersionId) {
+    long startedAt = System.nanoTime();
+    LOGGER.debug("Report configuration details requested | reportGroupId={} | selectionVersion={} | transformerVersion={}", reportGroupId,
+        reportSelectionVersionId, transformerVersionId);
 
-    ReportConfigDetailsProjection config =
-        reportGroupConfigRepository
-            .findReportConfigDetails(reportGroupId, reportSelectionVersionId, transformerVersionId)
-            .orElseThrow(
-                () -> new ResourceNotFoundException("Report-group configuration was not found"));
-    return toDetails(config);
+    ReportConfigDetailsProjection config = reportGroupConfigRepository
+      .findReportConfigDetails(reportGroupId, reportSelectionVersionId, transformerVersionId)
+      .orElseThrow(() -> new ResourceNotFoundException("Report-group configuration was not found"));
+    ReportConfigDetailsResponse response = toDetails(config);
+    LOGGER.info("Report configuration details ready | reportGroupId={} | reportGroupName={} | country={} | reportType={} | active={}"
+        + " | selectionVersion={} | transformerVersion={} | duration={}ms", reportGroupId, config.reportGroupName(), config.countryCode(),
+        config.reportType(), config.active(), reportSelectionVersionId, transformerVersionId, (System.nanoTime() - startedAt) / 1_000_000);
+    return response;
   }
 
   private ReportConfigSummaryResponse toSummary(ReportConfigSummaryProjection summary) {
-    return new ReportConfigSummaryResponse(
-        summary.getTotalConfigurations(),
-        summary.getActiveConfigurations(),
-        summary.getRepresentedCountries(),
-        summary.getObjectiveConfigurations());
+    return new ReportConfigSummaryResponse(summary.totalConfigurations(), summary.activeConfigurations(), summary.representedCountries(),
+        summary.objectiveConfigurations());
   }
 
   private ReportConfigListItemResponse toListItem(ReportConfigListProjection config) {
-    return new ReportConfigListItemResponse(
-        config.getReportGroupId(),
-        config.getReportGroupName(),
-        config.getReportSelectionVersionId(),
-        config.getTransformerVersionId(),
-        config.getCountryCode(),
-        config.getCountryName(),
-        config.getRegionName(),
-        config.getReportType(),
-        config.getActive(),
-        config.getPartialReport(),
-        config.getDatabaseLookupEnabled(),
-        config.getMappingServiceName(),
-        config.getModifiedAt());
+    return new ReportConfigListItemResponse(config.reportGroupId(), config.reportGroupName(), config.reportSelectionVersionId(),
+        config.transformerVersionId(), config.countryCode(), config.countryName(), config.regionName(), config.reportType(), config.active(),
+        config.partialReport(), config.databaseLookupEnabled(), config.mappingServiceName(), config.modifiedAt());
   }
 
   private ReportConfigDetailsResponse toDetails(ReportConfigDetailsProjection config) {
-    return new ReportConfigDetailsResponse(
-        new ReportConfigDetailsResponse.Identity(
-            config.getReportGroupId(),
-            config.getReportGroupName(),
-            config.getBusinessGroupName(),
-            config.getCountryCode(),
-            config.getCountryName(),
-            config.getThreeLetterCountryCode(),
-            config.getRegionCode(),
-            config.getRegionName(),
-            config.getReportCurrency(),
-            config.getReportType(),
-            config.getActive()),
-        new ReportConfigDetailsResponse.Versioning(
-            config.getReportSelectionVersionId(),
-            config.getTransformerVersionId(),
-            config.getCreatedAt(),
-            config.getModifiedAt()),
-        new ReportConfigDetailsResponse.ProcessingBehavior(
-            config.getDatabaseLookupEnabled(),
-            config.getBlankReport(),
-            config.getNonTransactionalReport(),
-            config.getPartialReport(),
-            config.getReportPeriod(),
-            config.getAdditionalData()),
-        new ReportConfigDetailsResponse.Mapping(
-            config.getMappingProjectKey(),
-            config.getMappingServiceName(),
-            config.getAcknowledgementDocumentSubtype(),
-            config.getOutputFileDocumentSubtype(),
-            config.getSubmissionDocumentSubtype(),
-            config.getTransformerConfig()),
-        new ReportConfigDetailsResponse.Rules(
-            config.getInboundRuleId(),
-            config.getOutboundRuleId(),
-            config.getReportSelection(),
-            config.getReportableActivityColumns(),
-            config.getRuleHitColumns()),
-        new ReportConfigDetailsResponse.Strategies(
-            config.getExclusionStrategy(),
-            config.getExclusionReason(),
-            config.getColumnToCompare(),
-            config.getManipulationStrategyMetadata(),
-            config.getReconciliationStrategyMetadata()));
+    return new ReportConfigDetailsResponse(new ReportConfigDetailsResponse.Identity(config.reportGroupId(), config.reportGroupName(),
+            config.businessGroupName(), config.countryCode(), config.countryName(), config.threeLetterCountryCode(), config.regionCode(),
+            config.regionName(), config.reportCurrency(), config.reportType(), config.active()),
+        new ReportConfigDetailsResponse.Versioning(config.reportSelectionVersionId(), config.transformerVersionId(), config.createdAt(),
+            config.modifiedAt()),
+        new ReportConfigDetailsResponse.ProcessingBehavior(config.databaseLookupEnabled(), config.blankReport(),
+            config.nonTransactionalReport(), config.partialReport(), config.reportPeriod(), config.additionalData()),
+        new ReportConfigDetailsResponse.Mapping(config.mappingProjectKey(), config.mappingServiceName(),
+            config.acknowledgementDocumentSubtype(), config.outputFileDocumentSubtype(), config.submissionDocumentSubtype(),
+            config.transformerConfig()),
+        new ReportConfigDetailsResponse.Rules(config.inboundRuleId(), config.outboundRuleId(), config.reportSelection(),
+            config.reportableActivityColumns(), config.ruleHitColumns()),
+        new ReportConfigDetailsResponse.Strategies(config.exclusionStrategy(), config.exclusionReason(), config.columnToCompare(),
+            config.manipulationStrategyMetadata(), config.reconciliationStrategyMetadata()));
   }
 
   private void validateCountry(CountryCatalogSnapshot catalog, String country) {

@@ -7,7 +7,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class HealthController implements HealthApi {
-
   private final HealthService healthService;
 
   public HealthController(HealthService healthService) {

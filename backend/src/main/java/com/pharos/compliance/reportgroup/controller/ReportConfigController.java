@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 @RestController
 public class ReportConfigController implements ReportConfigApi {
-
   private final ReportConfigService reportConfigService;
 
   public ReportConfigController(ReportConfigService reportConfigService) {
@@ -25,15 +24,12 @@ public class ReportConfigController implements ReportConfigApi {
   }
 
   @Override
-  public ReportConfigExplorerResponse getReportConfigs(
-      String country, ReportConfigStatus status, String reportType, Integer reportGroupId) {
+  public ReportConfigExplorerResponse getReportConfigs(String country, ReportConfigStatus status, String reportType, Integer reportGroupId) {
     return reportConfigService.getReportConfigs(country, status, reportType, reportGroupId);
   }
 
   @Override
-  public ReportConfigDetailsResponse getReportConfigDetails(
-      int reportGroupId, int reportSelectionVersionId, String transformerVersionId) {
-    return reportConfigService.getReportConfigDetails(
-        reportGroupId, reportSelectionVersionId, transformerVersionId);
+  public ReportConfigDetailsResponse getReportConfigDetails(int reportGroupId, int reportSelectionVersionId, String transformerVersionId) {
+    return reportConfigService.getReportConfigDetails(reportGroupId, reportSelectionVersionId, transformerVersionId);
   }
 }

@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 @RestController
 public class DashboardController implements DashboardApi {
-
   private final DashboardService dashboardService;
 
   public DashboardController(DashboardService dashboardService) {
@@ -18,8 +17,8 @@ public class DashboardController implements DashboardApi {
   }
 
   @Override
-  public DashboardDetailsResponse getDashboardDetails(
-      LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId) {
+  public DashboardDetailsResponse getDashboardDetails(LocalDate fromDate, LocalDate toDate, String batchId, String country,
+      Integer reportGroupId) {
     return dashboardService.getDashboardDetails(fromDate, toDate, batchId, country, reportGroupId);
   }
 }

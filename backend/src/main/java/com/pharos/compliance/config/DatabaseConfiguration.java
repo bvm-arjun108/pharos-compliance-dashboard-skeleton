@@ -10,7 +10,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(PostgresProperties.class)
 public class DatabaseConfiguration {
-
   @Bean(destroyMethod = "close")
   DataSource dataSource(PostgresProperties properties) {
     HikariConfig configuration = new HikariConfig();

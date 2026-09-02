@@ -11,9 +11,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class HealthServiceImpl implements HealthService {
-
   private static final Logger LOGGER = LoggerFactory.getLogger(HealthServiceImpl.class);
-
   private final DatabaseHealthRepository databaseHealthRepository;
 
   public HealthServiceImpl(DatabaseHealthRepository databaseHealthRepository) {
@@ -25,23 +23,14 @@ public class HealthServiceImpl implements HealthService {
     try {
       var metadata = databaseHealthRepository.getDatabaseMetadata();
       HealthResponse response =
-          new HealthResponse(
-              "UP",
-              "pharos-compliance-backend",
-              metadata.database(),
-              metadata.schema(),
-              OffsetDateTime.now());
-      LOGGER.info(
-          "PostgreSQL health check completed database={} schema={} status={}",
-          response.database(),
-          response.schema(),
+          new HealthResponse("UP", "pharos-compliance-backend", metadata.database(), metadata.schema(), OffsetDateTime.now());
+      LOGGER.debug("Database health check passed | database={} | schema={} | status={}", response.database(), response.schema(),
           response.status());
       return response;
     } catch (DatabaseUnavailableException exception) {
       throw exception;
     } catch (Exception exception) {
-      throw new DatabaseUnavailableException(
-          "Unable to validate the PostgreSQL connection", exception);
+      throw new DatabaseUnavailableException("Unable to validate the PostgreSQL connection", exception);
     }
   }
 }

@@ -6,12 +6,9 @@ import com.pharos.compliance.reportgroup.dto.ReportConfigFilterOptionsResponse;
 import com.pharos.compliance.reportgroup.model.ReportConfigStatus;
 
 public interface ReportConfigService {
-
   ReportConfigFilterOptionsResponse getFilterOptions();
 
-  ReportConfigExplorerResponse getReportConfigs(
-      String country, ReportConfigStatus status, String reportType, Integer reportGroupId);
+  ReportConfigExplorerResponse getReportConfigs(String country, ReportConfigStatus status, String reportType, Integer reportGroupId);
 
-  ReportConfigDetailsResponse getReportConfigDetails(
-      int reportGroupId, int reportSelectionVersionId, String transformerVersionId);
+  ReportConfigDetailsResponse getReportConfigDetails(int reportGroupId, int reportSelectionVersionId, String transformerVersionId);
 }
