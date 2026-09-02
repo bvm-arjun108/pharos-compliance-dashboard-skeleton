@@ -47,8 +47,7 @@ public class CacheConfiguration {
         buildCache(TRANSACTION_EVIDENCE_RECORDS, 1_000, Duration.ofMinutes(2)),
         buildCache(PERIOD_TRANSACTION_AGGREGATE, 2_000, Duration.ofMinutes(2)),
         buildCache(PERIOD_TRANSACTION_EVIDENCE_COUNT, 2_000, Duration.ofMinutes(2)),
-        buildCache(PERIOD_TRANSACTION_EVIDENCE_RECORDS, 500, Duration.ofMinutes(2)),
-        buildCache(COUNTRY_CATALOG, 1, Duration.ofMinutes(5))));
+        buildCache(PERIOD_TRANSACTION_EVIDENCE_RECORDS, 500, Duration.ofMinutes(2)), buildCache(COUNTRY_CATALOG, 1, Duration.ofMinutes(5))));
     return manager;
   }
 
