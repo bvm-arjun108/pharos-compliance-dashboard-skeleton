@@ -160,3 +160,36 @@ from (
                    )
      ) as "filtered_evidence";
 ```
+
+
+
+### Query 1 — Batch-level issue counts (what the dashboard's Batches Overview cards are built from):
+
+```sql
+select rpt_grp_id, batch_id, seq_no,
+       duplicate_transformation,
+       excluded_txn,
+       txn_simulated,
+       soft_dedup_dropped_txn_count,
+       activity_missing,
+       txn_missing_attempt_count,
+       activity_transformation_failed
+from pharos.report_transformation_reconciliation
+order by created_timestamp desc;
+```
+
+### Query 2 — Transaction-level evidence counts for the same 7 categories, per batch:
+
+```sql
+select rpt_grp_id, batch_id,
+       count(*) filter (where upper(coalesce(comments,'')) like '%DUPLICATE%') as duplicate_evidence,
+       count(*) filter (where upper(status) = 'EXCLUDED') as excluded_evidence_journey_only,
+       count(*) filter (where comments = 'EXCLUDED_BECAUSE_SML') as simulated_evidence,
+       count(*) filter (where comments = 'EXCLUDED_SOFT_DEDUP' or comments like 'EXCLUDED_REAPPEARING_%') as soft_dedup_evidence,
+       count(*) filter (where comments = 'ELIGIBILITY_RECONCILIATION_MISMATCH') as activity_missing_evidence,
+       count(*) filter (where comments = 'ATTEMPT_NOT_RECEIVED') as attempts_missing_evidence,
+       count(*) filter (where stage = 'TRANSFORMATION' and upper(status) in ('FAILED','FAILURE','ERROR')) as transformation_failed_evidence
+from pharos.record_transformation_journey
+group by rpt_grp_id, batch_id
+order by batch_id;
+```
