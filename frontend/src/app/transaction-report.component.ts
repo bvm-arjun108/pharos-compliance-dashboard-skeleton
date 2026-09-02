@@ -1,4 +1,4 @@
-import { DatePipe, DecimalPipe, Location } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -199,7 +199,6 @@ export class TransactionReportComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly location = inject(Location);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<TransactionReportResponse | null>(null);
@@ -321,12 +320,13 @@ export class TransactionReportComponent implements OnInit {
     return `${first}–${last} of ${report.matchingRecordCount}`;
   }
 
+  /** Navigates to this report's logical parent view directly, rather than via browser history.
+   *  Every filter/sort/search/page change on this page pushes its own history entry (see
+   *  updateRoute()) without leaving the route, so location.back() used to require one click per
+   *  interaction made on this page before it ever left it -- a route-based destination is correct
+   *  regardless of how many in-page interactions happened first. */
   goBack(): void {
-    if (globalThis.history.length > 1) {
-      this.location.back();
-      return;
-    }
-    void this.router.navigate(['/batches/explorer']);
+    void this.router.navigate([this.mode() === 'BATCH' ? '/batches/explorer' : '/batches']);
   }
 
   openBatchView(): void {
