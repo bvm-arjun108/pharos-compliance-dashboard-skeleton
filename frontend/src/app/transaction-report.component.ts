@@ -206,6 +206,11 @@ export class TransactionReportComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly hasContext = signal(false);
   readonly mode = signal<ReportMode | null>(null);
+  // True only when reached from the Transactions Overview dashboard tiles (Excluded/Not Reported),
+  // which are backed by a dedicated identifier-grain query, not the batch-grain evidence pipeline
+  // every other status uses — restricting the dropdown to just those two keeps the UI honest about
+  // which query is actually running.
+  readonly overviewOnly = signal(false);
 
   readonly reportGroupId = signal<number | null>(null);
   readonly batchId = signal('');
@@ -617,6 +622,7 @@ export class TransactionReportComponent implements OnInit {
     this.status.set(this.parseStatus(params.get('status')));
     this.sortDirection.set(params.get('sortDirection') === 'ASC' ? 'ASC' : 'DESC');
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
+    this.overviewOnly.set(params.get('view') === 'overview');
 
     if (batchId && this.reportGroupId() !== null && this.sequenceNumber() !== null) {
       this.mode.set('BATCH');

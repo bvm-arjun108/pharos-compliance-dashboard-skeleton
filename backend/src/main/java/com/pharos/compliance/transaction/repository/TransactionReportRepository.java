@@ -803,8 +803,7 @@ public class TransactionReportRepository {
       .asTable("reporting_roll");
   }
 
-  private Table<?> filteredEvidenceForPeriod(Table<?> evidence, Table<?> batchScope, String search, String outcome, String status) {
-    Field<Integer> rptGrpId = requiredField(evidence, REPORT_GROUP_ID_COLUMN, Integer.class);
+  private Table<?> filteredEvidenceForPeriod(Table<?> evidence, String search, String outcome, String status) {
     Field<String> identifier = requiredField(evidence, IDENTIFIER, String.class);
     Field<String> mtcn = requiredField(evidence, "mtcn", String.class);
     Field<String> outcomeField = requiredField(evidence, OUTCOME, String.class);
@@ -815,24 +814,17 @@ public class TransactionReportRepository {
       .from(evidence)
       .where(searchScope(search, identifier, mtcn))
       .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
-      .and(periodStatusCondition(status, batchScope, rptGrpId, identifier, statusField))
+      .and("ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status))
       .asTable("filtered_evidence");
   }
 
   /**
-   * Excluded/Not Reported are answered from the same {@link #reportingRoll} used by the dashboard
-   * KPI they're clicked from -- a transaction "ever excluded"/"ever reported" across its full
-   * journey history, not this row's own latest-state status -- so the list a user lands on matches
-   * what the tile they clicked actually counted. Every other status value keeps the original
-   * per-row latest-state comparison unchanged.
+   * The identifiers belonging to one {@link #reportingRoll} bucket -- already one row per {@code
+   * (rpt_grp_id, identifier)} by construction (the roll itself is grouped that way), so this table's
+   * own row count already answers "how many transactions are in this bucket" with no further
+   * dedup needed.
    */
-  private Condition periodStatusCondition(String status, Table<?> batchScope, Field<Integer> evidenceRptGrpId,
-      Field<String> evidenceIdentifier, Field<String> statusField) {
-    if (!VALUE_EXCLUDED.equals(status) && !VALUE_NOT_REPORTED.equals(status)) {
-      return "ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status);
-    }
-
-    var roll = reportingRoll(batchScope);
+  private Table<?> reportingTarget(Table<?> roll, String status) {
     Field<Integer> rollRptGrpId = requiredField(roll, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> rollIdentifier = requiredField(roll, IDENTIFIER, String.class);
     Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
@@ -841,12 +833,98 @@ public class TransactionReportRepository {
     ? everExcluded.isTrue().and(everReported.isFalse())
     : everReported.isFalse().and(everExcluded.isFalse());
 
-    return DSL.exists(dsl
-      .selectOne()
-      .from(roll)
-      .where(rollRptGrpId.eq(evidenceRptGrpId))
-      .and(rollIdentifier.eq(evidenceIdentifier))
-      .and(bucketCondition));
+    return dsl.select(rollRptGrpId, rollIdentifier).from(roll).where(bucketCondition).asTable("reporting_target");
+  }
+
+  /**
+   * One journey row per identifier in {@code target} -- its single most-recently-modified row,
+   * regardless of which of that identifier's (possibly several) batches it came from. This is the
+   * deliberate fix for the bug the per-batch merge pipeline has for these two statuses: {@code
+   * ever_excluded}/{@code ever_reported} is computed across a transaction's *entire* batch history,
+   * but {@link #mergedEvidence} groups by {@code (evidence_batch_id, identifier)} -- so a
+   * transaction that was reprocessed across N batches (exactly what a stuck "Not Reported"
+   * transaction tends to do) would surface as N separate rows there, none of them collapsing,
+   * wildly inflating the count relative to what the dashboard tile (correctly) counted once. Ranking
+   * by identifier alone and taking the top row sidesteps the per-batch grain entirely -- there is
+   * structurally only one output row per transaction, matching the tile's own definition exactly.
+   */
+  private Table<?> latestJourneyForTarget(Table<?> batchScope, Table<?> target) {
+    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
+    Field<Integer> targetRptGrpId = requiredField(target, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> targetIdentifier = requiredField(target, IDENTIFIER, String.class);
+
+    Field<Integer> journeyRank = DSL
+      .rowNumber()
+      .over(DSL.partitionBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER).orderBy(JOURNEY.MODIFIED_TIMESTAMP.desc().nullsLast()))
+      .as(SOURCE_RANK);
+
+    var ranked = dsl
+      .select(DSL
+            .concat(DSL.inline("JOURNEY:"), JOURNEY.RPT_GRP_ID, DSL.inline(":"), JOURNEY.BATCH_ID, DSL.inline(":"), JOURNEY.IDENTIFIER)
+            .as(RECORD_KEY), JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
+          JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE), JOURNEY.STAGE.as(STAGE),
+          JOURNEY.STATUS.as(STATUS), journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS),
+          JOURNEY.SKIP_REASON.as(SKIP_REASON), DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN),
+          DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
+          DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
+          JOURNEY.REPORTING_TIMESTAMP_LATEST.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
+          JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT), JOURNEY.MODIFIED_TIMESTAMP.as(SORT_TIMESTAMP),
+          JOURNEY.PROCESSING_COMPLETE.as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
+          DSL.cast(null, SQLDataType.CLOB).as(CURRENCY_CODE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_DATE),
+          DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SIDE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SOURCE),
+          DSL.cast(null, SQLDataType.CLOB).as(ACTIVITY_TYPE), DSL.cast(null, SQLDataType.CLOB).as(SEND_DATE),
+          DSL.cast(null, SQLDataType.CLOB).as(GALACTIC_ID), DSL.cast(null, SQLDataType.INTEGER).as(BUCKET_ID_COLUMN),
+          DSL.cast(null, SQLDataType.BIGINT).as(ATTEMPT_ID_COLUMN),
+          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(RRA_KEY), journeyRank)
+      .from(JOURNEY)
+      .join(batchScope)
+      .on(bsRptGrpId.eq(JOURNEY.RPT_GRP_ID))
+      .and(bsBatchId.eq(JOURNEY.BATCH_ID))
+      .join(target)
+      .on(targetRptGrpId.eq(JOURNEY.RPT_GRP_ID))
+      .and(targetIdentifier.eq(JOURNEY.IDENTIFIER))
+      .asTable("ranked_journey");
+
+    Field<Integer> rank = requiredField(ranked, SOURCE_RANK, Integer.class);
+    return dsl.select(ranked.fields()).from(ranked).where(rank.eq(1)).asTable("latest_journey");
+  }
+
+  /**
+   * Excluded/Not Reported, reached from the Transactions Overview dashboard tiles, are answered
+   * from {@link #reportingRoll} -- the same "ever excluded"/"ever reported across full journey
+   * history" definition the tile itself counted -- via {@link #reportingTarget} and {@link
+   * #latestJourneyForTarget}, entirely independent of the per-batch evidence/merge pipeline every
+   * other status still uses ({@link #evidenceForPeriod}/{@link #filteredEvidenceForPeriod}/{@link
+   * #mergedEvidence}). The two pipelines are deliberately not shared: they answer genuinely
+   * different questions ("this batch's evidence rows" vs. "this transaction's whole history"), and
+   * an earlier attempt to fold the roll-up into the per-batch pipeline as an extra filter condition
+   * shipped a real bug -- a transaction reprocessed across several batches surfaced once per batch
+   * instead of once, since the merge step groups by (batch, identifier) while the roll-up is
+   * inherently per-identifier only.
+   */
+  private List<TransactionEvidenceProjection> findOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome,
+      String sortDirection, int size, long offset) {
+    var roll = reportingRoll(batchScope);
+    var target = reportingTarget(roll, status);
+    var latest = latestJourneyForTarget(batchScope, target);
+    var filtered = filteredEvidenceForPeriod(latest, search, outcome, "ALL");
+    var ruleHitMatches = ruleHitMatchesForPeriod(batchScope, status);
+    return pageMergedEvidence(filtered, ruleHitMatches, sortDirection, size, offset);
+  }
+
+  private long countOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome) {
+    var roll = reportingRoll(batchScope);
+    var target = reportingTarget(roll, status);
+    if (search.isEmpty() && "ALL".equals(outcome)) {
+      return dsl.selectCount().from(target).fetchOne(0, Long.class);
+    }
+    var latest = latestJourneyForTarget(batchScope, target);
+    var filtered = filteredEvidenceForPeriod(latest, search, outcome, "ALL");
+    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
+    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
+    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
+    return count == null ? 0L : count;
   }
 
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
@@ -854,9 +932,12 @@ public class TransactionReportRepository {
       boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome,
       String status, String sortDirection, int size, long offset) {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
+    if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
+      return findOverviewEvidenceRecords(scope, status, search, outcome, sortDirection, size, offset);
+    }
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, scope, search, outcome, status);
+    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
     var merged = mergedEvidence(filtered);
     return pageMergedEvidence(merged, ruleHitMatches, sortDirection, size, offset);
   }
@@ -865,9 +946,12 @@ public class TransactionReportRepository {
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status) {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
+    if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
+      return countOverviewEvidenceRecords(scope, status, search, outcome);
+    }
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, scope, search, outcome, status);
+    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
     Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
     Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
     Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);

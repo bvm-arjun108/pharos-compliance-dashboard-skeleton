@@ -847,6 +847,10 @@ export class HomeComponent implements OnInit {
   // The transactions page instead has a period-wide mode: given a date range (and optional
   // report group/country) with no batchId, it lists every excluded-transaction record across the
   // whole matching batch set directly, via /api/v1/transactions/period-report.
+  /** The Transactions Overview tiles are the only entry point into the identifier-grain
+   *  Excluded/Not Reported query (see TransactionReportRepository#findOverviewEvidenceRecords) —
+   *  `view: 'overview'` tells the transaction page to restrict its status dropdown to just those
+   *  two values, so it can't be switched to a status that query doesn't support. */
   openExcludedTransactionsExplorer(): void {
     const period = this.resolvePeriod();
     if (!period) {
@@ -861,15 +865,13 @@ export class HomeComponent implements OnInit {
         reportGroupId: this.selectedReportGroupIdOrNull(),
         // Must be explicit: the period-wide view returns every evidence source, so without this
         // the user lands on all transactions rather than the excluded count they clicked.
-        status: 'EXCLUDED'
+        status: 'EXCLUDED',
+        view: 'overview'
       }
     });
   }
 
-  /** Same period-wide transactions view as above, but for the Not Reported total. Note: the
-   *  transaction list's own "Not reported" status filter reads rule_hit.is_reported, not the
-   *  journey-history ever_reported/ever_excluded roll-up this KPI is computed from — the list's
-   *  count will not match the number just clicked, same known gap as Excluded already has. */
+  /** Same period-wide transactions view as above, but for the Not Reported total. */
   openNotReportedTransactionsExplorer(): void {
     const period = this.resolvePeriod();
     if (!period) {
@@ -882,7 +884,8 @@ export class HomeComponent implements OnInit {
         toDate: period.toDate,
         country: this.country(),
         reportGroupId: this.selectedReportGroupIdOrNull(),
-        status: 'NOT_REPORTED'
+        status: 'NOT_REPORTED',
+        view: 'overview'
       }
     });
   }

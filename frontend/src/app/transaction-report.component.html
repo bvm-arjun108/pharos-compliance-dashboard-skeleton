@@ -67,14 +67,19 @@
           <label>
             <span class="sr-only">Status</span>
             <select [value]="status()" (change)="setStatus($event)">
-              <option value="ALL">All statuses</option>
-              <option value="SUCCESS">Success</option>
-              <option value="FAILED">Failed</option>
-              <option value="ERROR">Error</option>
-              <option value="EXCLUDED">Excluded</option>
-              <option value="NOT_YET_REPORTED">Not yet reported</option>
-              <option value="REPORTED">Reported</option>
-              <option value="NOT_REPORTED">Not reported</option>
+              @if (overviewOnly()) {
+                <option value="EXCLUDED">Excluded</option>
+                <option value="NOT_REPORTED">Not reported</option>
+              } @else {
+                <option value="ALL">All statuses</option>
+                <option value="SUCCESS">Success</option>
+                <option value="FAILED">Failed</option>
+                <option value="ERROR">Error</option>
+                <option value="EXCLUDED">Excluded</option>
+                <option value="NOT_YET_REPORTED">Not yet reported</option>
+                <option value="REPORTED">Reported</option>
+                <option value="NOT_REPORTED">Not reported</option>
+              }
             </select>
           </label>
           <button type="submit" class="transaction-apply">Apply</button>
