@@ -103,8 +103,7 @@ public class DashboardServiceImpl implements DashboardService {
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), counts.totalReportedTransactions(),
         counts.totalExcludedTransactions(),
         new TransactionOverviewResponse(transactionOverview.selected(), transactionOverview.expected(), transactionOverview.excluded(),
-            transactionOverview.notReported()),
-        trendGranularity, trend, reportGroups, fromDate, toDate);
+            transactionOverview.notReported()), trendGranularity, trend, reportGroups, fromDate, toDate);
   }
 
   private BatchHealthTrendResponse toTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate, LocalDate requestedToDate,

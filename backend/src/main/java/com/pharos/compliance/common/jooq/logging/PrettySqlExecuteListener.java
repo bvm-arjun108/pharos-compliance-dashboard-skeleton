@@ -1,5 +1,6 @@
 package com.pharos.compliance.common.jooq.logging;
 
+import com.pharos.compliance.common.jooq.metrics.QueryPerformanceTracker;
 import java.io.Serial;
 import org.jooq.DSLContext;
 import org.jooq.ExecuteContext;
@@ -20,31 +21,55 @@ public final class PrettySqlExecuteListener implements ExecuteListener {
   private static final Logger LOGGER = LoggerFactory.getLogger(PrettySqlExecuteListener.class);
   private static final String QUERY_PURPOSE = PrettySqlExecuteListener.class.getName() + ".queryPurpose";
   private static final String STARTED_AT_NANOS = PrettySqlExecuteListener.class.getName() + ".startedAtNanos";
+  private static final String QUERY_FAILED = PrettySqlExecuteListener.class.getName() + ".queryFailed";
+  private final QueryPerformanceTracker queryPerformanceTracker;
+
+  public PrettySqlExecuteListener(QueryPerformanceTracker queryPerformanceTracker) {
+    this.queryPerformanceTracker = queryPerformanceTracker;
+  }
 
   @Override
   public void executeStart(ExecuteContext context) {
+    if (queryPerformanceTracker.isRequestActive() || LOGGER.isDebugEnabled()) {
+      context.data(QUERY_PURPOSE, SqlQueryPurposeResolver.resolve());
+    }
     if (LOGGER.isDebugEnabled()) {
-      String purpose = SqlQueryPurposeResolver.resolve();
-      context.data(QUERY_PURPOSE, purpose);
-      context.data(STARTED_AT_NANOS, System.nanoTime());
+      String purpose = String.valueOf(context.data(QUERY_PURPOSE));
       LOGGER.debug("SQL query starting — {} | operation={} | bindValues=inlined\n{}", purpose, context.type(), renderQuery(context));
+    }
+    if (queryPerformanceTracker.isRequestActive() || LOGGER.isDebugEnabled()) {
+      // Start after formatting the DEBUG SQL so rendering a large statement is not mistaken for
+      // database execution time.
+      context.data(STARTED_AT_NANOS, System.nanoTime());
     }
   }
 
   @Override
   public void executeEnd(ExecuteContext context) {
+    Object startedAt = context.data(STARTED_AT_NANOS);
+    if (!(startedAt instanceof Long startedAtNanos)) {
+      return;
+    }
+    String purpose = String.valueOf(context.data(QUERY_PURPOSE));
+    long durationNanos = System.nanoTime() - startedAtNanos;
+    Integer rows = context.rows() >= 0 ? context.rows() : null;
+    queryPerformanceTracker.recordQuery(purpose, context.type().name(), durationNanos, rows, Boolean.TRUE.equals(context.data(QUERY_FAILED)));
+
     if (!LOGGER.isDebugEnabled()) {
       return;
     }
-    Object startedAt = context.data(STARTED_AT_NANOS);
-    String purpose = String.valueOf(context.data(QUERY_PURPOSE));
-    long durationMs = startedAt instanceof Long startedAtNanos ? (System.nanoTime() - startedAtNanos) / 1_000_000 : -1;
+    long durationMs = durationNanos / 1_000_000;
     if (context.rows() >= 0) {
       LOGGER.debug("SQL query completed — {} | operation={} | affectedRows={} | duration={}ms", purpose, context.type(), context.rows(),
           durationMs);
     } else {
       LOGGER.debug("SQL query completed — {} | operation={} | duration={}ms", purpose, context.type(), durationMs);
     }
+  }
+
+  @Override
+  public void exception(ExecuteContext context) {
+    context.data(QUERY_FAILED, true);
   }
 
   private static String renderQuery(ExecuteContext context) {

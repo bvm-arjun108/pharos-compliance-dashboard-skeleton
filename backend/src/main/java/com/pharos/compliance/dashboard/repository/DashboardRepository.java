@@ -353,16 +353,16 @@ public class DashboardRepository {
    * bucket definitions below are intentionally unchanged from that source.
    */
   @SqlQueryPurpose("Summarize expected, selected, excluded, and not-reported transactions from full journey history")
-  public TransactionOverviewProjection getTransactionOverview(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+  public TransactionOverviewProjection getTransactionOverview(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     Condition scope = RECONCILIATION.CREATED_TIMESTAMP
       .ge(fromTimestamp)
       .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
       .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
       .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
 
-    var batchScope = dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable(
-        "batch_scope");
+    var batchScope =
+        dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable("batch_scope");
 
     Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);

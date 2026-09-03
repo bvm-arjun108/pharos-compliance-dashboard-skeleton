@@ -1,5 +1,7 @@
 package com.pharos.compliance.common.tracing;
 
+import com.pharos.compliance.common.jooq.metrics.QueryPerformanceSummaryLogger;
+import com.pharos.compliance.common.jooq.metrics.QueryPerformanceTracker;
 import com.pharos.compliance.common.tracing.TraceContextAccessor.TraceIdentifiers;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -22,9 +24,14 @@ public class RequestTracingWebFilter extends OncePerRequestFilter {
   public static final String SPAN_ID_HEADER = "X-Span-Id";
   private static final Logger LOGGER = LoggerFactory.getLogger(RequestTracingWebFilter.class);
   private final TraceContextAccessor traceContextAccessor;
+  private final QueryPerformanceTracker queryPerformanceTracker;
+  private final QueryPerformanceSummaryLogger queryPerformanceSummaryLogger;
 
-  public RequestTracingWebFilter(TraceContextAccessor traceContextAccessor) {
+  public RequestTracingWebFilter(TraceContextAccessor traceContextAccessor, QueryPerformanceTracker queryPerformanceTracker,
+      QueryPerformanceSummaryLogger queryPerformanceSummaryLogger) {
     this.traceContextAccessor = traceContextAccessor;
+    this.queryPerformanceTracker = queryPerformanceTracker;
+    this.queryPerformanceSummaryLogger = queryPerformanceSummaryLogger;
   }
 
   @Override
@@ -41,6 +48,7 @@ public class RequestTracingWebFilter extends OncePerRequestFilter {
     // a handler that streams its body early could otherwise commit the response before a
     // finally-block header write ever runs.
     TraceIdentifiers identifiers = traceContextAccessor.current();
+    queryPerformanceTracker.beginRequest(method, path, identifiers.traceId(), identifiers.spanId());
     if (!"-".equals(identifiers.traceId())) {
       response.setHeader(TRACE_ID_HEADER, identifiers.traceId());
       response.setHeader(SPAN_ID_HEADER, identifiers.spanId());
@@ -58,6 +66,7 @@ public class RequestTracingWebFilter extends OncePerRequestFilter {
       String result = failed || status >= 500 ? "FAILED" : status >= 400 ? "REJECTED" : "SUCCESS";
       LOGGER.info("HTTP request completed | method={} | path={} | status={} | result={} | duration={}ms", method, path, status, result,
           durationMs);
+      queryPerformanceTracker.completeRequest(status).ifPresent(queryPerformanceSummaryLogger::log);
     }
   }
 }

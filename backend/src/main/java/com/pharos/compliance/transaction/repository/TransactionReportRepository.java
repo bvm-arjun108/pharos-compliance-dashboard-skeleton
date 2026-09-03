@@ -637,7 +637,6 @@ public class TransactionReportRepository {
   private Table<?> ruleHitMatchesForPeriod(Table<?> batchScope, String status) {
     Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
-
     // Unlike the batch-scoped version, NOT_REPORTED is deliberately excluded from this
     // short-circuit exemption: that status no longer reads rule_hit.is_reported at all (see
     // periodStatusCondition -- it's answered from the journey-history ever_reported/ever_excluded
@@ -690,10 +689,10 @@ public class TransactionReportRepository {
             .concat(DSL.inline("JOURNEY:"), JOURNEY.RPT_GRP_ID, DSL.inline(":"), JOURNEY.BATCH_ID, DSL.inline(":"), JOURNEY.IDENTIFIER)
             .as(RECORD_KEY), JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
           JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE), JOURNEY.STAGE.as(STAGE),
-          JOURNEY.STATUS.as(STATUS),
-          journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS), JOURNEY.SKIP_REASON.as(SKIP_REASON),
-          DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON),
-          DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY), DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
+          JOURNEY.STATUS.as(STATUS), journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS),
+          JOURNEY.SKIP_REASON.as(SKIP_REASON), DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN),
+          DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
+          DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
           JOURNEY.REPORTING_TIMESTAMP_LATEST.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
           JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT), JOURNEY.MODIFIED_TIMESTAMP.as(SORT_TIMESTAMP),
           JOURNEY.PROCESSING_COMPLETE.as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
@@ -813,8 +812,9 @@ public class TransactionReportRepository {
       .or(JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isTrue()));
 
     return dsl
-      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
-          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN))
+      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL
+            .boolOr(everExcludedCondition)
+            .as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN))
       .from(JOURNEY)
       .join(batchEvidence)
       .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
@@ -849,9 +849,10 @@ public class TransactionReportRepository {
     Field<String> rollIdentifier = requiredField(roll, IDENTIFIER, String.class);
     Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
     Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-    Condition bucketCondition = VALUE_EXCLUDED.equals(status)
-    ? everExcluded.isTrue().and(everReported.isFalse())
-    : everReported.isFalse().and(everExcluded.isFalse());
+    Condition bucketCondition =
+        VALUE_EXCLUDED.equals(status)
+        ? everExcluded.isTrue().and(everReported.isFalse())
+        : everReported.isFalse().and(everExcluded.isFalse());
 
     return dsl.select(rollRptGrpId, rollIdentifier).from(roll).where(bucketCondition).asTable("reporting_target");
   }

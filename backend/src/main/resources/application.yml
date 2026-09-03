@@ -36,6 +36,12 @@ server:
   port: 8085
   shutdown: graceful
 
+pharos:
+  observability:
+    query-performance:
+      enabled: ${QUERY_PERFORMANCE_LOG_ENABLED:true}
+      slow-query-threshold: ${QUERY_SLOW_THRESHOLD:250ms}
+
 springdoc:
   api-docs:
     path: /v3/api-docs
