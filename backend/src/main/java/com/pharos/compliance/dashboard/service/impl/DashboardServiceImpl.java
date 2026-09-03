@@ -5,11 +5,13 @@ import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.dashboard.dto.BatchHealthTrendResponse;
 import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
 import com.pharos.compliance.dashboard.dto.ReportGroupAttentionResponse;
+import com.pharos.compliance.dashboard.dto.TransactionOverviewResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.repository.DashboardRepository;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.service.DashboardService;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
 import com.pharos.compliance.reportgroup.model.CountryDefinition;
@@ -60,6 +62,9 @@ public class DashboardServiceImpl implements DashboardService {
     DashboardCountsProjection counts = dashboardRepository.getDashboardCounts(fromTimestamp, toTimestampExclusive, normalizedBatchId,
         countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
 
+    TransactionOverviewProjection transactionOverview = dashboardRepository.getTransactionOverview(fromTimestamp, toTimestampExclusive,
+        normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
+
     List<BatchHealthTrendResponse> trend = dashboardRepository
       .getBatchHealthTrend(fromTimestamp, toTimestampExclusive, fromDate, toDate, trendGranularity.name(), normalizedBatchId,
           countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter)
@@ -74,25 +79,32 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toReportGroupResponse)
       .toList();
 
-    DashboardDetailsResponse response = toDashboardResponse(counts, trendGranularity, trend, reportGroups, fromDate, toDate);
+    DashboardDetailsResponse response =
+        toDashboardResponse(counts, transactionOverview, trendGranularity, trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={} | attention={}"
-        + " | notYetReported={} | reportedTransactions={} | excludedTransactions={} | issueReportGroups={} | trendBuckets={}"
-        + " | duration={}ms", fromDate, toDate, normalizedCountryCode, reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(),
-        response.successfulBatches(), response.batchesNeedingAttention(), response.batchesNotYetReported(),
-        response.totalReportedTransactions(), response.totalExcludedTransactions(), response.reportGroupsRequiringAttention().size(),
-        response.batchHealthTrend().size(), (System.nanoTime() - startedAt) / 1_000_000);
+        + " | notYetReported={} | reportedTransactions={} | excludedTransactions={} | txnSelected={} | txnExpected={} | txnExcluded={}"
+        + " | txnNotReported={} | issueReportGroups={} | trendBuckets={} | duration={}ms", fromDate, toDate, normalizedCountryCode,
+        reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(), response.successfulBatches(),
+        response.batchesNeedingAttention(), response.batchesNotYetReported(), response.totalReportedTransactions(),
+        response.totalExcludedTransactions(), response.transactionOverview().selected(), response.transactionOverview().expected(),
+        response.transactionOverview().excluded(), response.transactionOverview().notReported(),
+        response.reportGroupsRequiringAttention().size(), response.batchHealthTrend().size(), (System.nanoTime() - startedAt) / 1_000_000);
     return response;
   }
 
-  private DashboardDetailsResponse toDashboardResponse(DashboardCountsProjection counts, TrendGranularity trendGranularity,
-      List<BatchHealthTrendResponse> trend, List<ReportGroupAttentionResponse> reportGroups, LocalDate fromDate, LocalDate toDate) {
+  private DashboardDetailsResponse toDashboardResponse(DashboardCountsProjection counts, TransactionOverviewProjection transactionOverview,
+      TrendGranularity trendGranularity, List<BatchHealthTrendResponse> trend, List<ReportGroupAttentionResponse> reportGroups,
+      LocalDate fromDate, LocalDate toDate) {
     return new DashboardDetailsResponse(counts.batchesRan(),
         counts.batchesRan() - counts.batchesNeedingAttention() - counts.batchesNotYetReported(), counts.batchesNotYetReported(),
         counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
         counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), counts.totalReportedTransactions(),
-        counts.totalExcludedTransactions(), trendGranularity, trend, reportGroups, fromDate, toDate);
+        counts.totalExcludedTransactions(),
+        new TransactionOverviewResponse(transactionOverview.selected(), transactionOverview.expected(), transactionOverview.excluded(),
+            transactionOverview.notReported()),
+        trendGranularity, trend, reportGroups, fromDate, toDate);
   }
 
   private BatchHealthTrendResponse toTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate, LocalDate requestedToDate,

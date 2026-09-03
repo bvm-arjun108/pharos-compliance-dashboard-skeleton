@@ -4,6 +4,7 @@ import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
 import static com.pharos.compliance.common.jooq.JooqConditions.countDistinctTupleFiltered;
 import static com.pharos.compliance.common.jooq.JooqConditions.zonelessTimestampBetween;
@@ -11,6 +12,7 @@ import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
 import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
+import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
 import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -44,9 +46,20 @@ public class DashboardRepository {
   private static final String TOTAL_REPORTED_TRANSACTIONS_COLUMN = "total_reported_transactions";
   private static final String TRANSFORMATION_FAILURE_BATCHES_ALIAS = "transformationFailureBatches";
   private static final String TRANSFORMATION_FAILURE_BATCHES_COLUMN = "transformation_failure_batches";
+  private static final String BATCH_GENERATED_COLUMN = "batch_generated";
+  private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
+  private static final String EVER_REPORTED_COLUMN = "ever_reported";
+  private static final String STATUS_EXCLUDED = "EXCLUDED";
+  private static final String STATUS_EXCLUDED_SOFT_DEDUP = "EXCLUDED_SOFT_DEDUP";
+  private static final String STATUS_GENERATED = "GENERATED";
+  private static final String STATUS_SUCCESS = "SUCCESS";
+  private static final String STAGE_REPORT_GENERATION = "REPORT_GENERATION";
+  private static final String STAGE_TRANSFORMATION = "TRANSFORMATION";
+  private static final String REPORT_GENERATION_COMPLETED = "Report Generation Completed";
   private static final com.pharos.compliance.jooq.tables.ReportTransformationReconciliation RECONCILIATION =
       REPORT_TRANSFORMATION_RECONCILIATION;
   private static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
+  private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
   private final DSLContext dsl;
 
   public DashboardRepository(DSLContext dsl) {
@@ -323,5 +336,79 @@ public class DashboardRepository {
           requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS), requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS),
           requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS), requiredLong(r, TOTAL_REPORTED_TRANSACTIONS_ALIAS),
           requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)));
+  }
+
+  /**
+   * Rolls up every journey event (not just the latest-state row) per {@code (rpt_grp_id,
+   * identifier)} into two booleans -- {@code ever_excluded} and {@code ever_reported} -- then
+   * partitions the result into the four Transactions Overview numbers. This intentionally departs
+   * from every other transaction count in this class: those all read {@code
+   * report_transformation_reconciliation}'s batch-level aggregate columns, which cannot see
+   * individual transactions; this reads {@code record_transformation_journey}'s full history for
+   * every batch in scope, joined against {@code report_batch_info} to confirm a batch's report was
+   * actually generated (not merely that its transformation step succeeded) before counting a
+   * transaction as reported. Ported directly from a validated business-rule spec (see the
+   * definitions of Reported / Not Reported / Excluded By Design / Expected), not derived
+   * independently -- the {@code batch_generated} condition, the exact stage/status literals, and the
+   * bucket definitions below are intentionally unchanged from that source.
+   */
+  @SqlQueryPurpose("Summarize expected, selected, excluded, and not-reported transactions from full journey history")
+  public TransactionOverviewProjection getTransactionOverview(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
+      .ge(fromTimestamp)
+      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
+      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
+      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+
+    var batchScope = dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable(
+        "batch_scope");
+
+    Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);
+
+    var batchEvidence = dsl
+      .select(bsRptGrpId, bsBatchId,
+          DSL
+            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
+            .as(BATCH_GENERATED_COLUMN))
+      .from(batchScope)
+      .leftJoin(BATCH_INFO)
+      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
+      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
+      .asTable("batch_evidence");
+
+    Field<Integer> beRptGrpId = requiredField(batchEvidence, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> beBatchId = requiredField(batchEvidence, RECONCILIATION.BATCH_ID.getName(), String.class);
+    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
+
+    Field<String> upperStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
+    Condition everExcludedCondition = upperStatus.in(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP);
+    Condition everReportedCondition = JOURNEY.STAGE
+      .eq(STAGE_REPORT_GENERATION)
+      .and(upperStatus.eq(STATUS_GENERATED))
+      .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
+
+    var roll = dsl
+      .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
+          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN))
+      .from(JOURNEY)
+      .join(batchEvidence)
+      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
+      .and(beBatchId.eq(JOURNEY.BATCH_ID))
+      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
+      .asTable("roll");
+
+    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
+    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
+
+    return dsl
+      .select(DSL.count().as("selected"), DSL.count().filterWhere(everReported.isTrue().or(everExcluded.isFalse())).as("expected"),
+          DSL.count().filterWhere(everExcluded.isTrue().and(everReported.isFalse())).as("excluded"),
+          DSL.count().filterWhere(everReported.isFalse().and(everExcluded.isFalse())).as("not_reported"))
+      .from(roll)
+      .fetchOptional(r -> new TransactionOverviewProjection(requiredLong(r, "selected"), requiredLong(r, "expected"),
+          requiredLong(r, "excluded"), requiredLong(r, "not_reported")))
+      .orElseThrow(() -> new IllegalStateException("Transaction overview aggregate returned no row"));
   }
 }

@@ -580,52 +580,39 @@ main {
   background: #686861;
 }
 
-.transaction-totals {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+/* Expected/Selected are plain totals, not a problem to flag — so they get the same .issue-kpi
+   tile shape as Excluded/Not Reported (same card, one consistent grid) but a neutral gray
+   treatment instead of the alert-red default, the same way .kpi-card--success overrides
+   .issue-kpi to green for its own non-issue tiles. Scoped via the same ancestor-plus-class
+   pattern .kpi-card--success uses (not a same-specificity sibling class), so it reliably wins
+   over the plain .issue-kpi red default regardless of source order. */
+.kpi-card--transactions .issue-kpi--neutral {
+  background: rgba(255, 255, 255, .58);
+  border-color: #d2d1ca;
 }
+.kpi-card--transactions .issue-kpi--neutral span { color: #696961; }
+.kpi-card--transactions .issue-kpi--neutral strong { color: #20201d; }
 
-.transaction-totals > div {
-  padding-right: 8px;
-  border-right: 1px solid #d2d1ca;
-}
-
-.transaction-totals > div:last-child { padding-right: 0; border-right: 0; }
-.transaction-totals span { display: block; color: #696961; font-size: 10px; font-weight: 750; text-transform: uppercase; }
-.transaction-totals strong {
-  display: block;
-  margin-top: 6px;
+/* Transaction-level totals run into the millions at real scale, unlike the small batch counts
+   .issue-kpi was designed for — same overflow protection .transaction-totals used to carry:
+   scale down instead of wrapping a number mid-digit, and never ellipsise an exact compliance
+   figure. Scoped to this card only so the Batches Overview tiles (always small counts) are
+   untouched. */
+.kpi-card--transactions .issue-kpi strong {
   overflow: hidden;
-  color: #20201d;
-  /* Scales down instead of wrapping: these sit two-across in a narrow column beside the gauge,
-     and a 7-figure total broke mid-digit ("4,072,27 / 9") at the previous fixed size. A number
-     split across two lines is harder to read than a slightly smaller one. */
-  /* Never ellipsised: an exact figure that reads "4,072,2..." is worse than useless in a
-     compliance report. The layout above guarantees the room; this only scales the type. */
-  font-size: clamp(15px, 1.25vw, 21px);
-  line-height: 1.2;
-  letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums;
+  font-size: clamp(15px, 1.6vw, 22px);
   white-space: nowrap;
 }
 
-.transaction-overview-body {
+.transaction-gauges {
   display: flex;
-  margin-top: 12px;
-  align-items: center;
-  gap: 16px;
+  justify-content: center;
+  margin-top: 18px;
+  gap: 28px;
+  flex-wrap: wrap;
 }
 
-.transaction-overview-side {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.exclusion-gauge { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; width: 150px; }
+.exclusion-gauge { display: flex; flex-direction: column; align-items: center; width: 150px; }
 .exclusion-gauge__svg { display: block; width: 100%; height: auto; }
 .exclusion-gauge__band { fill: none; stroke-width: 18; stroke-linecap: round; }
 .exclusion-gauge__band--healthy { stroke: #6f927f; }
@@ -650,6 +637,7 @@ main {
 .exclusion-gauge__legend {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   margin-top: 14px;
   gap: 5px 12px;
   color: #696961;
@@ -663,39 +651,6 @@ main {
 .exclusion-gauge__legend-dot--elevated { background: #c08c5b; }
 .exclusion-gauge__legend-dot--high { background: var(--failure-red); }
 
-.exclusion-alert {
-  display: flex;
-  width: 100%;
-  padding: 10px 14px;
-  align-items: center;
-  gap: 12px;
-  background: #f3e9ea;
-  border: 1px solid #dec8ca;
-  border-radius: 12px;
-  font: inherit;
-  text-align: left;
-}
-.exclusion-alert--link {
-  cursor: pointer;
-  transition: background-color .12s ease, border-color .12s ease;
-}
-.exclusion-alert--link:hover, .exclusion-alert--link:focus-visible {
-  background: #ecd9db;
-  border-color: #d3adb1;
-}
-.exclusion-alert--link:disabled { cursor: default; opacity: .7; }
-.exclusion-alert__icon {
-  display: block;
-  width: 34px;
-  height: 31px;
-  flex: 0 0 auto;
-}
-.exclusion-alert__triangle { fill: var(--failure-red); }
-.exclusion-alert__mark { fill: #fff; }
-.exclusion-alert strong { display: block; overflow: hidden; color: #63343a;
-  font-size: clamp(15px, 1.5vw, 23px); letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; white-space: nowrap; }
-.exclusion-alert span { display: block; margin-top: 1px; color: #76575b; font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .kpi-card--transactions > .transaction-overview-note { margin-top: 12px; }
 
 .issue-breakdown {

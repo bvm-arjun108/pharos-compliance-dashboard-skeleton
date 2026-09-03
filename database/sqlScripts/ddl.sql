@@ -78,6 +78,37 @@ CREATE TABLE "pharosRBT".pharos.report_transformation_reconciliation (
 );
 
 
+-- "pharosRBT".pharos.report_batch_info definition
+
+-- Drop table
+
+-- DROP TABLE "pharosRBT".pharos.report_batch_info;
+
+CREATE TABLE "pharosRBT".pharos.report_batch_info (
+    rpt_grp_id int4 NOT NULL,
+    batch_id varchar(255) NOT NULL,
+    seq_no int4 NOT NULL,
+    batch_status varchar(255),
+    compiler_status varchar(255),
+    created_timestamp timestamptz,
+    created_user_id int4,
+    modified_timestamp timestamptz,
+    process_timestamp timestamp,
+    report_header jsonb,
+    report_status varchar(255),
+    rpt_grp_name varchar(255),
+    transformer_mapping_version varchar(255),
+    txn_end_timestamp timestamp,
+    txn_start_timestamp timestamp,
+    txn_lookback_start_timestamp timestamp,
+    selection_version int4,
+    created_user_email text,
+    dms_ref_info jsonb,
+    CONSTRAINT report_batch_info_pkey
+        PRIMARY KEY (rpt_grp_id, batch_id, seq_no)
+);
+
+
 -- "pharosRBT".pharos.rule_hit_exclusion_audit definition
 
 -- Drop table
@@ -562,3 +593,35 @@ CREATE INDEX idx_reg_reportable_activity_s_party ON pharos.reg_reportable_activi
 CREATE INDEX idx_reg_reportable_activity_s_party_sdate ON pharos.reg_reportable_activity USING btree (s_party_galactic_id, s_date);
 CREATE INDEX modified_timestamp_reg_reportable_activity_idx ON pharos.reg_reportable_activity USING btree (modified_timestamp);
 CREATE INDEX txn_status_reg_reportable_activity_idx ON pharos.reg_reportable_activity USING btree (txn_status);
+
+
+
+-- "pharosRBT".pharos.report_batch_info definition
+
+-- Drop table
+
+-- DROP TABLE "pharosRBT".pharos.report_batch_info;
+
+CREATE TABLE "pharosRBT".pharos.report_batch_info (
+                                                      rpt_grp_id int4 NOT NULL,
+                                                      batch_id varchar(255) NOT NULL,
+                                                      seq_no int4 NOT NULL,
+                                                      batch_status varchar(255),
+                                                      compiler_status varchar(255),
+                                                      created_timestamp timestamptz,
+                                                      created_user_id int4,
+                                                      modified_timestamp timestamptz,
+                                                      process_timestamp timestamp,
+                                                      report_header jsonb,
+                                                      report_status varchar(255),
+                                                      rpt_grp_name varchar(255),
+                                                      transformer_mapping_version varchar(255),
+                                                      txn_end_timestamp timestamp,
+                                                      txn_start_timestamp timestamp,
+                                                      txn_lookback_start_timestamp timestamp,
+                                                      selection_version int4,
+                                                      created_user_email text,
+                                                      dms_ref_info jsonb,
+                                                      CONSTRAINT report_batch_info_pkey
+                                                          PRIMARY KEY (rpt_grp_id, batch_id, seq_no)
+);

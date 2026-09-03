@@ -10,6 +10,7 @@ import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
 import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
 import static com.pharos.compliance.jooq.tables.RegReportableActivity.REG_REPORTABLE_ACTIVITY;
+import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
 import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
 import static com.pharos.compliance.jooq.tables.RuleHit.RULE_HIT;
 import static com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT;
@@ -43,6 +44,7 @@ public class TransactionReportRepository {
   private static final String ACTIVITY_TYPE = "activity_type";
   private static final String ATTEMPT_ID_ALIAS = "attemptId";
   private static final String ATTEMPT_ID_COLUMN = "attempt_id";
+  private static final String BATCH_GENERATED_COLUMN = "batch_generated";
   private static final String BATCH_ID_ALIAS = "batchId";
   private static final String BATCH_ID_COLUMN = "batch_id";
   private static final String BUCKET_ID_ALIAS = "bucketId";
@@ -50,6 +52,8 @@ public class TransactionReportRepository {
   private static final String COMMENTS = "comments";
   private static final String CURRENCY_AMOUNT = "currency_amount";
   private static final String CURRENCY_CODE = "currency_code";
+  private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
+  private static final String EVER_REPORTED_COLUMN = "ever_reported";
   private static final String EVIDENCE_BATCH_ID = "evidence_batch_id";
   private static final String EVIDENCE_SOURCE = "evidence_source";
   private static final String EXCLUSION_REASON = "exclusion_reason";
@@ -66,6 +70,7 @@ public class TransactionReportRepository {
   private static final String PROCESSING_COMPLETE = "processing_complete";
   private static final String RECORD_KEY = "record_key";
   private static final String REPORTED_BATCH_ID = "reported_batch_id";
+  private static final String REPORT_GENERATION_COMPLETED = "Report Generation Completed";
   private static final String REPORT_GROUP_ID_COLUMN = "rpt_grp_id";
   private static final String REPORT_GROUP_NAME_ALIAS = "reportGroupName";
   private static final String REPORTING_TIMESTAMP_COLUMN = "reporting_timestamp";
@@ -95,6 +100,7 @@ public class TransactionReportRepository {
   private static final com.pharos.compliance.jooq.tables.RuleHit RULE_HIT_TABLE = RULE_HIT;
   private static final com.pharos.compliance.jooq.tables.RuleHitExclusionAudit EXCLUSION_AUDIT = RULE_HIT_EXCLUSION_AUDIT;
   private static final com.pharos.compliance.jooq.tables.RegReportableActivity RRA = REG_REPORTABLE_ACTIVITY;
+  private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
   private static final String REPORTING_TIMESTAMP = "reportingTimestamp";
   /**
    * Column list shared by the merged CTE and the outer projection -- 27 fields, in the exact order
@@ -612,7 +618,13 @@ public class TransactionReportRepository {
     Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
 
-    if (!("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
+    // Unlike the batch-scoped version, NOT_REPORTED is deliberately excluded from this
+    // short-circuit exemption: that status no longer reads rule_hit.is_reported at all (see
+    // periodStatusCondition -- it's answered from the journey-history ever_reported/ever_excluded
+    // roll-up instead), so running these correlated identifier-matching subqueries for it would
+    // only add cost without affecting the result -- and could double-count a transaction whose
+    // journey row and rule_hit row disagree on evidence_batch_id vs efile_batch_id.
+    if (!("ALL".equals(status) || VALUE_REPORTED.equals(status))) {
       return dsl
         .select(RULE_HIT_TABLE.fields())
         .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
@@ -656,8 +668,9 @@ public class TransactionReportRepository {
     var journeyBranch = dsl
       .select(DSL
             .concat(DSL.inline("JOURNEY:"), JOURNEY.RPT_GRP_ID, DSL.inline(":"), JOURNEY.BATCH_ID, DSL.inline(":"), JOURNEY.IDENTIFIER)
-            .as(RECORD_KEY), JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"), JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID),
-          DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE), JOURNEY.STAGE.as(STAGE), JOURNEY.STATUS.as(STATUS),
+            .as(RECORD_KEY), JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
+          JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE), JOURNEY.STAGE.as(STAGE),
+          JOURNEY.STATUS.as(STATUS),
           journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS), JOURNEY.SKIP_REASON.as(SKIP_REASON),
           DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON),
           DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY), DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
@@ -679,7 +692,7 @@ public class TransactionReportRepository {
       .select(DSL
             .concat(DSL.inline("EXCLUSION:"), EXCLUSION_AUDIT.BUCKET_ID, DSL.inline(":"), EXCLUSION_AUDIT.RULE_ID, DSL.inline(":"),
                 EXCLUSION_AUDIT.ATTEMPT_ID)
-            .as(RECORD_KEY),
+            .as(RECORD_KEY), EXCLUSION_AUDIT.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN),
           DSL.coalesce(EXCLUSION_AUDIT.EXTERNAL_TXN_KEY.cast(SQLDataType.CLOB), EXCLUSION_AUDIT.ATTEMPT_ID.cast(SQLDataType.CLOB)).as(
               IDENTIFIER), EXCLUSION_AUDIT.MTCN.as("mtcn"), EXCLUSION_AUDIT.PROCESSING_BATCH_ID.as(EVIDENCE_BATCH_ID),
           DSL.inline(SOURCE_EXCLUSION_AUDIT).as(EVIDENCE_SOURCE), DSL.inline("EXCLUSION").as(STAGE), DSL.inline(VALUE_EXCLUDED).as(STATUS),
@@ -701,6 +714,7 @@ public class TransactionReportRepository {
       .on(bsRptGrpId.eq(EXCLUSION_AUDIT.RPT_GRP_ID))
       .and(bsBatchId.eq(EXCLUSION_AUDIT.PROCESSING_BATCH_ID));
 
+    Field<Integer> rhmRptGrpId = requiredField(ruleHitMatches, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<Integer> rhmBucketId = requiredField(ruleHitMatches, BUCKET_ID_COLUMN, Integer.class);
     Field<String> rhmRuleId = requiredField(ruleHitMatches, RULE_ID_COLUMN, String.class);
     Field<Long> rhmAttemptId = requiredField(ruleHitMatches, ATTEMPT_ID_COLUMN, Long.class);
@@ -725,8 +739,8 @@ public class TransactionReportRepository {
 
     var ruleHitBranch = dsl
       .select(DSL.concat(DSL.inline("RULE_HIT:"), rhmBucketId, DSL.inline(":"), rhmRuleId, DSL.inline(":"), rhmAttemptId).as(RECORD_KEY),
-          rhmMatchedIdentifier.as(IDENTIFIER), rhmMtcn.as("mtcn"), rhmEfileBatchId.as(EVIDENCE_BATCH_ID),
-          DSL.inline(SOURCE_RULE_HIT).as(EVIDENCE_SOURCE), DSL.inline(SOURCE_RULE_HIT).as(STAGE),
+          rhmRptGrpId.as(REPORT_GROUP_ID_COLUMN), rhmMatchedIdentifier.as(IDENTIFIER), rhmMtcn.as("mtcn"),
+          rhmEfileBatchId.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_RULE_HIT).as(EVIDENCE_SOURCE), DSL.inline(SOURCE_RULE_HIT).as(STAGE),
           DSL.when(rhmIsReported, DSL.inline(VALUE_REPORTED)).otherwise(DSL.inline(VALUE_NOT_REPORTED)).as(STATUS),
           DSL.when(rhmIsReported, DSL.inline(OUTCOME_SUCCESS)).otherwise(DSL.inline(OUTCOME_PENDING)).as(OUTCOME),
           DSL.cast(null, SQLDataType.CLOB).as(COMMENTS), DSL.cast(null, SQLDataType.CLOB).as(SKIP_REASON), rhmRuleId.as(RULE_ID_COLUMN),
@@ -744,7 +758,53 @@ public class TransactionReportRepository {
     return journeyBranch.unionAll(exclusionBranch).unionAll(ruleHitBranch).asTable("evidence");
   }
 
-  private Table<?> filteredEvidenceForPeriod(Table<?> evidence, String search, String outcome, String status) {
+  /**
+   * Rolls up every journey event (not just the latest-state row) per {@code (rpt_grp_id,
+   * identifier)} in scope into {@code ever_excluded}/{@code ever_reported} booleans -- identical
+   * logic and bucket definitions to {@code DashboardRepository#getTransactionOverview}, ported here
+   * so the period-wide transaction list's Excluded/Not Reported filters match what the dashboard
+   * tile they're clicked from actually counted, instead of the per-row latest-state definitions
+   * {@link #filteredEvidenceForPeriod} otherwise uses for every other status value.
+   */
+  private Table<?> reportingRoll(Table<?> batchScope) {
+    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
+
+    var batchEvidence = dsl
+      .select(bsRptGrpId, bsBatchId,
+          DSL
+            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
+            .as(BATCH_GENERATED_COLUMN))
+      .from(batchScope)
+      .leftJoin(BATCH_INFO)
+      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
+      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
+      .asTable("reporting_batch_evidence");
+
+    Field<Integer> beRptGrpId = requiredField(batchEvidence, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> beBatchId = requiredField(batchEvidence, BATCH_ID_COLUMN, String.class);
+    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
+
+    Field<String> upperJourneyStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
+    Condition everExcludedCondition = upperJourneyStatus.in(VALUE_EXCLUDED, "EXCLUDED_SOFT_DEDUP");
+    Condition everReportedCondition = JOURNEY.STAGE
+      .eq("REPORT_GENERATION")
+      .and(upperJourneyStatus.eq("GENERATED"))
+      .or(JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isTrue()));
+
+    return dsl
+      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
+          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN))
+      .from(JOURNEY)
+      .join(batchEvidence)
+      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
+      .and(beBatchId.eq(JOURNEY.BATCH_ID))
+      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
+      .asTable("reporting_roll");
+  }
+
+  private Table<?> filteredEvidenceForPeriod(Table<?> evidence, Table<?> batchScope, String search, String outcome, String status) {
+    Field<Integer> rptGrpId = requiredField(evidence, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> identifier = requiredField(evidence, IDENTIFIER, String.class);
     Field<String> mtcn = requiredField(evidence, "mtcn", String.class);
     Field<String> outcomeField = requiredField(evidence, OUTCOME, String.class);
@@ -755,8 +815,38 @@ public class TransactionReportRepository {
       .from(evidence)
       .where(searchScope(search, identifier, mtcn))
       .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
-      .and("ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status))
+      .and(periodStatusCondition(status, batchScope, rptGrpId, identifier, statusField))
       .asTable("filtered_evidence");
+  }
+
+  /**
+   * Excluded/Not Reported are answered from the same {@link #reportingRoll} used by the dashboard
+   * KPI they're clicked from -- a transaction "ever excluded"/"ever reported" across its full
+   * journey history, not this row's own latest-state status -- so the list a user lands on matches
+   * what the tile they clicked actually counted. Every other status value keeps the original
+   * per-row latest-state comparison unchanged.
+   */
+  private Condition periodStatusCondition(String status, Table<?> batchScope, Field<Integer> evidenceRptGrpId,
+      Field<String> evidenceIdentifier, Field<String> statusField) {
+    if (!VALUE_EXCLUDED.equals(status) && !VALUE_NOT_REPORTED.equals(status)) {
+      return "ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status);
+    }
+
+    var roll = reportingRoll(batchScope);
+    Field<Integer> rollRptGrpId = requiredField(roll, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> rollIdentifier = requiredField(roll, IDENTIFIER, String.class);
+    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
+    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
+    Condition bucketCondition = VALUE_EXCLUDED.equals(status)
+    ? everExcluded.isTrue().and(everReported.isFalse())
+    : everReported.isFalse().and(everExcluded.isFalse());
+
+    return DSL.exists(dsl
+      .selectOne()
+      .from(roll)
+      .where(rollRptGrpId.eq(evidenceRptGrpId))
+      .and(rollIdentifier.eq(evidenceIdentifier))
+      .and(bucketCondition));
   }
 
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
@@ -766,7 +856,7 @@ public class TransactionReportRepository {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
+    var filtered = filteredEvidenceForPeriod(evidence, scope, search, outcome, status);
     var merged = mergedEvidence(filtered);
     return pageMergedEvidence(merged, ruleHitMatches, sortDirection, size, offset);
   }
@@ -777,7 +867,7 @@ public class TransactionReportRepository {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
+    var filtered = filteredEvidenceForPeriod(evidence, scope, search, outcome, status);
     Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
     Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
     Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);

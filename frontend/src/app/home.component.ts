@@ -41,11 +41,19 @@ interface DashboardDetailsResponse {
   softDedupBatches: number;
   totalReportedTransactions: number;
   totalExcludedTransactions: number;
+  transactionOverview: TransactionOverview;
   trendGranularity: TrendGranularity;
   batchHealthTrend: BatchHealthTrend[];
   reportGroupsRequiringAttention: ReportGroupAttention[];
   fromDate: string;
   toDate: string;
+}
+
+interface TransactionOverview {
+  selected: number;
+  expected: number;
+  excluded: number;
+  notReported: number;
 }
 
 type TrendGranularity = 'DAILY' | 'WEEKLY' | 'MONTHLY';
@@ -322,7 +330,38 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
             <strong class="kpi-error">Unavailable</strong>
             <small>{{ dashboardError() }}</small>
           } @else if (dashboardDetails(); as details) {
-            <div class="transaction-overview-body">
+            <div class="issue-breakdown">
+              <div class="issue-kpi issue-kpi--neutral">
+                <span>Selected</span>
+                <strong>{{ details.transactionOverview.selected | number:'1.0-0' }}</strong>
+              </div>
+              <div class="issue-kpi issue-kpi--neutral">
+                <span>Expected</span>
+                <strong>{{ details.transactionOverview.expected | number:'1.0-0' }}</strong>
+              </div>
+              <button
+                type="button"
+                class="issue-kpi"
+                [disabled]="details.transactionOverview.excluded === 0"
+                [attr.aria-label]="'View ' + details.transactionOverview.excluded + ' excluded transactions'"
+                (click)="openExcludedTransactionsExplorer()"
+              >
+                <span>Excluded</span>
+                <strong>{{ details.transactionOverview.excluded | number:'1.0-0' }}</strong>
+              </button>
+              <button
+                type="button"
+                class="issue-kpi"
+                [disabled]="details.transactionOverview.notReported === 0"
+                [attr.aria-label]="'View ' + details.transactionOverview.notReported + ' not-reported transactions'"
+                (click)="openNotReportedTransactionsExplorer()"
+              >
+                <span>Not Reported</span>
+                <strong>{{ details.transactionOverview.notReported | number:'1.0-0' }}</strong>
+              </button>
+            </div>
+
+            <div class="transaction-gauges">
               <div class="exclusion-gauge">
                 <svg class="exclusion-gauge__svg" viewBox="0 0 220 116" aria-hidden="true">
                   <path class="exclusion-gauge__band exclusion-gauge__band--healthy" d="M20,110 A90,90 0 0 1 46.36,46.36" />
@@ -332,49 +371,35 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                   <line
                     class="exclusion-gauge__needle"
                     x1="110" y1="110"
-                    [attr.x2]="gaugeNeedleX(exclusionRatePercent(details))"
-                    [attr.y2]="gaugeNeedleY(exclusionRatePercent(details))"
+                    [attr.x2]="gaugeNeedleX(exclusionRatePercent(details.transactionOverview))"
+                    [attr.y2]="gaugeNeedleY(exclusionRatePercent(details.transactionOverview))"
                   />
                   <circle class="exclusion-gauge__hub" cx="110" cy="110" r="6" />
                 </svg>
-                <!-- Sits in normal flow below the arc (not overlaid on it) so the needle —
-                     whose tip never dips below the hub's y-coordinate — can never cross this text,
-                     regardless of the exclusion rate's angle. -->
                 <div class="exclusion-gauge__readout">
-                  <strong [style.color]="gaugeZoneColor(exclusionRatePercent(details))">{{ formatExclusionRate(exclusionRatePercent(details)) }}</strong>
+                  <strong [style.color]="gaugeZoneColor(exclusionRatePercent(details.transactionOverview))">{{ formatGaugeRate(exclusionRatePercent(details.transactionOverview)) }}</strong>
                   <span>Exclusion Rate</span>
                 </div>
               </div>
 
-              <div class="transaction-overview-side">
-                <div class="transaction-totals">
-                  <div>
-                    <span>Expected</span>
-                    <strong>{{ expectedTransactions(details) | number:'1.0-0' }}</strong>
-                  </div>
-                  <div>
-                    <span>Reported</span>
-                    <strong>{{ details.totalReportedTransactions | number:'1.0-0' }}</strong>
-                  </div>
+              <div class="exclusion-gauge">
+                <svg class="exclusion-gauge__svg" viewBox="0 0 220 116" aria-hidden="true">
+                  <path class="exclusion-gauge__band exclusion-gauge__band--healthy" d="M20,110 A90,90 0 0 1 46.36,46.36" />
+                  <path class="exclusion-gauge__band exclusion-gauge__band--low" d="M46.36,46.36 A90,90 0 0 1 110,20" />
+                  <path class="exclusion-gauge__band exclusion-gauge__band--elevated" d="M110,20 A90,90 0 0 1 173.64,46.36" />
+                  <path class="exclusion-gauge__band exclusion-gauge__band--high" d="M173.64,46.36 A90,90 0 0 1 200,110" />
+                  <line
+                    class="exclusion-gauge__needle"
+                    x1="110" y1="110"
+                    [attr.x2]="gaugeNeedleX(notReportedRatePercent(details.transactionOverview))"
+                    [attr.y2]="gaugeNeedleY(notReportedRatePercent(details.transactionOverview))"
+                  />
+                  <circle class="exclusion-gauge__hub" cx="110" cy="110" r="6" />
+                </svg>
+                <div class="exclusion-gauge__readout">
+                  <strong [style.color]="gaugeZoneColor(notReportedRatePercent(details.transactionOverview))">{{ formatGaugeRate(notReportedRatePercent(details.transactionOverview)) }}</strong>
+                  <span>Not Reported Rate</span>
                 </div>
-
-                <button
-                  type="button"
-                  class="exclusion-alert exclusion-alert--link"
-                  [disabled]="details.totalExcludedTransactions === 0"
-                  [attr.aria-label]="'View ' + details.totalExcludedTransactions + ' excluded transactions'"
-                  (click)="openExcludedTransactionsExplorer()"
-                >
-                  <svg class="exclusion-alert__icon" viewBox="0 0 40 36" aria-hidden="true" focusable="false">
-                    <path class="exclusion-alert__triangle" d="M20 2.5 38 33.5H2Z" />
-                    <rect class="exclusion-alert__mark" x="18.25" y="11" width="3.5" height="12.5" rx="1.75" />
-                    <circle class="exclusion-alert__mark" cx="20" cy="28" r="2" />
-                  </svg>
-                  <div>
-                    <strong>{{ details.totalExcludedTransactions | number:'1.0-0' }}</strong>
-                    <span>Excluded</span>
-                  </div>
-                </button>
               </div>
             </div>
 
@@ -385,7 +410,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
               <span><i class="exclusion-gauge__legend-dot exclusion-gauge__legend-dot--high"></i>10%+ High</span>
             </div>
 
-            <small class="transaction-overview-note">Transformer output and filtration exclusions</small>
+            <small class="transaction-overview-note">Reported/excluded status derived from each transaction's full journey history, not batch-level aggregates</small>
           }
         </article>
         </div>
@@ -841,6 +866,27 @@ export class HomeComponent implements OnInit {
     });
   }
 
+  /** Same period-wide transactions view as above, but for the Not Reported total. Note: the
+   *  transaction list's own "Not reported" status filter reads rule_hit.is_reported, not the
+   *  journey-history ever_reported/ever_excluded roll-up this KPI is computed from — the list's
+   *  count will not match the number just clicked, same known gap as Excluded already has. */
+  openNotReportedTransactionsExplorer(): void {
+    const period = this.resolvePeriod();
+    if (!period) {
+      this.dashboardError.set('Select both custom dates.');
+      return;
+    }
+    void this.router.navigate(['/transactions'], {
+      queryParams: {
+        fromDate: period.fromDate,
+        toDate: period.toDate,
+        country: this.country(),
+        reportGroupId: this.selectedReportGroupIdOrNull(),
+        status: 'NOT_REPORTED'
+      }
+    });
+  }
+
   openReportGroupExplorer(
     group: ReportGroupAttention,
     status: ExplorerStatus = 'ALL',
@@ -1021,19 +1067,23 @@ export class HomeComponent implements OnInit {
     return details.batchesRan === 0 ? 0 : (details.batchesNeedingAttention * 100) / details.batchesRan;
   }
 
-  exclusionRatePercent(details: DashboardDetailsResponse): number {
-    const total = details.totalReportedTransactions + details.totalExcludedTransactions;
-    return total === 0 ? 0 : (details.totalExcludedTransactions / total) * 100;
+  // Share of every selected transaction that ended up excluded.
+  exclusionRatePercent(overview: TransactionOverview): number {
+    return overview.selected === 0 ? 0 : (overview.excluded / overview.selected) * 100;
   }
 
-  expectedTransactions(details: DashboardDetailsResponse): number {
-    return details.totalReportedTransactions + details.totalExcludedTransactions;
+  // Share of transactions expected to be reported (i.e. not excluded) that still haven't been —
+  // scoped to "expected", not "selected", since a transaction that was excluded was never
+  // supposed to be reported in the first place and shouldn't dilute this rate.
+  notReportedRatePercent(overview: TransactionOverview): number {
+    return overview.expected === 0 ? 0 : (overview.notReported / overview.expected) * 100;
   }
 
   // Maps a rate onto a semicircle gauge where each threshold zone (0-1%, 1-5%, 5-10%, 10%+)
-  // gets an equal 45-degree slice, regardless of its numeric width. Real exclusion rates in
-  // this app sit well under 1%, so a plain linear 0-100% gauge would always pin the needle at
-  // the far left; zone-equal slices keep the needle legible within the "Healthy" range.
+  // gets an equal 45-degree slice, regardless of its numeric width. Real rates in this app sit
+  // well under 1%, so a plain linear 0-100% gauge would always pin the needle at the far left;
+  // zone-equal slices keep the needle legible within the "Healthy" range. Shared by both the
+  // exclusion-rate and not-reported-rate gauges, which use the same threshold scale.
   gaugeNeedleAngle(ratePercent: number): number {
     const zones = [
       { min: 0, max: 1, angleStart: 0, angleEnd: 45 },
@@ -1079,7 +1129,7 @@ export class HomeComponent implements OnInit {
     return '#bd343e';
   }
 
-  formatExclusionRate(ratePercent: number): string {
+  formatGaugeRate(ratePercent: number): string {
     return `${ratePercent.toFixed(2)}%`;
   }
 
