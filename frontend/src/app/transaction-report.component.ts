@@ -329,9 +329,16 @@ export class TransactionReportComponent implements OnInit {
    *  Every filter/sort/search/page change on this page pushes its own history entry (see
    *  updateRoute()) without leaving the route, so location.back() used to require one click per
    *  interaction made on this page before it ever left it -- a route-based destination is correct
-   *  regardless of how many in-page interactions happened first. */
+   *  regardless of how many in-page interactions happened first.
+   *  In BATCH mode this must deep-link back to the specific batch (same as openBatchView()) --
+   *  navigating to a bare /batches/explorer drops all context and lands on an empty explorer list
+   *  instead of the batch the user actually came from. */
   goBack(): void {
-    void this.router.navigate([this.mode() === 'BATCH' ? '/batches/explorer' : '/batches']);
+    if (this.mode() === 'BATCH') {
+      this.openBatchView();
+      return;
+    }
+    void this.router.navigate(['/batches']);
   }
 
   openBatchView(): void {

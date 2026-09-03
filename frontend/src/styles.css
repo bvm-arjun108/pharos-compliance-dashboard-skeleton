@@ -434,6 +434,25 @@ main {
   background: #f4f3ee;
   border: 1px solid #ddd9c9;
   border-radius: 14px;
+  /* Grid items default to min-width: auto, which factors in their content's own minimum size —
+     .kpi-batch-group__cards' fixed-minimum columns (below) give it an intrinsic minimum around
+     748px, and without this override that minimum wins over .kpi-grid's minmax(0, 1fr) track,
+     forcing this panel to overflow into its sibling instead of actually shrinking. */
+  min-width: 0;
+}
+
+.kpi-batch-group {
+  /* .kpi-batch-group__cards' 3-column layout has a hard content-minimum (~748px). Whether that
+     actually fits depends on this panel's own rendered width, not the page's viewport width —
+     which itself shifts with the sibling .kpi-transaction-group column's size, page padding, AND
+     browser zoom (zooming in shrinks the *effective* CSS-pixel viewport width without changing how
+     wide the window looks on screen). A page-level `@media` breakpoint can only ever guess at a
+     fixed viewport number and was repeatedly wrong for some combination of those factors. A
+     container query keyed on this panel's own inline size sidesteps all of that: it switches
+     layouts exactly when there truly isn't room, regardless of viewport width, zoom, or how the
+     sibling column is sized. */
+  container-type: inline-size;
+  container-name: kpi-batch-group;
 }
 
 .kpi-batch-group__label {
@@ -442,9 +461,23 @@ main {
 
 .kpi-batch-group__cards {
   display: grid;
-  grid-template-columns: minmax(140px, .62fr) minmax(290px, 1.5fr) minmax(290px, 1.45fr);
+  /* Safe default: no hard minimum, so it always fits regardless of container width. Widened to the
+     original 3-column layout only once the container query below confirms there's room. */
+  grid-template-columns: 1fr;
   align-items: stretch;
   gap: 14px;
+}
+
+@container kpi-batch-group (min-width: 420px) {
+  .kpi-batch-group__cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container kpi-batch-group (min-width: 760px) {
+  .kpi-batch-group__cards {
+    grid-template-columns: minmax(140px, .62fr) minmax(290px, 1.5fr) minmax(290px, 1.45fr);
+  }
 }
 
 .kpi-batch-group__cards,
@@ -656,12 +689,14 @@ main {
 .issue-breakdown {
   display: grid;
   margin-top: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* minmax(0, 1fr) would explicitly zero out the track's automatic content-based minimum, letting
+     a tile shrink past its own label's text width once this card gets narrow (e.g. in the outer
+     .kpi-batch-group__cards container query's 2-column tier) -- the label then overflows its cell
+     and visually spills into the neighboring tile. auto-fit with a real floor reflows the tile
+     count to whatever actually fits this card's rendered width instead, with no breakpoint to
+     miscalibrate against zoom or container size. */
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 7px;
-}
-
-.issue-breakdown--three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .issue-kpi {
@@ -1246,8 +1281,11 @@ button.metric-value,
 @media (max-width: 1100px) {
   .filter-form, .filter-form:has(.custom-date) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .primary-button { width: 100%; }
+  /* .kpi-batch-group__cards' own column count no longer depends on this breakpoint — it responds
+     directly to its container's rendered width via the @container rules above, which is immune to
+     zoom and to how much room the sibling .kpi-transaction-group column takes. This viewport
+     breakpoint just decides when the two top-level panels stack instead of sitting side by side. */
   .kpi-grid { grid-template-columns: 1fr; }
-  .kpi-batch-group__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-card { width: 100%; }
   .kpi-card--attention,
   .kpi-card--success { grid-column: 1 / -1; }
@@ -1271,7 +1309,6 @@ button.metric-value,
   .kpi-batch-group__cards { grid-template-columns: 1fr; }
   .kpi-card--attention,
   .kpi-card--success { grid-column: auto; }
-  .issue-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .planned-capabilities { grid-template-columns: 1fr; }
   .attention-table-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
   .daily-health-heading { align-items: flex-start; flex-direction: column; }

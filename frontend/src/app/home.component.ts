@@ -1,8 +1,9 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { DashboardFilterStateService, DashboardReportPeriod } from './dashboard-filter-state.service';
 
 interface CountryOption {
   code: string;
@@ -97,7 +98,7 @@ type AttentionSortColumn =
   | 'totalExcludedTransactions';
 type AttentionSortDirection = 'asc' | 'desc';
 
-type ReportPeriod = 'TODAY' | 'LAST_7_DAYS' | 'LAST_30_DAYS' | 'CUSTOM';
+type ReportPeriod = DashboardReportPeriod;
 type ExplorerStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION';
 type ExplorerIssueType =
   | 'ALL'
@@ -765,6 +766,8 @@ export class HomeComponent implements OnInit {
   readonly attentionPage = signal(0);
   readonly attentionPageSize = 10;
 
+  private readonly filterState = inject(DashboardFilterStateService);
+
   constructor(
     private readonly http: HttpClient,
     private readonly router: Router,
@@ -1322,29 +1325,53 @@ export class HomeComponent implements OnInit {
     return { fromDate: this.toLocalDate(fromDate), toDate: this.toLocalDate(toDate) };
   }
 
+  /** Merges the URL's query params with whatever the user last applied this session, per field —
+   *  the URL wins when a given param is actually present (a deep link, a bookmark, or another
+   *  page's own "back to dashboard" link that only sets some fields, like Batch Explorer's), and
+   *  the remembered service state fills in everything the URL doesn't specify. This is what makes
+   *  filters survive navigating away and back via a plain nav-bar link, which carries no query
+   *  params at all — most of this app's own links back to the dashboard are exactly that. */
   private restoreRouteFilters(): void {
     const params = this.route.snapshot.queryParamMap;
-    this.batchId.set(params.get('batchId') ?? '');
-    this.country.set(params.get('country') ?? 'ALL');
-    this.reportGroupId.set(params.get('reportGroupId') ?? 'ALL');
+    const remembered = this.filterState.get();
+
+    this.batchId.set(params.get('batchId') ?? remembered?.batchId ?? '');
+    this.country.set(params.get('country') ?? remembered?.country ?? 'ALL');
+    this.reportGroupId.set(params.get('reportGroupId') ?? remembered?.reportGroupId ?? 'ALL');
+
     const fromDate = params.get('fromDate');
     const toDate = params.get('toDate');
     if (fromDate && toDate) {
-      this.reportPeriod.set('CUSTOM');
+      const periodParam = params.get('period') as ReportPeriod | null;
+      this.reportPeriod.set(periodParam ?? 'CUSTOM');
       this.startDate.set(fromDate);
       this.endDate.set(toDate);
+      this.filtersApplied.set(true);
+    } else if (remembered) {
+      this.reportPeriod.set(remembered.reportPeriod);
+      this.startDate.set(remembered.startDate);
+      this.endDate.set(remembered.endDate);
       this.filtersApplied.set(true);
     }
   }
 
   private persistRouteFilters(): void {
     const period = this.resolvePeriod();
+    this.filterState.set({
+      batchId: this.batchId().trim(),
+      country: this.country(),
+      reportGroupId: this.reportGroupId(),
+      reportPeriod: this.reportPeriod(),
+      startDate: period?.fromDate ?? '',
+      endDate: period?.toDate ?? ''
+    });
     void this.router.navigate([], {
       relativeTo: this.route,
       replaceUrl: true,
       queryParams: {
         fromDate: period?.fromDate ?? null,
         toDate: period?.toDate ?? null,
+        period: this.reportPeriod(),
         batchId: this.batchId().trim() || null,
         country: this.country(),
         reportGroupId: this.reportGroupId() === 'ALL' ? null : this.reportGroupId()
