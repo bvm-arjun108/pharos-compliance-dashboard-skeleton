@@ -144,12 +144,32 @@ public class TransactionReportRepository {
   // ---------------------------------------------------------------------------------------------
   // Batch-scoped evidence (findEvidenceRecords / countEvidenceRecords)
   // ---------------------------------------------------------------------------------------------
-  private Table<?> ruleHitMatchesForBatch(int reportGroupId, String batchId, String status) {
-    if (!("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
+  /**
+   * {@code metricScoped} only ever matches a RULE_HIT-sourced row for metric ALL,
+   * ACTUAL_REPORTABLE, TRANSFORMER_OUTPUT, or ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT -- every other
+   * metric filters {@code evidenceSource} down to JOURNEY or EXCLUSION_AUDIT only, so a RULE_HIT row
+   * can never survive that filter regardless of status. Defaults to {@code true} (don't skip) for
+   * anything not on this explicit, verified-safe list, including MISSING/FILTRATION_VARIANCE/
+   * RECONCILIATION_VARIANCE and any future metric -- this must never skip a case it hasn't actually
+   * confirmed is safe.
+   */
+  private static boolean metricNeedsRuleHit(String metric) {
+    return switch (metric) {
+      case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE", "EXPECTED_REPORTABLE", "TRANSFORMED", "FAILED",
+          VALUE_EXCLUDED, "SIMULATED", "ALREADY_REPORTED", "SOFT_DEDUP", "FILTERED" -> false;
+      default -> true;
+    };
+  }
+
+  private Table<?> ruleHitMatchesForBatch(int reportGroupId, String batchId, String metric, String status) {
+    if (!metricNeedsRuleHit(metric) || !("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
       // Same performance short-circuit as the original SQL: rule_hit evidence's status can only
       // ever be REPORTED/NOT_REPORTED, so any other requested status matches zero rule_hit rows --
       // skip the two correlated identifier-lookup subqueries entirely rather than run them for no
-      // reason.
+      // reason. The metric check is new: metricScoped() also can't ever keep a RULE_HIT row for most
+      // metrics regardless of status (see metricNeedsRuleHit) -- e.g. clicking a SIMULATED (SML)
+      // count was running this full correlated-subquery match against the entire rule_hit table for
+      // the report group, on every request, for a result metricScoped() would discard unconditionally.
       return dsl
         .select(RULE_HIT_TABLE.fields())
         .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
@@ -559,7 +579,7 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
   public List<TransactionEvidenceProjection> findEvidenceRecords(int reportGroupId, String batchId, String metric, String search,
       String source, String stage, String outcome, String status, String sortDirection, int size, long offset) {
-    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
+    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, metric, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
     var merged = mergedEvidence(filtered);
@@ -569,7 +589,7 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Count filtered transaction evidence records for one batch")
   public long countEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
       String outcome, String status) {
-    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
+    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, metric, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
     Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
