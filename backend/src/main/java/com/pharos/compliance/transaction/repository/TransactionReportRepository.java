@@ -444,7 +444,8 @@ public class TransactionReportRepository {
    */
   private Table<?> rankedEvidence(Table<?> filteredEvidence) {
     Field<String> evidenceSource = requiredField(filteredEvidence, EVIDENCE_SOURCE, String.class);
-    Field<Integer> sourceRank = DSL
+    Field<Integer> sourceRank =
+        DSL
       .when(evidenceSource.eq(SOURCE_EXCLUSION_AUDIT), 1)
       .when(evidenceSource.eq(SOURCE_RULE_HIT), 2)
       .otherwise(3)
@@ -481,7 +482,9 @@ public class TransactionReportRepository {
       .asTable("identifier_sort_keys");
   }
 
-  /** One (evidence_batch_id, identifier)'s winning sort key, as fetched by {@link #fetchPageKeys}. */
+  /**
+   * One (evidence_batch_id, identifier)'s winning sort key, as fetched by {@link #fetchPageKeys}.
+   */
   private record PageKey(String evidenceBatchId, String identifier, java.time.OffsetDateTime sortTs, String recordKey) {}
 
   /**
@@ -509,14 +512,14 @@ public class TransactionReportRepository {
     List<OrderField<?>> order = evidenceOrder(sortDirection, skSortTs, skRecordKey);
 
     var result = cursor != null
-    ? dsl
+        ? dsl
       .select(skEvidenceBatchId, skIdentifier, skSortTs, skRecordKey)
       .from(sortKeys)
       .where(condition)
       .orderBy(order)
       .limit(size + 1)
       .fetch()
-    : dsl
+        : dsl
       .select(skEvidenceBatchId, skIdentifier, skSortTs, skRecordKey)
       .from(sortKeys)
       .where(condition)
@@ -566,10 +569,13 @@ public class TransactionReportRepository {
     selectList.add(DSL.min(rSourceRank).as(MERGE_SOURCE_RANK));
 
     Condition keyCondition = pageKeys.isEmpty()
-    ? DSL.falseCondition()
-    : DSL
+        ? DSL.falseCondition()
+        : DSL
       .row(rEvidenceBatchId, rIdentifier)
-      .in(pageKeys.stream().map(key -> DSL.row(key.evidenceBatchId(), key.identifier())).toList());
+      .in(pageKeys
+        .stream()
+        .map(key -> DSL.row(key.evidenceBatchId(), key.identifier()))
+        .toList());
 
     return dsl.select(selectList).from(ranked).where(keyCondition).groupBy(rEvidenceBatchId, rIdentifier).asTable("merged");
   }

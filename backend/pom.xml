@@ -19,14 +19,6 @@
         <java.version>21</java.version>
         <prince-of-space.version>2.2.0</prince-of-space.version>
         <spotless-maven-plugin.version>3.10.0</spotless-maven-plugin.version>
-        <!-- jOOQ codegen connects at build time only, to read the schema; the app itself still
-             connects only through the HikariDataSource built in DatabaseConfiguration. Same
-             defaults as application.yml's common.postgres.* so a plain local build works
-             untouched; override with -Djooq.codegen.jdbc.* for CI or a different database, the
-             same way DB_URL/DB_USER/DB_PASSWORD override application.yml. -->
-        <jooq.codegen.jdbc.url>jdbc:postgresql://localhost:5439/pharosRBT</jooq.codegen.jdbc.url>
-        <jooq.codegen.jdbc.user>pharosRBT</jooq.codegen.jdbc.user>
-        <jooq.codegen.jdbc.password>pharosRBT</jooq.codegen.jdbc.password>
     </properties>
 
     <dependencies>
@@ -168,4 +160,57 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- jOOQ codegen connects at build time only, to read the schema and regenerate
+         com.pharos.compliance.jooq.*: it runs during `generate-sources`, before the Spring
+         ApplicationContext (and therefore any Spring Cloud Config Server client) exists, so it can
+         never read application.yml's common.postgres.* or a Config Server the way the running app
+         does at runtime. Hardcoding a single value here would break the moment this needs to build
+         against anything other than local dev.
+
+         Instead, these two profiles make Maven fall back the same way Spring does with
+         ${DB_URL:default} in application.yml: if DB_URL is already present in the environment,
+         use it (env.DB_URL/env.DB_USER/env.DB_PASSWORD, literally the same three variable names
+         application.yml's common.postgres.* reads); otherwise fall back to the local dev default.
+         Exactly one of these two profiles is ever active, based on whether DB_URL is set.
+
+         In CI/staging/prod, this pushes the real responsibility to where it belongs: the build
+         pipeline (not Maven, not this pom.xml) resolves the target environment's DB connection,
+         from Config Server's REST API, Vault, container-orchestrator secrets, or however that
+         pipeline already surfaces config, and exports DB_URL/DB_USER/DB_PASSWORD before invoking
+         `mvn package`. No pom.xml edit is ever needed per environment, and no per-environment value
+         is ever committed to source control.
+
+         -Djooq.codegen.jdbc.url/user/password still works as a manual override on top of either
+         profile if a build genuinely needs a codegen-only database different from both the local
+         default and whatever DB_URL points at: Maven command-line -D properties always take
+         precedence over profile-defined ones. -->
+    <profiles>
+        <profile>
+            <id>jooq-codegen-local-default</id>
+            <activation>
+                <property>
+                    <name>!env.DB_URL</name>
+                </property>
+            </activation>
+            <properties>
+                <jooq.codegen.jdbc.url>jdbc:postgresql://localhost:5439/pharosRBT</jooq.codegen.jdbc.url>
+                <jooq.codegen.jdbc.user>pharosRBT</jooq.codegen.jdbc.user>
+                <jooq.codegen.jdbc.password>pharosRBT</jooq.codegen.jdbc.password>
+            </properties>
+        </profile>
+        <profile>
+            <id>jooq-codegen-env</id>
+            <activation>
+                <property>
+                    <name>env.DB_URL</name>
+                </property>
+            </activation>
+            <properties>
+                <jooq.codegen.jdbc.url>${env.DB_URL}</jooq.codegen.jdbc.url>
+                <jooq.codegen.jdbc.user>${env.DB_USER}</jooq.codegen.jdbc.user>
+                <jooq.codegen.jdbc.password>${env.DB_PASSWORD}</jooq.codegen.jdbc.password>
+            </properties>
+        </profile>
+    </profiles>
 </project>

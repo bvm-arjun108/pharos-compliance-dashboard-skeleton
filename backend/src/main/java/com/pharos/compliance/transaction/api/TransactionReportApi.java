@@ -56,8 +56,8 @@ public interface TransactionReportApi {
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size,
       @Parameter(description = "Opaque cursor from a previous response's nextCursor, for cheap sequential paging that skips "
-          + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
-          + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
+      + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
+      + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
 
   @Operation(operationId = "getPeriodTransactionEvidenceReport", summary = "Get excluded-transaction evidence across every batch in a "
       + "date range", description = "Used when a dashboard KPI (e.g. total excluded transactions) spans many batches, so there"
@@ -82,6 +82,6 @@ public interface TransactionReportApi {
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size,
       @Parameter(description = "Opaque cursor from a previous response's nextCursor, for cheap sequential paging that skips "
-          + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
-          + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
+      + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
+      + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
 }

@@ -4,7 +4,6 @@ import com.pharos.compliance.config.CacheConfiguration;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
-import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
 import java.time.LocalDateTime;
 import java.util.List;

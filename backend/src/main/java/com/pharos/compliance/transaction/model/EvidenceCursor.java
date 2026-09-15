@@ -20,7 +20,9 @@ import java.util.Base64;
 public record EvidenceCursor(OffsetDateTime sortTs, String recordKey) {
   private static final String DELIMITER = "|";
 
-  /** Returns null for a blank/absent cursor — the normal "first page" case. */
+  /**
+   * Returns null for a blank/absent cursor — the normal "first page" case.
+   */
   public static EvidenceCursor decode(String token) {
     if (token == null || token.isBlank()) {
       return null;

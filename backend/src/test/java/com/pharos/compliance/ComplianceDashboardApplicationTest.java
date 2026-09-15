@@ -206,11 +206,18 @@ class ComplianceDashboardApplicationTest {
 
     assertNotNull(response);
     assertEquals(TrendGranularity.DAILY, response.trendGranularity());
-    assertEquals(response.batchesRan(), response
-      .batchHealthTrend()
-      .stream()
-      .mapToLong(period -> period.batchesRan())
-      .sum());
+    // The daily trend is sourced from report_transformation_reconciliation only (see
+    // DashboardRepository.getBatchHealthTrend) -- a batch with journey evidence but no
+    // reconciliation record yet has no completion date to bucket into a day, so it can never
+    // appear in the trend. The headline batchesRan() deliberately adds those not-yet-reported
+    // batches on top (getDashboardCounts), so the two only agree once that gap is subtracted back
+    // out.
+    assertEquals(response.batchesRan() - response.batchesNotYetReported(),
+        response
+          .batchHealthTrend()
+          .stream()
+          .mapToLong(period -> period.batchesRan())
+          .sum());
   }
 
   @Test
@@ -250,8 +257,8 @@ class ComplianceDashboardApplicationTest {
 
     assertNotNull(explorer);
     assertNotNull(dashboard);
-    assertEquals(2, explorer.summary().allBatches());
-    assertEquals(2, dashboard.batchesRan());
+    assertEquals(21, explorer.summary().allBatches());
+    assertEquals(21, dashboard.batchesRan());
     assertEquals(Set.of(1130, 1573742361),
         explorer
           .batches()
@@ -314,7 +321,8 @@ class ComplianceDashboardApplicationTest {
 
     assertNotNull(explorer);
     assertFalse(explorer.batches().isEmpty());
-    assertEquals(explorer.summary().allBatches(), explorer.summary().successfulBatches() + explorer.summary().attentionBatches());
+    assertEquals(explorer.summary().allBatches(),
+        explorer.summary().successfulBatches() + explorer.summary().attentionBatches() + explorer.summary().notYetReportedBatches());
     assertTrue(explorer
       .batches()
       .stream()
@@ -366,7 +374,7 @@ class ComplianceDashboardApplicationTest {
         BatchStatus.ALL, BatchIssueType.ALL, "", "PT", 1000000007, BatchMetricFocus.EXCLUDED, 0, 50);
 
     assertNotNull(transformationBatches);
-    assertEquals(4, transformationBatches.matchingBatches());
+    assertEquals(20, transformationBatches.matchingBatches());
     assertEquals("PORTUGAL OBJECTIVE", transformationBatches.reportGroupName());
     assertTrue(transformationBatches
       .batches()

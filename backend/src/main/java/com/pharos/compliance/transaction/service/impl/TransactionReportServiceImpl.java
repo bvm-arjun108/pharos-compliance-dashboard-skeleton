@@ -109,7 +109,9 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         + (response.nextCursor() != null));
   }
 
-  /** Blank/absent cursor decodes to null (first page); a malformed one is a client error, not a 500. */
+  /**
+   * Blank/absent cursor decodes to null (first page); a malformed one is a client error, not a 500.
+   */
   private EvidenceCursor decodeCursor(String cursor) {
     try {
       return EvidenceCursor.decode(cursor);

@@ -14,5 +14,5 @@ public record PeriodTransactionReportResponse(PeriodTransactionContextResponse c
     List<TransactionEvidenceRecordResponse> transactions, String search, TransactionOutcome outcome, TransactionStatus status,
     TransactionSortDirection sortDirection, int page, int size,
     @Schema(description = "Opaque cursor for the next page, null once exhausted. Pass it back as the `cursor` request "
-        + "parameter for cheap sequential access that skips the OFFSET scan cost `page` incurs at depth -- an alternative "
-        + "to `page`, not a required field to track.") String nextCursor) {}
+    + "parameter for cheap sequential access that skips the OFFSET scan cost `page` incurs at depth -- an alternative "
+    + "to `page`, not a required field to track.") String nextCursor) {}
