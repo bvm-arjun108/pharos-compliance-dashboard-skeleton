@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16
@@ -16,6 +14,25 @@ services:
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  # Serves the Angular production build via nginx and reverse-proxies API calls to the backend,
+  # which still runs directly on the host for now (see frontend/nginx.conf) -- not containerized,
+  # since its build needs a live, schema-populated Postgres reachable at build time for jOOQ
+  # codegen, which a hermetic Docker build stage doesn't have.
+  frontend:
+    build:
+      context: ./frontend
+    container_name: pharos-frontend
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+
+    # Lets this container resolve `host.docker.internal` to the host machine on plain Linux
+    # Docker Engine (e.g. EC2) -- Docker Desktop already provides this out of the box, but Linux
+    # needs it added explicitly. frontend/nginx.conf proxies to the host-run backend through this.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   postgres_data:

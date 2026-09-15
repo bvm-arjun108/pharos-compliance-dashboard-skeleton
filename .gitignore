@@ -1,6 +1,8 @@
 .idea/
 *.iml
 backend/target/
+backend/backend.log
+backend/backend.pid
 frontend/node_modules/
 frontend/dist/
 frontend/out-tsc/
