@@ -1,6 +1,8 @@
 package com.pharos.compliance.transaction.repository;
 
 import com.pharos.compliance.config.CacheConfiguration;
+import com.pharos.compliance.transaction.model.EvidenceCursor;
+import com.pharos.compliance.transaction.repository.projection.EvidencePage;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
@@ -40,10 +42,10 @@ public class TransactionEvidenceCache {
   }
 
   @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_RECORDS)
-  public List<TransactionEvidenceProjection> findEvidenceRecords(int reportGroupId, String batchId, String metric, String search,
-      String source, String stage, String outcome, String status, String sortDirection, int size, long offset) {
+  public EvidencePage findEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
+      String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     return repository.findEvidenceRecords(reportGroupId, batchId, metric, search, source, stage, outcome, status, sortDirection, size,
-        offset);
+        offset, cursor);
   }
 
   @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_COUNT)
@@ -60,11 +62,11 @@ public class TransactionEvidenceCache {
   }
 
   @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_RECORDS)
-  public List<TransactionEvidenceProjection> findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome,
-      String status, String sortDirection, int size, long offset) {
+  public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
+      String sortDirection, int size, long offset, EvidenceCursor cursor) {
     return repository.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
-        reportGroupId, search, outcome, status, sortDirection, size, offset);
+        reportGroupId, search, outcome, status, sortDirection, size, offset, cursor);
   }
 
   @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_COUNT)

@@ -11,6 +11,7 @@ import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionEvidenceRecordResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportContextResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
+import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
@@ -48,39 +49,73 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   @Override
   public TransactionReportResponse getTransactionReport(int reportGroupId, String batchId, int sequenceNumber, TransactionMetric metric,
       String search, TransactionEvidenceSource source, TransactionStage stage, TransactionOutcome outcome, TransactionStatus status,
-      TransactionSortDirection sortDirection, int page, int size) {
+      TransactionSortDirection sortDirection, int page, int size, String cursor) {
     String normalizedSearch = search == null ? "" : search.trim();
     long offset = (long) page * size;
+    EvidenceCursor decodedCursor = decodeCursor(cursor);
 
     return logOperation("Transaction evidence report",
         () -> LOGGER.debug("Transaction evidence scope resolved | reportGroupId={} | batchId={} | sequence={} | metric={} | source={}"
-            + " | stage={} | outcome={} | status={} | sortDirection={} | searchApplied={} | page={} | size={}", reportGroupId, batchId,
-            sequenceNumber, metric, source, stage, outcome, status, sortDirection, !normalizedSearch.isEmpty(), page, size),
+            + " | stage={} | outcome={} | status={} | sortDirection={} | searchApplied={} | page={} | size={} | cursorApplied={}",
+            reportGroupId, batchId, sequenceNumber, metric, source, stage, outcome, status, sortDirection, !normalizedSearch.isEmpty(), page,
+            size, decodedCursor != null),
         () -> {
           TransactionReportContextProjection context = transactionEvidenceCache
             .findReportContext(reportGroupId, batchId, sequenceNumber)
             .orElseThrow(() -> new ResourceNotFoundException("Reconciliation batch was not found"));
-          List<TransactionEvidenceProjection> evidence = transactionEvidenceCache.findEvidenceRecords(reportGroupId, batchId, metric.name(),
-              normalizedSearch, source.name(), stage.name(), outcome.name(), status.name(), sortDirection.name(), size, offset);
-          long matchingCount = transactionEvidenceCache.countEvidenceRecords(reportGroupId, batchId, metric.name(), normalizedSearch,
-              source.name(), stage.name(), outcome.name(), status.name());
-          long availableRecordCount = hasDefaultEvidenceFilters(normalizedSearch, source, stage, outcome, status)
-          ? matchingCount
-          : availableRecordCount(reportGroupId, batchId, metric);
           long aggregateCount = aggregateCount(context, metric);
+          List<TransactionEvidenceProjection> evidence;
+          long matchingCount;
+          long availableRecordCount;
+          String nextCursor = null;
+          if (isAggregateOnlyMetric(metric)) {
+            // MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE are each an absolute delta
+            // between two aggregate counts on the reconciliation row -- there is no row in
+            // JOURNEY/EXCLUSION_AUDIT/RULE_HIT that represents "this transaction is part of the
+            // gap," so no query condition can ever correctly select record-level evidence for
+            // them. Before this check, metricScoped() fell through to its default `true`
+            // condition for these three, which actually returned every evidence row in the batch
+            // -- unrelated, fully-processed transactions mislabeled as if they were the missing
+            // or variance ones -- after paying for the full 3-way UNION + LATERAL rule_hit
+            // correlated-match pipeline to compute it. Skip straight to the aggregate-only
+            // answer instead of running (and misreporting from) that pipeline at all.
+            evidence = List.of();
+            matchingCount = 0L;
+            availableRecordCount = 0L;
+          } else {
+            var page1 = transactionEvidenceCache.findEvidenceRecords(reportGroupId, batchId, metric.name(), normalizedSearch, source.name(),
+                stage.name(), outcome.name(), status.name(), sortDirection.name(), size, offset, decodedCursor);
+            evidence = page1.records();
+            nextCursor = page1.nextCursor();
+            matchingCount = transactionEvidenceCache.countEvidenceRecords(reportGroupId, batchId, metric.name(), normalizedSearch,
+                source.name(), stage.name(), outcome.name(), status.name());
+            availableRecordCount = hasDefaultEvidenceFilters(normalizedSearch, source, stage, outcome, status)
+            ? matchingCount
+            : availableRecordCount(reportGroupId, batchId, metric);
+          }
           TransactionEvidenceLevel evidenceLevel = evidenceLevel(aggregateCount, availableRecordCount);
           CountryDefinition country = countryCatalog.getSnapshot().getForReportGroup(reportGroupId);
 
           return new TransactionReportResponse(toContext(context, country), metric, metricLabel(metric), aggregateCount,
               availableRecordCount, matchingCount, evidenceLevel, evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
               evidence.stream().map(this::toEvidenceRecord).toList(), normalizedSearch, source, stage, outcome, status, sortDirection, page,
-              size);
+              size, nextCursor);
         },
         response -> "reportGroupId=" + reportGroupId + " | batchId=" + batchId + " | metric=" + metric + " | source=" + source + " | stage="
         + stage + " | outcome=" + outcome + " | status=" + status + " | aggregate=" + response.aggregateCount() + " | available="
         + response.availableRecordCount() + " | matched=" + response.matchingRecordCount() + " | returned=" + response
               .transactions()
-              .size() + " | evidenceLevel=" + response.evidenceLevel() + " | page=" + page + " | size=" + size);
+              .size() + " | evidenceLevel=" + response.evidenceLevel() + " | page=" + page + " | size=" + size + " | hasNextCursor="
+        + (response.nextCursor() != null));
+  }
+
+  /** Blank/absent cursor decodes to null (first page); a malformed one is a client error, not a 500. */
+  private EvidenceCursor decodeCursor(String cursor) {
+    try {
+      return EvidenceCursor.decode(cursor);
+    } catch (IllegalArgumentException e) {
+      throw new InvalidRequestException(e.getMessage());
+    }
   }
 
   /**
@@ -112,7 +147,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   @Override
   public PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country,
       Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection,
-      int page, int size) {
+      int page, int size, String cursor) {
     if (fromDate.isAfter(toDate)) {
       throw new InvalidDateRangeException("fromDate must be on or before toDate");
     }
@@ -123,20 +158,23 @@ public class TransactionReportServiceImpl implements TransactionReportService {
     LocalDateTime fromTimestamp = fromDate.atStartOfDay();
     LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
     long offset = (long) page * size;
+    EvidenceCursor decodedCursor = decodeCursor(cursor);
 
     CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
     CountryFilter countryFilter = resolvePeriodCountryFilter(catalog, normalizedCountry, reportGroupId);
 
     return logOperation("Period transaction evidence report",
         () -> LOGGER.debug("Period transaction evidence scope resolved | period={}..{} | country={} | reportGroupId={} | outcome={}"
-            + " | status={} | sortDirection={} | searchApplied={} | page={} | size={}", fromDate, toDate, normalizedCountry,
-            reportGroupId == null ? "ALL" : reportGroupId, outcome, status, sortDirection, !normalizedSearch.isEmpty(), page, size),
+            + " | status={} | sortDirection={} | searchApplied={} | page={} | size={} | cursorApplied={}", fromDate, toDate,
+            normalizedCountry, reportGroupId == null ? "ALL" : reportGroupId, outcome, status, sortDirection, !normalizedSearch.isEmpty(),
+            page, size, decodedCursor != null),
         () -> {
           PeriodAggregateProjection aggregate = transactionEvidenceCache.findPeriodAggregate(fromTimestamp, toTimestampExclusive,
               countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
-          List<TransactionEvidenceProjection> evidence = transactionEvidenceCache.findPeriodEvidenceRecords(fromTimestamp,
-              toTimestampExclusive, countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter,
-              normalizedSearch, outcome.name(), status.name(), sortDirection.name(), size, offset);
+          var page1 = transactionEvidenceCache.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, countryFilter.enabled(),
+              countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch, outcome.name(), status.name(),
+              sortDirection.name(), size, offset, decodedCursor);
+          List<TransactionEvidenceProjection> evidence = page1.records();
           long matchingCount = transactionEvidenceCache.countPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive,
               countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch,
               outcome.name(), status.name());
@@ -159,13 +197,14 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                   filterByReportGroup ? aggregate.reportGroupName() : null, countryDefinition.code(), countryDefinition.name(), fromDate,
                   toDate, aggregate.batchCount()), periodMetricLabel(status), aggregateCount, availableRecordCount, matchingCount,
               evidenceLevel, evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
-              evidence.stream().map(this::toEvidenceRecord).toList(), normalizedSearch, outcome, status, sortDirection, page, size);
+              evidence.stream().map(this::toEvidenceRecord).toList(), normalizedSearch, outcome, status, sortDirection, page, size,
+              page1.nextCursor());
         },
         response -> "period=" + fromDate + ".." + toDate + " | country=" + normalizedCountry + " | reportGroupId="
         + (reportGroupId == null ? "ALL" : reportGroupId) + " | outcome=" + outcome + " | status=" + status + " | batches="
         + response.context().batchCount() + " | aggregate=" + response.aggregateCount() + " | available=" + response.availableRecordCount()
         + " | matched=" + response.matchingRecordCount() + " | returned=" + response.transactions().size() + " | evidenceLevel="
-        + response.evidenceLevel() + " | page=" + page + " | size=" + size);
+        + response.evidenceLevel() + " | page=" + page + " | size=" + size + " | hasNextCursor=" + (response.nextCursor() != null));
   }
 
   private CountryFilter resolvePeriodCountryFilter(CountryCatalogSnapshot catalog, String countryCode, Integer reportGroupId) {
@@ -200,6 +239,22 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         row.senderDateOfBirth(), row.senderIdType(), row.senderIdNumber(), row.receiverCity(), row.receiverCountry(), row.receiverPhone(),
         row.receiverDateOfBirth(), row.receiverIdType(), row.receiverIdNumber(), row.transactionStatus(), row.transactionSubStatus(),
         row.ruleHitsJson());
+  }
+
+  /**
+   * True for a metric whose value is an absolute delta between two aggregate counts on the
+   * reconciliation row (a transaction that was selected but never attempted, or the gap between an
+   * expected and an actual count), rather than a status a specific transaction can carry. No
+   * condition against JOURNEY/EXCLUSION_AUDIT/RULE_HIT can identify "the transactions that make up
+   * this gap" -- the schema simply does not record which ones they are, only how many. Callers must
+   * skip the evidence pipeline entirely for these rather than let it run and return an unfiltered,
+   * mislabeled batch of unrelated evidence (see the call site in getTransactionReport()).
+   */
+  private boolean isAggregateOnlyMetric(TransactionMetric metric) {
+    return switch (metric) {
+      case MISSING, FILTRATION_VARIANCE, RECONCILIATION_VARIANCE -> true;
+      default -> false;
+    };
   }
 
   private long aggregateCount(TransactionReportContextProjection context, TransactionMetric metric) {

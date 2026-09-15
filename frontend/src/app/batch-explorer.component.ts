@@ -271,6 +271,16 @@ export class BatchExplorerComponent implements OnInit {
     if (!batch) {
       return;
     }
+    // batchId + reportGroupId + sequenceNumber alone pin down the exact batch (see BATCH mode in
+    // TransactionReportComponent.readRouteState), and `metric` alone picks the evidence bucket --
+    // this page's own status()/issueType()/metricFocus() signals are BATCH-level investigation-
+    // queue filters (e.g. status is 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED'), an
+    // entirely different domain from the transaction-level TransactionStatus the destination page's
+    // status filter expects. They used to be forwarded here anyway: issueType/metricFocus are never
+    // read on arrival (dead params), and status only coincidentally ever produced a valid value
+    // ('ALL' or the shared 'NOT_YET_REPORTED' literal) -- every other value silently parsed back to
+    // 'ALL', which is exactly why the destination page's status filter always showed "All statuses"
+    // regardless of which batch-queue tab was active when the metric was clicked.
     void this.router.navigate(['/transactions'], {
       queryParams: {
         reportGroupId: batch.reportGroupId,
@@ -279,10 +289,7 @@ export class BatchExplorerComponent implements OnInit {
         metric,
         fromDate: this.fromDate(),
         toDate: this.toDate(),
-        country: this.country(),
-        status: this.status(),
-        issueType: this.issueType(),
-        metricFocus: this.metricFocus()
+        country: this.country()
       }
     });
   }

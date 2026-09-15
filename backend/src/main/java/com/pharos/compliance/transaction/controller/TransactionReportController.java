@@ -26,16 +26,16 @@ public class TransactionReportController implements TransactionReportApi {
   @Override
   public TransactionReportResponse getTransactionReport(int reportGroupId, String batchId, int sequenceNumber, TransactionMetric metric,
       String search, TransactionEvidenceSource source, TransactionStage stage, TransactionOutcome outcome, TransactionStatus status,
-      TransactionSortDirection sortDirection, int page, int size) {
+      TransactionSortDirection sortDirection, int page, int size, String cursor) {
     return transactionReportService.getTransactionReport(reportGroupId, batchId, sequenceNumber, metric, search, source, stage, outcome,
-        status, sortDirection, page, size);
+        status, sortDirection, page, size, cursor);
   }
 
   @Override
   public PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country,
       Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection,
-      int page, int size) {
+      int page, int size, String cursor) {
     return transactionReportService.getPeriodTransactionReport(fromDate, toDate, country, reportGroupId, search, outcome, status,
-        sortDirection, page, size);
+        sortDirection, page, size, cursor);
   }
 }

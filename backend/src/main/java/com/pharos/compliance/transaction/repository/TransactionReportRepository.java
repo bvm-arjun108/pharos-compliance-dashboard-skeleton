@@ -1,6 +1,8 @@
 package com.pharos.compliance.transaction.repository;
 
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
+import com.pharos.compliance.transaction.model.EvidenceCursor;
+import com.pharos.compliance.transaction.repository.projection.EvidencePage;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
@@ -35,8 +37,10 @@ import org.springframework.transaction.annotation.Transactional;
  * underlying transaction: JOURNEY (record_transformation_journey), EXCLUSION_AUDIT
  * (rule_hit_exclusion_audit), and RULE_HIT (rule_hit, resolved to its journey identifier via an
  * external_txn_key/mtcn bridge). A transaction can appear in more than one source; {@link
- * #mergedEvidence} collapses those into one row per (batch, identifier), preferring
- * EXCLUSION_AUDIT, then RULE_HIT, then JOURNEY wherever sources disagree on a field.
+ * #mergeForPageKeys} collapses those into one row per (batch, identifier), preferring
+ * EXCLUSION_AUDIT, then RULE_HIT, then JOURNEY wherever sources disagree on a field -- computed
+ * only for the identifiers a requested page actually needs (see {@link #pageEvidence}), not for
+ * every identifier matching the current filter.
  */
 @Repository
 @Transactional(readOnly = true)
@@ -60,6 +64,7 @@ public class TransactionReportRepository {
   private static final String EXCLUSION_STRATEGY = "exclusion_strategy";
   private static final String GALACTIC_ID = "galactic_id";
   private static final String IDENTIFIER = "identifier";
+  private static final String IDENTIFIER_BIGINT = "identifier_bigint";
   private static final String IS_REPORTED = "is_reported";
   private static final String MATCHED_IDENTIFIER = "matched_identifier";
   private static final String MODIFIED_AT = "modified_at";
@@ -84,6 +89,13 @@ public class TransactionReportRepository {
   private static final String SOURCE_EXCLUSION_AUDIT = "EXCLUSION_AUDIT";
   private static final String SOURCE_JOURNEY = "JOURNEY";
   private static final String SOURCE_RANK = "source_rank";
+  // Distinct from SOURCE_RANK (latestJourneyForTarget's own ROW_NUMBER() rank column, an unrelated
+  // concept for the overview path) -- rankedEvidence()'s priority column is added on top of
+  // whatever filteredEvidence already carries, and the overview path's `filtered` does carry
+  // SOURCE_RANK through as leftover baggage from latestJourneyForTarget. Reusing the same name
+  // there produced two same-named output columns and a genuine "column reference is ambiguous"
+  // error from Postgres once pageEvidence unified the overview path through rankedEvidence.
+  private static final String MERGE_SOURCE_RANK = "merge_source_rank";
   private static final String SOURCE_RULE_HIT = "RULE_HIT";
   private static final String STAGE = "stage";
   private static final String STAGE_FILTRATION = "FILTRATION";
@@ -149,9 +161,14 @@ public class TransactionReportRepository {
    * ACTUAL_REPORTABLE, TRANSFORMER_OUTPUT, or ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT -- every other
    * metric filters {@code evidenceSource} down to JOURNEY or EXCLUSION_AUDIT only, so a RULE_HIT row
    * can never survive that filter regardless of status. Defaults to {@code true} (don't skip) for
-   * anything not on this explicit, verified-safe list, including MISSING/FILTRATION_VARIANCE/
-   * RECONCILIATION_VARIANCE and any future metric -- this must never skip a case it hasn't actually
-   * confirmed is safe.
+   * anything not on this explicit, verified-safe list, and any future metric -- this must never skip
+   * a case it hasn't actually confirmed is safe.
+   *
+   * <p>MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method at all --
+   * {@code TransactionReportServiceImpl.isAggregateOnlyMetric} short-circuits them before the
+   * evidence pipeline is invoked, since {@code metricScoped}'s default branch has no real filter
+   * condition for them (an aggregate delta has no corresponding evidence row to select) and was
+   * previously returning every unrelated evidence row in the batch as if it were the answer.
    */
   private static boolean metricNeedsRuleHit(String metric) {
     return switch (metric) {
@@ -165,11 +182,11 @@ public class TransactionReportRepository {
     if (!metricNeedsRuleHit(metric) || !("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
       // Same performance short-circuit as the original SQL: rule_hit evidence's status can only
       // ever be REPORTED/NOT_REPORTED, so any other requested status matches zero rule_hit rows --
-      // skip the two correlated identifier-lookup subqueries entirely rather than run them for no
-      // reason. The metric check is new: metricScoped() also can't ever keep a RULE_HIT row for most
-      // metrics regardless of status (see metricNeedsRuleHit) -- e.g. clicking a SIMULATED (SML)
-      // count was running this full correlated-subquery match against the entire rule_hit table for
-      // the report group, on every request, for a result metricScoped() would discard unconditionally.
+      // skip the identifier-lookup join entirely rather than run it for no reason. The metric check
+      // is new: metricScoped() also can't ever keep a RULE_HIT row for most metrics regardless of
+      // status (see metricNeedsRuleHit) -- e.g. clicking a SIMULATED (SML) count was running this
+      // full match against the entire rule_hit table for the report group, on every request, for a
+      // result metricScoped() would discard unconditionally.
       return dsl
         .select(RULE_HIT_TABLE.fields())
         .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
@@ -178,27 +195,69 @@ public class TransactionReportRepository {
         .asTable(RULE_HIT_MATCHES);
     }
 
-    Field<String> byIdentifier = DSL.field(dsl
-      .select(JOURNEY.IDENTIFIER)
+    Table<?> journeyScoped = dsl
+      .select(JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
+          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(IDENTIFIER_BIGINT))
       .from(JOURNEY)
-      .where(JOURNEY.RPT_GRP_ID.eq(RULE_HIT_TABLE.RPT_GRP_ID))
+      .where(JOURNEY.RPT_GRP_ID.eq(reportGroupId))
       .and(JOURNEY.BATCH_ID.eq(batchId))
-      .and(matchesDigitsOnly(JOURNEY.IDENTIFIER))
-      .and(JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT).eq(RULE_HIT_TABLE.EXTERNAL_TXN_KEY))
-      .limit(1));
-    Field<String> byMtcn = DSL.field(dsl
-      .select(JOURNEY.IDENTIFIER)
-      .from(JOURNEY)
-      .where(JOURNEY.RPT_GRP_ID.eq(RULE_HIT_TABLE.RPT_GRP_ID))
-      .and(JOURNEY.BATCH_ID.eq(batchId))
-      .and(JOURNEY.MTCN.eq(RULE_HIT_TABLE.MTCN))
-      .limit(1));
+      .asTable("journey_scoped");
+
+    return ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.eq(reportGroupId), journeyScoped);
+  }
+
+  /**
+   * Resolves each {@code rule_hit} row in {@code ruleHitScope} back to the journey identifier it
+   * belongs to, joining against {@code journeyScoped} -- the (already small: one batch, or one
+   * period's batches) set of journey rows the caller actually cares about -- instead of running
+   * {@code byIdentifier}/{@code byMtcn} as correlated scalar subqueries evaluated once per
+   * {@code rule_hit} row across the whole report group. That correlated form measured 100-600x
+   * slower than every other metric on the exact same batch (1.2-1.4s vs 2-17ms locally, against a
+   * report group with only 3,591 rule_hit rows -- a real production report group's rule_hit table
+   * is likely orders of magnitude larger). Joining lets Postgres use a real join algorithm
+   * (hash/merge) against a tiny lookup table instead of an O(rule_hit rows in the report group)
+   * nested loop.
+   *
+   * <p>{@code GROUP BY} in the two lookup tables guarantees at most one row per join key, matching
+   * the original correlated subqueries' implicit "arbitrary pick" (neither had an {@code ORDER BY}
+   * before their {@code LIMIT 1}) with a deterministic {@code MIN()} tie-break instead. Confirmed
+   * against real mock data that journey identifiers are unique within a batch (0 duplicates across
+   * 3,069 batches) -- so the identifier-match path is always exact -- and that duplicate mtcns
+   * within one batch are exceedingly rare (2 of 3,069 batches), so this only changes which
+   * otherwise-arbitrary row wins in an already-rare edge case, never whether a match is found.
+   */
+  private Table<?> ruleHitMatches(Condition ruleHitScope, Table<?> journeyScoped) {
+    Field<String> jIdentifier = requiredField(journeyScoped, IDENTIFIER, String.class);
+    Field<String> jMtcn = requiredField(journeyScoped, "mtcn", String.class);
+    Field<Long> jIdentifierBigint = requiredField(journeyScoped, IDENTIFIER_BIGINT, Long.class);
+
+    var byIdentifierLookup = dsl
+      .select(jIdentifierBigint, DSL.min(jIdentifier).as(IDENTIFIER))
+      .from(journeyScoped)
+      .where(jIdentifierBigint.isNotNull())
+      .groupBy(jIdentifierBigint)
+      .asTable("by_identifier_lookup");
+    var byMtcnLookup = dsl
+      .select(jMtcn, DSL.min(jIdentifier).as(IDENTIFIER))
+      .from(journeyScoped)
+      .where(jMtcn.isNotNull())
+      .groupBy(jMtcn)
+      .asTable("by_mtcn_lookup");
+
+    Field<Long> lIdentifierBigint = requiredField(byIdentifierLookup, IDENTIFIER_BIGINT, Long.class);
+    Field<String> lByIdentifier = requiredField(byIdentifierLookup, IDENTIFIER, String.class);
+    Field<String> lMtcn = requiredField(byMtcnLookup, "mtcn", String.class);
+    Field<String> lByMtcn = requiredField(byMtcnLookup, IDENTIFIER, String.class);
 
     return dsl
       .select(RULE_HIT_TABLE.fields())
-      .select(DSL.coalesce(byIdentifier, byMtcn).as(MATCHED_IDENTIFIER))
+      .select(DSL.coalesce(lByIdentifier, lByMtcn).as(MATCHED_IDENTIFIER))
       .from(RULE_HIT_TABLE)
-      .where(RULE_HIT_TABLE.RPT_GRP_ID.eq(reportGroupId))
+      .leftJoin(byIdentifierLookup)
+      .on(lIdentifierBigint.eq(RULE_HIT_TABLE.EXTERNAL_TXN_KEY))
+      .leftJoin(byMtcnLookup)
+      .on(lMtcn.eq(RULE_HIT_TABLE.MTCN))
+      .where(ruleHitScope)
       .asTable(RULE_HIT_MATCHES);
   }
 
@@ -332,6 +391,11 @@ public class TransactionReportRepository {
       case "FILTERED" -> evidenceSource
         .eq(SOURCE_EXCLUSION_AUDIT)
         .or(evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION)));
+      // MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method -- see
+      // TransactionReportServiceImpl.isAggregateOnlyMetric. This default remains a defensive
+      // fallback for a metric this switch hasn't been taught yet, not a deliberate route for
+      // those three -- "match everything" was never a real condition for them, only an
+      // unfiltered dump of the batch's evidence mislabeled as if it answered the metric.
       default -> DSL.trueCondition();
     };
     // ACTUAL_REPORTABLE and TRANSFORMER_OUTPUT share the RULE_HIT-only condition in the original
@@ -371,17 +435,125 @@ public class TransactionReportRepository {
    * Collapses filtered evidence to one row per (evidence_batch_id, identifier), preferring
    * EXCLUSION_AUDIT, then RULE_HIT, then JOURNEY wherever sources disagree on a field.
    */
-  private Table<?> mergedEvidence(Table<?> filteredEvidence) {
+  /**
+   * Attaches the EXCLUSION_AUDIT &gt; RULE_HIT &gt; JOURNEY priority rank used everywhere a
+   * transaction's evidence needs to be collapsed to one row -- shared foundation for both {@link
+   * #identifierSortKeys} (a cheap 2-column-per-identifier pass used to paginate) and {@link
+   * #mergeForKeys} (the full per-column merge, run only for the identifiers a page actually
+   * needs), so both agree on exactly the same "which row wins" priority.
+   */
+  private Table<?> rankedEvidence(Table<?> filteredEvidence) {
     Field<String> evidenceSource = requiredField(filteredEvidence, EVIDENCE_SOURCE, String.class);
+    Field<Integer> sourceRank = DSL
+      .when(evidenceSource.eq(SOURCE_EXCLUSION_AUDIT), 1)
+      .when(evidenceSource.eq(SOURCE_RULE_HIT), 2)
+      .otherwise(3)
+      .as(MERGE_SOURCE_RANK);
+    return dsl.select(filteredEvidence.fields()).select(sourceRank).from(filteredEvidence).asTable("ranked");
+  }
 
-    Field<Integer> sourceRank =
-        DSL.when(evidenceSource.eq(SOURCE_EXCLUSION_AUDIT), 1).when(evidenceSource.eq(SOURCE_RULE_HIT), 2).otherwise(3).as(SOURCE_RANK);
-
-    var ranked = dsl.select(filteredEvidence.fields()).select(sourceRank).from(filteredEvidence).asTable("ranked");
-
+  /**
+   * Pass 1 of paginating merged evidence: one row per (evidence_batch_id, identifier), but with
+   * only the two columns pagination actually needs -- the winning row's sort_ts and record_key,
+   * by the same source-rank priority the full merge uses. Computing only these two columns here
+   * means the page window (offset or cursor, see {@link #fetchPageKeys}) applies *before* the
+   * expensive 27-column {@code ARRAY_AGG(...).filterWhere(...)} merge runs, not after -- so {@link
+   * #mergeForPageKeys} only ever does that work for the identifiers actually on the requested page,
+   * not for every identifier matching the current filter. Previously the single-pass
+   * {@code mergedEvidence()} ran that full merge for the whole filtered result before any
+   * LIMIT/OFFSET applied, so page 1 and page 400 cost exactly the same -- the dominant reason a
+   * big batch or wide date range "took forever" regardless of which page was requested.
+   */
+  private Table<?> identifierSortKeys(Table<?> ranked) {
     Field<String> rEvidenceBatchId = requiredField(ranked, EVIDENCE_BATCH_ID, String.class);
     Field<String> rIdentifier = requiredField(ranked, IDENTIFIER, String.class);
-    Field<Integer> rSourceRank = requiredField(ranked, SOURCE_RANK, Integer.class);
+    Field<Integer> rSourceRank = requiredField(ranked, MERGE_SOURCE_RANK, Integer.class);
+    Field<String> rRecordKey = requiredField(ranked, RECORD_KEY, String.class);
+
+    Field<java.time.OffsetDateTime> sortTs =
+        firstNonNullByRank(ranked, SORT_TIMESTAMP, java.time.OffsetDateTime.class, rSourceRank, rRecordKey);
+    Field<String> recordKey = firstNonNullByRank(ranked, RECORD_KEY, String.class, rSourceRank, rRecordKey);
+
+    return dsl
+      .select(rEvidenceBatchId, rIdentifier, sortTs, recordKey)
+      .from(ranked)
+      .groupBy(rEvidenceBatchId, rIdentifier)
+      .asTable("identifier_sort_keys");
+  }
+
+  /** One (evidence_batch_id, identifier)'s winning sort key, as fetched by {@link #fetchPageKeys}. */
+  private record PageKey(String evidenceBatchId, String identifier, java.time.OffsetDateTime sortTs, String recordKey) {}
+
+  /**
+   * Applies the requested page window to {@code sortKeys} (see {@link #identifierSortKeys}) and
+   * materializes exactly the winning keys as a Java list -- needed up front (rather than staying
+   * in SQL) so {@link #nextCursorAfter} can compute the next page's cursor from the last key
+   * actually returned, and so {@link #mergeForPageKeys} has a concrete key list to restrict Pass 2
+   * to.
+   *
+   * <p>Offset mode (default, {@code cursor == null}) is for the page-number paginator's arbitrary
+   * page-jump UI; cursor mode (opaque {@code (sortTs, recordKey)} keyset) is for cheap sequential
+   * "next page" access that never pays an O(offset) skip cost, at the price of not being able to
+   * jump to an arbitrary page number -- exactly the hybrid the two access patterns each need.
+   *
+   * <p>Fetches one extra "peek" row beyond {@code size} in both modes, purely to know whether a
+   * next page exists -- the standard fetch-N+1 technique, since neither mode can otherwise answer
+   * that without a second query (cursor mode deliberately has no count query to fall back on).
+   */
+  private List<PageKey> fetchPageKeys(Table<?> sortKeys, String sortDirection, int size, long offset, EvidenceCursor cursor) {
+    Field<String> skEvidenceBatchId = requiredField(sortKeys, EVIDENCE_BATCH_ID, String.class);
+    Field<String> skIdentifier = requiredField(sortKeys, IDENTIFIER, String.class);
+    Field<java.time.OffsetDateTime> skSortTs = requiredField(sortKeys, SORT_TIMESTAMP, java.time.OffsetDateTime.class);
+    Field<String> skRecordKey = requiredField(sortKeys, RECORD_KEY, String.class);
+    Condition condition = cursorCondition(cursor, sortDirection, skSortTs, skRecordKey);
+    List<OrderField<?>> order = evidenceOrder(sortDirection, skSortTs, skRecordKey);
+
+    var result = cursor != null
+    ? dsl
+      .select(skEvidenceBatchId, skIdentifier, skSortTs, skRecordKey)
+      .from(sortKeys)
+      .where(condition)
+      .orderBy(order)
+      .limit(size + 1)
+      .fetch()
+    : dsl
+      .select(skEvidenceBatchId, skIdentifier, skSortTs, skRecordKey)
+      .from(sortKeys)
+      .where(condition)
+      .orderBy(order)
+      .limit(size + 1)
+      .offset(offset)
+      .fetch();
+
+    return result.map(r -> new PageKey(r.get(skEvidenceBatchId), r.get(skIdentifier), r.get(skSortTs), r.get(skRecordKey)));
+  }
+
+  /**
+   * Splits a {@link #fetchPageKeys} result (up to {@code size + 1} rows) into the page actually
+   * returned to the caller plus the cursor for the next one, {@code null} once exhausted.
+   */
+  private EvidencePageKeys splitPage(List<PageKey> keysWithPeek, int size) {
+    if (keysWithPeek.size() <= size) {
+      return new EvidencePageKeys(keysWithPeek, null);
+    }
+    PageKey lastOnPage = keysWithPeek.get(size - 1);
+    return new EvidencePageKeys(keysWithPeek.subList(0, size), EvidenceCursor.encode(lastOnPage.sortTs(), lastOnPage.recordKey()));
+  }
+
+  private record EvidencePageKeys(List<PageKey> keys, String nextCursor) {}
+
+  /**
+   * Pass 2: restricts {@code ranked} to exactly the (evidence_batch_id, identifier) pairs in
+   * {@code pageKeys} -- {@code size} rows at most, never the whole filtered result -- then runs
+   * the identical 27-column merge the old single-pass {@code mergedEvidence()} ran over
+   * everything. Returns an empty, correctly-shaped-but-never-queried result for an empty page
+   * rather than emitting {@code WHERE ... IN ()}, which is either invalid or trivially-false SQL
+   * depending on dialect.
+   */
+  private Table<?> mergeForPageKeys(Table<?> ranked, List<PageKey> pageKeys) {
+    Field<String> rEvidenceBatchId = requiredField(ranked, EVIDENCE_BATCH_ID, String.class);
+    Field<String> rIdentifier = requiredField(ranked, IDENTIFIER, String.class);
+    Field<Integer> rSourceRank = requiredField(ranked, MERGE_SOURCE_RANK, Integer.class);
     Field<String> rRecordKey = requiredField(ranked, RECORD_KEY, String.class);
 
     List<Field<?>> selectList = new ArrayList<>();
@@ -391,9 +563,42 @@ public class TransactionReportRepository {
       Class<?> type = mergeColumnType(column);
       selectList.add(firstNonNullByRank(ranked, column, type, rSourceRank, rRecordKey));
     }
-    selectList.add(DSL.min(rSourceRank).as(SOURCE_RANK));
+    selectList.add(DSL.min(rSourceRank).as(MERGE_SOURCE_RANK));
 
-    return dsl.select(selectList).from(ranked).groupBy(rEvidenceBatchId, rIdentifier).asTable("merged");
+    Condition keyCondition = pageKeys.isEmpty()
+    ? DSL.falseCondition()
+    : DSL
+      .row(rEvidenceBatchId, rIdentifier)
+      .in(pageKeys.stream().map(key -> DSL.row(key.evidenceBatchId(), key.identifier())).toList());
+
+    return dsl.select(selectList).from(ranked).where(keyCondition).groupBy(rEvidenceBatchId, rIdentifier).asTable("merged");
+  }
+
+  /**
+   * Keyset predicate mirroring {@link #evidenceOrder}'s own tiebreak exactly: strictly past the
+   * cursor row in whichever direction results are sorted. {@code sort_ts} is populated straight
+   * from {@code modified_timestamp} on every one of the three evidence branches (see the class
+   * Javadoc) and is never null in practice; a null would simply be excluded going forward rather
+   * than corrupt ordering, since SQL's three-valued logic makes a NULL comparison here false
+   * either way.
+   *
+   * <p>{@code evidenceOrder} sorts by {@code sort_ts} in the requested direction but {@code
+   * record_key} *always* ascending, as a pure tiebreak -- e.g. DESC order is {@code sort_ts DESC,
+   * record_key ASC}. A single row-value comparison ({@code ROW(sortTs, recordKey) < ROW(...)})
+   * applies the *same* direction to both columns, which is only correct when both are ascending;
+   * for DESC it silently drops every row tied with the cursor on {@code sort_ts} but sorted after
+   * it by the ascending tiebreak. Decomposing into an explicit OR handles the mixed directions
+   * correctly in both cases.
+   */
+  private Condition cursorCondition(EvidenceCursor cursor, String sortDirection, Field<java.time.OffsetDateTime> sortTs,
+      Field<String> recordKey) {
+    if (cursor == null) {
+      return DSL.trueCondition();
+    }
+    var cursorSortTs = DSL.val(cursor.sortTs());
+    var cursorRecordKey = DSL.val(cursor.recordKey());
+    Condition tieBreak = sortTs.eq(cursorSortTs).and(recordKey.gt(cursorRecordKey));
+    return "ASC".equals(sortDirection) ? sortTs.gt(cursorSortTs).or(tieBreak) : sortTs.lt(cursorSortTs).or(tieBreak);
   }
 
   private static <T> Field<T> firstNonNullByRank(Table<?> ranked, String column, Class<T> type, Field<Integer> sourceRank,
@@ -413,24 +618,38 @@ public class TransactionReportRepository {
     };
   }
 
-  private List<TransactionEvidenceProjection> pageMergedEvidence(Table<?> merged, Table<?> ruleHitMatches, String sortDirection, int size,
-      long offset) {
-    Field<String> recordKey = requiredField(merged, RECORD_KEY, String.class);
-    Field<java.time.OffsetDateTime> sortTs = requiredField(merged, SORT_TIMESTAMP, java.time.OffsetDateTime.class);
-
-    var page = dsl
-      .select(merged.fields())
-      .from(merged)
-      .orderBy(evidenceOrder(sortDirection, sortTs, recordKey))
-      .limit(size)
-      .offset(offset)
-      .asTable("page");
-
-    return selectEvidenceProjection(page, ruleHitMatches)
+  /**
+   * Finishes a two-pass page (see {@link #fetchPageKeys}/{@link #mergeForPageKeys}): {@code
+   * merged} is already exactly the page's rows (at most {@code size}, restricted by key up front),
+   * so this only re-applies the sort order -- a join followed by {@code GROUP BY} doesn't guarantee
+   * row order -- and runs the LATERAL rule_hit rollup + {@code reg_reportable_activity} join,
+   * unchanged from the original single-pass design and already scoped to just this page.
+   */
+  private List<TransactionEvidenceProjection> selectFinalPage(Table<?> merged, Table<?> ruleHitMatches, String sortDirection) {
+    return selectEvidenceProjection(merged, ruleHitMatches)
       .orderBy(
-          evidenceOrder(sortDirection, requiredField(page, SORT_TIMESTAMP, java.time.OffsetDateTime.class),
-              requiredField(page, RECORD_KEY, String.class)))
+          evidenceOrder(sortDirection, requiredField(merged, SORT_TIMESTAMP, java.time.OffsetDateTime.class),
+              requiredField(merged, RECORD_KEY, String.class)))
       .fetch(TransactionReportRepository::toEvidenceProjection);
+  }
+
+  /**
+   * The full two-pass pagination flow shared by the batch-scoped and period-scoped evidence
+   * queries: cheap Pass 1 to pick the page's identifiers (paying the page window's cost, not the
+   * whole result's), then Pass 2's full merge bounded to just those identifiers, then the existing
+   * per-page rule_hit rollup.
+   */
+  private EvidencePage pageEvidence(Table<?> filtered, Table<?> ruleHitMatches, String sortDirection, int size, long offset,
+      EvidenceCursor cursor) {
+    var ranked = rankedEvidence(filtered);
+    var sortKeys = identifierSortKeys(ranked);
+    var keysWithPeek = fetchPageKeys(sortKeys, sortDirection, size, offset, cursor);
+    var page = splitPage(keysWithPeek, size);
+    if (page.keys().isEmpty()) {
+      return new EvidencePage(List.of(), null);
+    }
+    var merged = mergeForPageKeys(ranked, page.keys());
+    return new EvidencePage(selectFinalPage(merged, ruleHitMatches, sortDirection), page.nextCursor());
   }
 
   private static List<OrderField<?>> evidenceOrder(String sortDirection, Field<java.time.OffsetDateTime> sortTs, Field<String> recordKey) {
@@ -577,13 +796,12 @@ public class TransactionReportRepository {
   }
 
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
-  public List<TransactionEvidenceProjection> findEvidenceRecords(int reportGroupId, String batchId, String metric, String search,
-      String source, String stage, String outcome, String status, String sortDirection, int size, long offset) {
+  public EvidencePage findEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
+      String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, metric, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
-    var merged = mergedEvidence(filtered);
-    return pageMergedEvidence(merged, ruleHitMatches, sortDirection, size, offset);
+    return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records for one batch")
@@ -652,32 +870,16 @@ public class TransactionReportRepository {
         .asTable(RULE_HIT_MATCHES);
     }
 
-    Field<String> byIdentifier = DSL.field(dsl
-      .select(JOURNEY.IDENTIFIER)
+    Table<?> journeyScoped = dsl
+      .select(JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
+          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(IDENTIFIER_BIGINT))
       .from(JOURNEY)
       .join(batchScope)
       .on(bsRptGrpId.eq(JOURNEY.RPT_GRP_ID))
       .and(bsBatchId.eq(JOURNEY.BATCH_ID))
-      .where(JOURNEY.RPT_GRP_ID.eq(RULE_HIT_TABLE.RPT_GRP_ID))
-      .and(matchesDigitsOnly(JOURNEY.IDENTIFIER))
-      .and(JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT).eq(RULE_HIT_TABLE.EXTERNAL_TXN_KEY))
-      .limit(1));
-    Field<String> byMtcn = DSL.field(dsl
-      .select(JOURNEY.IDENTIFIER)
-      .from(JOURNEY)
-      .join(batchScope)
-      .on(bsRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(bsBatchId.eq(JOURNEY.BATCH_ID))
-      .where(JOURNEY.RPT_GRP_ID.eq(RULE_HIT_TABLE.RPT_GRP_ID))
-      .and(JOURNEY.MTCN.eq(RULE_HIT_TABLE.MTCN))
-      .limit(1));
+      .asTable("journey_scoped");
 
-    return dsl
-      .select(RULE_HIT_TABLE.fields())
-      .select(DSL.coalesce(byIdentifier, byMtcn).as(MATCHED_IDENTIFIER))
-      .from(RULE_HIT_TABLE)
-      .where(RULE_HIT_TABLE.RPT_GRP_ID.in(dsl.selectDistinct(bsRptGrpId).from(batchScope)))
-      .asTable(RULE_HIT_MATCHES);
+    return ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.in(dsl.selectDistinct(bsRptGrpId).from(batchScope)), journeyScoped);
   }
 
   private Table<?> evidenceForPeriod(Table<?> batchScope, Table<?> ruleHitMatches) {
@@ -862,7 +1064,7 @@ public class TransactionReportRepository {
    * regardless of which of that identifier's (possibly several) batches it came from. This is the
    * deliberate fix for the bug the per-batch merge pipeline has for these two statuses: {@code
    * ever_excluded}/{@code ever_reported} is computed across a transaction's *entire* batch history,
-   * but {@link #mergedEvidence} groups by {@code (evidence_batch_id, identifier)} -- so a
+   * but the per-batch merge groups by {@code (evidence_batch_id, identifier)} -- so a
    * transaction that was reprocessed across N batches (exactly what a stuck "Not Reported"
    * transaction tends to do) would surface as N separate rows there, none of them collapsing,
    * wildly inflating the count relative to what the dashboard tile (correctly) counted once. Ranking
@@ -916,22 +1118,28 @@ public class TransactionReportRepository {
    * from {@link #reportingRoll} -- the same "ever excluded"/"ever reported across full journey
    * history" definition the tile itself counted -- via {@link #reportingTarget} and {@link
    * #latestJourneyForTarget}, entirely independent of the per-batch evidence/merge pipeline every
-   * other status still uses ({@link #evidenceForPeriod}/{@link #filteredEvidenceForPeriod}/{@link
-   * #mergedEvidence}). The two pipelines are deliberately not shared: they answer genuinely
-   * different questions ("this batch's evidence rows" vs. "this transaction's whole history"), and
-   * an earlier attempt to fold the roll-up into the per-batch pipeline as an extra filter condition
-   * shipped a real bug -- a transaction reprocessed across several batches surfaced once per batch
-   * instead of once, since the merge step groups by (batch, identifier) while the roll-up is
-   * inherently per-identifier only.
+   * other status still uses ({@link #evidenceForPeriod}/{@link #filteredEvidenceForPeriod}). The
+   * two pipelines are deliberately not shared: they answer genuinely different questions ("this
+   * batch's evidence rows" vs. "this transaction's whole history"), and an earlier attempt to fold
+   * the roll-up into the per-batch pipeline as an extra filter condition shipped a real bug -- a
+   * transaction reprocessed across several batches surfaced once per batch instead of once, since
+   * the merge step groups by (batch, identifier) while the roll-up is inherently per-identifier
+   * only.
+   *
+   * <p>{@code filtered} here is already effectively one row per identifier ({@code
+   * latestJourneyForTarget} already ranked to exactly one), so {@link #pageEvidence}'s Pass 2 merge
+   * is a no-op in substance (nothing to collapse) -- but reusing it rather than a separate
+   * single-pass helper is what gives this path real cursor-pagination support for free, instead of
+   * a client's cursor being silently ignored whenever the requested status happens to route here.
    */
-  private List<TransactionEvidenceProjection> findOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome,
-      String sortDirection, int size, long offset) {
+  private EvidencePage findOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome, String sortDirection,
+      int size, long offset, EvidenceCursor cursor) {
     var roll = reportingRoll(batchScope);
     var target = reportingTarget(roll, status);
     var latest = latestJourneyForTarget(batchScope, target);
     var filtered = filteredEvidenceForPeriod(latest, search, outcome, "ALL");
     var ruleHitMatches = ruleHitMatchesForPeriod(batchScope, status);
-    return pageMergedEvidence(filtered, ruleHitMatches, sortDirection, size, offset);
+    return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
   }
 
   private long countOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome) {
@@ -949,18 +1157,17 @@ public class TransactionReportRepository {
   }
 
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
-  public List<TransactionEvidenceProjection> findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome,
-      String status, String sortDirection, int size, long offset) {
+  public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
+      String sortDirection, int size, long offset, EvidenceCursor cursor) {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return findOverviewEvidenceRecords(scope, status, search, outcome, sortDirection, size, offset);
+      return findOverviewEvidenceRecords(scope, status, search, outcome, sortDirection, size, offset, cursor);
     }
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
     var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
-    var merged = mergedEvidence(filtered);
-    return pageMergedEvidence(merged, ruleHitMatches, sortDirection, size, offset);
+    return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records across the selected reporting period")

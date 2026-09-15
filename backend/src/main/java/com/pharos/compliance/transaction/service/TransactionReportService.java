@@ -13,8 +13,9 @@ import java.time.LocalDate;
 public interface TransactionReportService {
   TransactionReportResponse getTransactionReport(int reportGroupId, String batchId, int sequenceNumber, TransactionMetric metric,
       String search, TransactionEvidenceSource source, TransactionStage stage, TransactionOutcome outcome, TransactionStatus status,
-      TransactionSortDirection sortDirection, int page, int size);
+      TransactionSortDirection sortDirection, int page, int size, String cursor);
 
   PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId,
-      String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection, int page, int size);
+      String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection, int page, int size,
+      String cursor);
 }
