@@ -2,6 +2,7 @@ package com.pharos.compliance.transaction.service;
 
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
+import com.pharos.compliance.transaction.dto.TransactionSearchResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
@@ -18,4 +19,6 @@ public interface TransactionReportService {
   PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId,
       String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection, int page, int size,
       String cursor);
+
+  TransactionSearchResponse searchTransactions(String query);
 }

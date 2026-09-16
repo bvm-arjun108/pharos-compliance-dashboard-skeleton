@@ -11,6 +11,8 @@ import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionEvidenceRecordResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportContextResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
+import com.pharos.compliance.transaction.dto.TransactionSearchResponse;
+import com.pharos.compliance.transaction.dto.TransactionSearchResultResponse;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
@@ -20,9 +22,11 @@ import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
 import com.pharos.compliance.transaction.repository.TransactionEvidenceCache;
+import com.pharos.compliance.transaction.repository.TransactionSearchRepository;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
+import com.pharos.compliance.transaction.repository.projection.TransactionSearchResultProjection;
 import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -40,10 +44,13 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   private static final Logger LOGGER = LoggerFactory.getLogger(TransactionReportServiceImpl.class);
   private final TransactionEvidenceCache transactionEvidenceCache;
   private final CountryCatalog countryCatalog;
+  private final TransactionSearchRepository transactionSearchRepository;
 
-  public TransactionReportServiceImpl(TransactionEvidenceCache transactionEvidenceCache, CountryCatalog countryCatalog) {
+  public TransactionReportServiceImpl(TransactionEvidenceCache transactionEvidenceCache, CountryCatalog countryCatalog,
+      TransactionSearchRepository transactionSearchRepository) {
     this.transactionEvidenceCache = transactionEvidenceCache;
     this.countryCatalog = countryCatalog;
+    this.transactionSearchRepository = transactionSearchRepository;
   }
 
   @Override
@@ -207,6 +214,31 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         + response.context().batchCount() + " | aggregate=" + response.aggregateCount() + " | available=" + response.availableRecordCount()
         + " | matched=" + response.matchingRecordCount() + " | returned=" + response.transactions().size() + " | evidenceLevel="
         + response.evidenceLevel() + " | page=" + page + " | size=" + size + " | hasNextCursor=" + (response.nextCursor() != null));
+  }
+
+  /** No date range, no report group, no country -- the answer to "I have this MTCN/identifier/
+   *  external transaction key, which country was it evaluated under?" Deliberately returns every
+   *  raw matching row unmerged rather than trying to collapse them into one answer: the same real
+   *  transaction can legitimately show up more than once (once per report group or rule side), and
+   *  showing all of them is the point, not a defect to hide. */
+  @Override
+  public TransactionSearchResponse searchTransactions(String query) {
+    return logOperation("Transaction search", () -> LOGGER.debug("Transaction search scope resolved | queryLength={}", query.length()),
+        () -> {
+          String trimmed = query.trim();
+          if (trimmed.isEmpty()) {
+            throw new InvalidRequestException("Search query must not be blank");
+          }
+          List<TransactionSearchResultProjection> matches = transactionSearchRepository.search(trimmed);
+          return new TransactionSearchResponse(trimmed,
+              matches
+                .stream()
+                .map(match -> new TransactionSearchResultResponse(match.reportGroupId(), match.reportGroupName(), match.countryCode(),
+                    match.countryName(), match.batchId(), match.evidenceSource(), match.stage(), match.status(), match.comments(),
+                    match.matchedOn(), match.occurredAt(), match.mtcn()))
+                .toList());
+        },
+        response -> "resultCount=" + response.results().size());
   }
 
   private CountryFilter resolvePeriodCountryFilter(CountryCatalogSnapshot catalog, String countryCode, Integer reportGroupId) {

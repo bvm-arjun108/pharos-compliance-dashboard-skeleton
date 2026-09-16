@@ -3,6 +3,7 @@ package com.pharos.compliance.transaction.controller;
 import com.pharos.compliance.transaction.api.TransactionReportApi;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
+import com.pharos.compliance.transaction.dto.TransactionSearchResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
@@ -37,5 +38,10 @@ public class TransactionReportController implements TransactionReportApi {
       int page, int size, String cursor) {
     return transactionReportService.getPeriodTransactionReport(fromDate, toDate, country, reportGroupId, search, outcome, status,
         sortDirection, page, size, cursor);
+  }
+
+  @Override
+  public TransactionSearchResponse searchTransactions(String query) {
+    return transactionReportService.searchTransactions(query);
   }
 }

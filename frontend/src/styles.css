@@ -403,6 +403,7 @@ main {
 }
 
 .filter-feedback { margin: 18px 0 0; color: #3e6c50; font-size: 12px; font-weight: 700; }
+.filter-feedback--error { color: #7b3f45; }
 
 .kpi-section { margin-top: 28px; }
 
@@ -553,6 +554,7 @@ main {
 
 .kpi-card > small { display: block; margin-top: 8px; color: #6d6c65; font-size: 11px; line-height: 1.4; }
 .kpi-loading { display: block; margin-top: 24px; color: #6d6c65; font-size: 14px; }
+.kpi-scope-prompt { margin: 24px 0 0; color: #6d6c65; font-size: 13px; }
 .kpi-card > .kpi-error { color: #ffdd00; font-size: 25px; letter-spacing: -.02em; }
 
 .kpi-card--attention {

@@ -30,6 +30,18 @@ interface ReportConfigExplorerResponse {
   configurations: ReportConfigListItem[];
 }
 
+// Only the field this page actually reads -- the search can match on identifier, mtcn, or
+// external transaction key, but the transaction report page's own search box only understands
+// identifier/mtcn, so every result's resolved mtcn is what gets carried into that redirect.
+interface TransactionSearchResult {
+  mtcn: string | null;
+}
+
+interface TransactionSearchResponse {
+  query: string;
+  results: TransactionSearchResult[];
+}
+
 interface TransactionOverview {
   selected: number;
   expected: number;
@@ -75,11 +87,24 @@ type ReportPeriod = DashboardReportPeriod;
       </div>
 
       <form class="filter-form" (submit)="applyFilters($event)">
+        <!-- Unscoped lookup, in the same row as the filters below (same slot Batch View's Batch ID
+             field takes there) -- resolves an identifier/MTCN/external transaction key via
+             TransactionSearchRepository (no date/country/report-group needed) and jumps straight
+             to the detailed transaction report on Enter, rather than applying this row's own
+             filters. Its own (keydown.enter) handler prevents that keypress from also submitting
+             this form as an Apply-filters action. -->
         <label class="field field--search">
-          <span>Batch ID</span>
+          <span>Find a transaction</span>
           <div class="input-shell">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
-            <input type="search" placeholder="Search by batch ID" autocomplete="off" [value]="batchId()" (input)="setBatchId($event)" />
+            <input
+              type="search"
+              placeholder="Identifier, MTCN, or external transaction key"
+              autocomplete="off"
+              [value]="searchQuery()"
+              (input)="setSearchQuery($event)"
+              (keydown.enter)="runSearch($event)"
+            />
           </div>
         </label>
 
@@ -87,7 +112,13 @@ type ReportPeriod = DashboardReportPeriod;
           <span>Country</span>
           @if (countryOptions().length > 0) {
             <select [ngModel]="country()" (ngModelChange)="setCountryValue($event)" [ngModelOptions]="{standalone: true}">
-              <option value="ALL">All countries</option>
+              <!-- No real "all countries" choice here (unlike Batch View's) -- ever_reported/
+                   ever_excluded is only meaningful scoped to one country's rules (see the
+                   cross-country and rule-side grain discussion), so this is a required field with
+                   a disabled placeholder rather than a selectable wildcard. Still uses the same
+                   'ALL' sentinel value as Batch View internally so DashboardFilterStateService's
+                   shared country field keeps meaning "no real selection" the same way there. -->
+              <option value="ALL" disabled>Select a country…</option>
               @for (option of countryOptions(); track option.code) {
                 <option [value]="option.code">{{ option.name }}</option>
               }
@@ -138,7 +169,11 @@ type ReportPeriod = DashboardReportPeriod;
         </button>
       </form>
 
-      @if (filtersApplied()) {
+      @if (searchLoading()) {
+        <p class="filter-feedback" role="status">Searching…</p>
+      } @else if (searchError(); as error) {
+        <p class="filter-feedback filter-feedback--error" role="status">{{ error }}</p>
+      } @else if (filtersApplied()) {
         <p class="filter-feedback" role="status">Filters applied to the transaction view.</p>
       }
     </section>
@@ -161,7 +196,9 @@ type ReportPeriod = DashboardReportPeriod;
             <span>Transaction Totals</span>
             <span class="kpi-card__icon" aria-hidden="true">TX</span>
           </div>
-          @if (dashboardLoading()) {
+          @if (countryRequired()) {
+            <p class="kpi-scope-prompt">Select a country to see transaction totals for it.</p>
+          } @else if (dashboardLoading()) {
             <span class="kpi-loading">Loading…</span>
           } @else if (dashboardError()) {
             <strong class="kpi-error">Unavailable</strong>
@@ -269,7 +306,9 @@ type ReportPeriod = DashboardReportPeriod;
       </div>
 
       <div class="issue-trend-card">
-        @if (dashboardLoading()) {
+        @if (countryRequired()) {
+          <div class="chart-message">Select a country to see the daily transaction totals.</div>
+        } @else if (dashboardLoading()) {
           <div class="chart-message">Loading transaction totals…</div>
         } @else if (dashboardError()) {
           <div class="chart-message chart-message--error">Transaction-totals data is unavailable.</div>
@@ -335,7 +374,6 @@ type ReportPeriod = DashboardReportPeriod;
   `
 })
 export class TransactionOverviewComponent implements OnInit {
-  readonly batchId = signal('');
   readonly country = signal('ALL');
   readonly reportPeriod = signal<ReportPeriod>('LAST_7_DAYS');
   readonly startDate = signal('');
@@ -347,6 +385,10 @@ export class TransactionOverviewComponent implements OnInit {
   readonly countryOptions = signal<CountryOption[]>([]);
   readonly reportGroupId = signal('ALL');
   readonly reportGroupOptions = signal<ReportGroupOption[]>([]);
+
+  readonly searchQuery = signal('');
+  readonly searchLoading = signal(false);
+  readonly searchError = signal<string | null>(null);
 
   private readonly filterState = inject(DashboardFilterStateService);
 
@@ -378,10 +420,59 @@ export class TransactionOverviewComponent implements OnInit {
     this.loadDashboardDetails();
   }
 
-  setBatchId(event: Event): void {
-    this.batchId.set((event.target as HTMLInputElement).value);
-    this.filtersApplied.set(false);
+  setSearchQuery(event: Event): void {
+    this.searchQuery.set((event.target as HTMLInputElement).value);
   }
+
+  /** Deliberately unscoped -- no date range, country, or report group required, since the whole
+   *  point is finding a transaction when none of those are known yet. Resolves via
+   *  TransactionSearchRepository (which understands identifier, mtcn, and external transaction
+   *  key), then redirects straight to the transaction report's own detailed view instead of
+   *  rendering a second results table here -- redirecting on the resolved mtcn rather than the
+   *  raw typed text, since that page's own search only matches identifier/mtcn and wouldn't find
+   *  anything if the user had searched by external transaction key. Never logs the query value
+   *  itself (only its length, server-side), matching the app's convention for search terms over
+   *  customer transaction data.
+   *
+   *  Triggered by Enter in the search field rather than its own submit button, since it shares a
+   *  row (and a <form>) with the Apply-filters fields -- preventDefault stops that keypress from
+   *  also submitting the form as an Apply-filters action. */
+  runSearch(event: Event): void {
+    event.preventDefault();
+    if (this.searchLoading()) {
+      return;
+    }
+    const query = this.searchQuery().trim();
+    if (!query) {
+      return;
+    }
+    this.searchLoading.set(true);
+    this.searchError.set(null);
+    this.http
+      .get<TransactionSearchResponse>('/api/v1/transactions/search', { params: new HttpParams().set('query', query) })
+      .subscribe({
+        next: response => {
+          this.searchLoading.set(false);
+          const mtcn = response.results.find(result => result.mtcn)?.mtcn;
+          if (!mtcn) {
+            this.searchError.set(`No evidence found for "${query}".`);
+            return;
+          }
+          void this.router.navigate(['/transactions'], {
+            queryParams: { fromDate: '2000-01-01', toDate: '2099-12-31', search: mtcn }
+          });
+        },
+        error: () => {
+          this.searchLoading.set(false);
+          this.searchError.set('Could not complete the search. Please try again.');
+        }
+      });
+  }
+
+  /** Country is a required field on this page (unlike Batch View) -- 'ALL' means "nothing picked
+   *  yet," not "show every country's numbers blended together," since that blend is exactly the
+   *  cross-country/cross-rule-side double-counting problem this whole page exists to avoid. */
+  readonly countryRequired = computed(() => this.country() === 'ALL');
 
   /** Same country<->report-group mutual filtering as batch-explorer.component.ts and
    *  home.component.ts -- kept as its own copy here rather than shared, since this page's filter
@@ -442,7 +533,6 @@ export class TransactionOverviewComponent implements OnInit {
   }
 
   resetFilters(): void {
-    this.batchId.set('');
     this.country.set('ALL');
     this.reportGroupId.set('ALL');
     this.reportPeriod.set('LAST_7_DAYS');
@@ -621,6 +711,16 @@ export class TransactionOverviewComponent implements OnInit {
   }
 
   private loadDashboardDetails(): void {
+    if (this.countryRequired()) {
+      // No country picked -- don't even make the request. There's nothing wrong to report (this
+      // isn't dashboardError, which reads as a failure), and skipping the call entirely avoids
+      // paying for a query whose result would just get thrown away unrendered.
+      this.dashboardDetails.set(null);
+      this.dashboardLoading.set(false);
+      this.dashboardError.set(null);
+      return;
+    }
+
     const period = this.resolvePeriod();
     if (!period) {
       this.dashboardDetails.set(null);
@@ -630,11 +730,7 @@ export class TransactionOverviewComponent implements OnInit {
 
     this.dashboardLoading.set(true);
     this.dashboardError.set(null);
-    let params = new HttpParams()
-      .set('fromDate', period.fromDate)
-      .set('toDate', period.toDate)
-      .set('batchId', this.batchId().trim())
-      .set('country', this.country());
+    let params = new HttpParams().set('fromDate', period.fromDate).set('toDate', period.toDate).set('country', this.country());
     if (this.reportGroupId() !== 'ALL') {
       params = params.set('reportGroupId', this.reportGroupId());
     }
@@ -685,7 +781,6 @@ export class TransactionOverviewComponent implements OnInit {
     const params = this.route.snapshot.queryParamMap;
     const remembered = this.filterState.get();
 
-    this.batchId.set(params.get('batchId') ?? remembered?.batchId ?? '');
     this.country.set(params.get('country') ?? remembered?.country ?? 'ALL');
     this.reportGroupId.set(params.get('reportGroupId') ?? remembered?.reportGroupId ?? 'ALL');
 
@@ -707,8 +802,11 @@ export class TransactionOverviewComponent implements OnInit {
 
   private persistRouteFilters(): void {
     const period = this.resolvePeriod();
+    // Batch ID isn't a filter on this page (see countryRequired's comment -- this view is
+    // country-scoped, not batch-scoped), but the shared DashboardFilterStateService's shape still
+    // requires it for Batch View's sake, so it's carried through unchanged rather than reset.
     this.filterState.set({
-      batchId: this.batchId().trim(),
+      batchId: this.filterState.get()?.batchId ?? '',
       country: this.country(),
       reportGroupId: this.reportGroupId(),
       reportPeriod: this.reportPeriod(),
@@ -722,7 +820,6 @@ export class TransactionOverviewComponent implements OnInit {
         fromDate: period?.fromDate ?? null,
         toDate: period?.toDate ?? null,
         period: this.reportPeriod(),
-        batchId: this.batchId().trim() || null,
         country: this.country(),
         reportGroupId: this.reportGroupId() === 'ALL' ? null : this.reportGroupId()
       }
