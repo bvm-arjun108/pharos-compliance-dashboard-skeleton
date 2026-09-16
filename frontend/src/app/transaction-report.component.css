@@ -145,9 +145,15 @@
 .transaction-table-panel > header > span { display: inline-flex; min-height: 27px; padding: 0 10px; align-items: center; color: #55544e; background: #f1f0eb; border-radius: 999px; font-size: 10px; font-weight: 800; }
 
 .transaction-toolbar {
-  display: grid;
+  /* flex, not a fixed-column grid: the status field only renders in PERIOD mode (see the
+     template), so the toolbar has either 3 or 4 children depending on mode -- a grid with a
+     fixed number of explicit column tracks fills them regardless of how many children actually
+     exist, so removing one child shifts the rest into the wrong-sized tracks instead of just
+     leaving gracefully. Flex-basis per child sizes each one independently of how many siblings
+     are present. */
+  display: flex;
+  flex-wrap: wrap;
   padding: 12px 14px;
-  grid-template-columns: minmax(250px, 1.4fr) minmax(175px, .8fr) auto auto;
   gap: 9px;
   background: #f8f7f3;
   border-bottom: 1px solid #dfddd5;
@@ -182,11 +188,12 @@
   border: 0;
 }
 
-.transaction-search { position: relative; }
+.transaction-search { position: relative; flex: 1 1 250px; }
 .transaction-search svg { position: absolute; top: 10px; left: 11px; width: 17px; height: 17px; fill: none; stroke: #8b8a82; stroke-linecap: round; stroke-width: 1.8; }
 .transaction-search input { padding-left: 36px; }
-.transaction-toolbar .transaction-apply { width: auto; padding: 0 18px; color: #111; background: #ffdd00; border-color: #e4c700; font-weight: 900; }
-.transaction-toolbar .transaction-clear { width: auto; padding: 0 15px; background: transparent; font-weight: 750; }
+.transaction-status { flex: 0 1 200px; min-width: 175px; }
+.transaction-toolbar .transaction-apply { flex: 0 0 auto; width: auto; padding: 0 18px; color: #111; background: #ffdd00; border-color: #e4c700; font-weight: 900; }
+.transaction-toolbar .transaction-clear { flex: 0 0 auto; width: auto; padding: 0 15px; background: transparent; font-weight: 750; }
 
 .transaction-table-scroll { overflow-x: auto; }
 .transaction-table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 10px; }
@@ -339,19 +346,21 @@
   .transaction-context-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .transaction-context-strip > div:nth-child(2) { border-right: 0; }
   .transaction-context-strip > div:nth-child(-n + 2) { border-bottom: 1px solid #444540; }
-  .transaction-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .transaction-search { grid-column: 1 / -1; }
+  .transaction-search { flex-basis: 100%; }
 }
 
 @media (max-width: 640px) {
   .transaction-report-page { padding-inline: 14px; }
   .transaction-report-heading { align-items: flex-start; flex-direction: column; }
   .transaction-report-heading > button { width: 100%; }
-  .transaction-context-strip,
-  .transaction-toolbar { grid-template-columns: 1fr; }
+  .transaction-context-strip { grid-template-columns: 1fr; }
   .transaction-context-strip > div { border-right: 0; border-bottom: 1px solid #444540; }
   .transaction-context-strip > div:last-child { border-bottom: 0; }
-  .transaction-search { grid-column: auto; }
+  .transaction-toolbar > * { flex-basis: 100%; }
+  /* Same specificity fight as the buttons' own base rule (.transaction-toolbar .transaction-apply
+     is two classes, same as this) -- without repeating the selector here, that base rule's
+     flex: 0 0 auto wins regardless of source order, since equal-or-higher specificity beats a
+     later media query. */
   .transaction-toolbar .transaction-apply,
-  .transaction-toolbar .transaction-clear { width: 100%; }
+  .transaction-toolbar .transaction-clear { flex-basis: 100%; width: 100%; }
 }

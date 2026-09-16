@@ -64,30 +64,38 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
             <input type="search" placeholder="Search identifier or MTCN" [value]="search()" (input)="setSearch($event)" />
           </label>
-          <label>
-            <span class="sr-only">Status</span>
-            <!-- [selected] on each option rather than [value] on the select: the select's own
-                 property binding is applied on the same change-detection pass that inserts these
-                 @if/@else-rendered options, so it can run before they exist in the DOM and silently
-                 fail to match, permanently stuck on the first option (Angular only rewrites a
-                 property binding when the bound expression changes, not when the DOM write failed
-                 to take). Binding each option's own `selected` state sidesteps that entirely. -->
-            <select (change)="setStatus($event)">
-              @if (overviewOnly()) {
-                <option value="EXCLUDED" [selected]="status() === 'EXCLUDED'">Excluded</option>
-                <option value="NOT_REPORTED" [selected]="status() === 'NOT_REPORTED'">Not reported</option>
-              } @else {
-                <option value="ALL" [selected]="status() === 'ALL'">All statuses</option>
-                <option value="SUCCESS" [selected]="status() === 'SUCCESS'">Success</option>
-                <option value="FAILED" [selected]="status() === 'FAILED'">Failed</option>
-                <option value="ERROR" [selected]="status() === 'ERROR'">Error</option>
-                <option value="EXCLUDED" [selected]="status() === 'EXCLUDED'">Excluded</option>
-                <option value="NOT_YET_REPORTED" [selected]="status() === 'NOT_YET_REPORTED'">Not yet reported</option>
-                <option value="REPORTED" [selected]="status() === 'REPORTED'">Reported</option>
-                <option value="NOT_REPORTED" [selected]="status() === 'NOT_REPORTED'">Not reported</option>
-              }
-            </select>
-          </label>
+          @if (mode() === 'PERIOD') {
+            <!-- Status is only a coherent filter axis in PERIOD mode, where it's the sole
+                 grouping applied. In BATCH mode `metric` already groups the rows (Selected/
+                 Filtered/Excluded/Simulated/...), which is a different, overlapping taxonomy on
+                 the same underlying evidence -- e.g. "Filtered transactions" is by definition
+                 never Success, so offering the full status list there produces mostly-empty,
+                 confusing combinations instead of a real refinement. -->
+            <label class="transaction-status">
+              <span class="sr-only">Status</span>
+              <!-- [selected] on each option rather than [value] on the select: the select's own
+                   property binding is applied on the same change-detection pass that inserts these
+                   @if/@else-rendered options, so it can run before they exist in the DOM and silently
+                   fail to match, permanently stuck on the first option (Angular only rewrites a
+                   property binding when the bound expression changes, not when the DOM write failed
+                   to take). Binding each option's own `selected` state sidesteps that entirely. -->
+              <select (change)="setStatus($event)">
+                @if (overviewOnly()) {
+                  <option value="EXCLUDED" [selected]="status() === 'EXCLUDED'">Excluded</option>
+                  <option value="NOT_REPORTED" [selected]="status() === 'NOT_REPORTED'">Not reported</option>
+                } @else {
+                  <option value="ALL" [selected]="status() === 'ALL'">All statuses</option>
+                  <option value="SUCCESS" [selected]="status() === 'SUCCESS'">Success</option>
+                  <option value="FAILED" [selected]="status() === 'FAILED'">Failed</option>
+                  <option value="ERROR" [selected]="status() === 'ERROR'">Error</option>
+                  <option value="EXCLUDED" [selected]="status() === 'EXCLUDED'">Excluded</option>
+                  <option value="NOT_YET_REPORTED" [selected]="status() === 'NOT_YET_REPORTED'">Not yet reported</option>
+                  <option value="REPORTED" [selected]="status() === 'REPORTED'">Reported</option>
+                  <option value="NOT_REPORTED" [selected]="status() === 'NOT_REPORTED'">Not reported</option>
+                }
+              </select>
+            </label>
+          }
           <button type="submit" class="transaction-apply">Apply</button>
           <button type="button" class="transaction-clear" (click)="clearFilters()">Clear</button>
         </form>
