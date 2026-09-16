@@ -419,10 +419,21 @@ main {
 .kpi-section__heading > span { color: #6d6c65; font-size: 13px; font-weight: 650; }
 
 .kpi-grid {
+  /* Batches Overview is the only thing left in here now that Transactions Overview moved to its
+     own "Transaction View" tab (see transaction-overview.component.ts) -- a single-column layout,
+     not the old two-column grid built for two side-by-side panels. */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(430px, 580px);
+  grid-template-columns: 1fr;
   align-items: stretch;
   gap: 14px;
+}
+
+/* Standalone wrapper for .kpi-transaction-group on the Transaction View page, where it's the only
+   card rather than one of two side-by-side .kpi-grid columns -- caps its width so the card doesn't
+   stretch edge-to-edge on a wide screen. */
+.kpi-transaction-only {
+  display: grid;
+  max-width: 580px;
 }
 
 .kpi-batch-group,

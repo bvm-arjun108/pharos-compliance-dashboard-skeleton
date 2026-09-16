@@ -3,6 +3,7 @@ import { BatchExplorerComponent } from './batch-explorer.component';
 import { HomeComponent } from './home.component';
 import { PlaceholderViewComponent } from './placeholder-view.component';
 import { ReportConfigComponent } from './report-config.component';
+import { TransactionOverviewComponent } from './transaction-overview.component';
 import { TransactionReportComponent } from './transaction-report.component';
 
 export const routes: Routes = [
@@ -24,6 +25,11 @@ export const routes: Routes = [
     }
   },
   { path: 'batches', title: 'Batch View | Pharos', component: HomeComponent },
+  {
+    path: 'transaction-view',
+    title: 'Transaction View | Pharos',
+    component: TransactionOverviewComponent
+  },
   {
     path: 'report-config',
     title: 'Report Config | Pharos',

@@ -29,6 +29,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
       <nav class="view-nav" aria-label="Dashboard views">
         <div class="view-nav__inner">
           <a routerLink="/batches" routerLinkActive="active">Batch View</a>
+          <a routerLink="/transaction-view" routerLinkActive="active">Transaction View</a>
           <a routerLink="/report-config" routerLinkActive="active">Report Config</a>
         </div>
       </nav>
