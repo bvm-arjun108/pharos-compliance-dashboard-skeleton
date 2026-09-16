@@ -68,7 +68,7 @@
       @if (reportGroupOptions().length > 0) {
         <select [ngModel]="reportGroupId()" (ngModelChange)="setReportGroupValue($event)" [ngModelOptions]="{standalone: true}">
           <option [ngValue]="null">All report groups</option>
-          @for (option of reportGroupOptions(); track option.reportGroupId) {
+          @for (option of filteredReportGroupOptions(); track option.reportGroupId) {
             <option [ngValue]="option.reportGroupId">{{ option.reportGroupName || 'Report group ' + option.reportGroupId }}</option>
           }
         </select>

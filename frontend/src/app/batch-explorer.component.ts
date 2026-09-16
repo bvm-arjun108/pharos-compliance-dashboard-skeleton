@@ -1,6 +1,6 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
@@ -142,6 +142,7 @@ interface ReportConfigSummary {
   reportGroupName: string | null;
   reportSelectionVersionId: number;
   transformerVersionId: string;
+  countryCode: string;
   countryName: string;
   reportType: string | null;
   active: boolean;
@@ -201,12 +202,45 @@ export class BatchExplorerComponent implements OnInit {
     this.batchId.set((event.target as HTMLInputElement).value);
   }
 
+  /** Report groups belonging to the selected country -- every report group belongs to exactly
+   *  one country, so this is a genuine many-to-one narrowing (a country can have several report
+   *  groups). Unfiltered when country is 'ALL'. */
+  readonly filteredReportGroupOptions = computed(() => {
+    const country = this.country();
+    return country === 'ALL'
+      ? this.reportGroupOptions()
+      : this.reportGroupOptions().filter(option => option.countryCode === country);
+  });
+
   setCountryValue(country: string): void {
     this.country.set(country);
+    // A report group belongs to exactly one country -- if the newly selected country no longer
+    // matches the currently selected report group, that report group is about to disappear from
+    // filteredReportGroupOptions above. Clearing it here keeps the two fields from ever
+    // contradicting each other (previously: France + US SUBJECTIVE could be selected at once).
+    const selectedReportGroupId = this.reportGroupId();
+    if (selectedReportGroupId !== null && country !== 'ALL') {
+      const stillValid = this.reportGroupOptions().some(
+        option => option.reportGroupId === selectedReportGroupId && option.countryCode === country
+      );
+      if (!stillValid) {
+        this.reportGroupId.set(null);
+      }
+    }
   }
 
   setReportGroupValue(value: number | null): void {
     this.reportGroupId.set(value);
+    // The reverse direction: a report group pins down its country unambiguously, so selecting one
+    // syncs the country field to match rather than truncating the country dropdown to a single
+    // option -- the user can still freely browse other countries afterward (which re-filters the
+    // report group list above, including clearing this selection if it's no longer valid there).
+    if (value !== null) {
+      const selected = this.reportGroupOptions().find(option => option.reportGroupId === value);
+      if (selected) {
+        this.country.set(selected.countryCode);
+      }
+    }
   }
 
   applyFilters(event: SubmitEvent): void {

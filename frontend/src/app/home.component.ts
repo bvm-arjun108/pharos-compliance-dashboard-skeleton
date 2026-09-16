@@ -1,6 +1,6 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DashboardFilterStateService, DashboardReportPeriod } from './dashboard-filter-state.service';
@@ -17,11 +17,13 @@ interface BatchFilterOptionsResponse {
 interface ReportGroupOption {
   reportGroupId: number;
   reportGroupName: string | null;
+  countryCode: string;
 }
 
 interface ReportConfigListItem {
   reportGroupId: number;
   reportGroupName: string | null;
+  countryCode: string;
 }
 
 interface ReportConfigExplorerResponse {
@@ -154,7 +156,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           @if (reportGroupOptions().length > 0) {
             <select [ngModel]="reportGroupId()" (ngModelChange)="setReportGroupValue($event)" [ngModelOptions]="{standalone: true}">
               <option value="ALL">All report groups</option>
-              @for (option of reportGroupOptions(); track option.reportGroupId) {
+              @for (option of filteredReportGroupOptions(); track option.reportGroupId) {
                 <option [value]="option.reportGroupId">{{ option.reportGroupName || 'Report group ' + option.reportGroupId }}</option>
               }
             </select>
@@ -784,7 +786,11 @@ export class HomeComponent implements OnInit {
       next: response =>
         this.reportGroupOptions.set(
           response.configurations
-            .map(config => ({ reportGroupId: config.reportGroupId, reportGroupName: config.reportGroupName }))
+            .map(config => ({
+              reportGroupId: config.reportGroupId,
+              reportGroupName: config.reportGroupName,
+              countryCode: config.countryCode
+            }))
             .sort((a, b) => (a.reportGroupName || '').localeCompare(b.reportGroupName || ''))
         ),
       error: () => this.reportGroupOptions.set([])
@@ -797,14 +803,50 @@ export class HomeComponent implements OnInit {
     this.filtersApplied.set(false);
   }
 
+  /** Report groups belonging to the selected country -- every report group belongs to exactly
+   *  one country, so this is a genuine many-to-one narrowing (a country can have several report
+   *  groups). Unfiltered when country is 'ALL'. Same fix as batch-explorer.component.ts's
+   *  filteredReportGroupOptions -- both dropdowns had the identical bug (report group list never
+   *  scoped to the selected country) since both load from the same unfiltered /api/v1/report-configs
+   *  call. */
+  readonly filteredReportGroupOptions = computed(() => {
+    const country = this.country();
+    return country === 'ALL'
+      ? this.reportGroupOptions()
+      : this.reportGroupOptions().filter(option => option.countryCode === country);
+  });
+
   setCountryValue(country: string): void {
     this.country.set(country);
     this.filtersApplied.set(false);
+    // A report group belongs to exactly one country -- if the newly selected country no longer
+    // matches the currently selected report group, that report group is about to disappear from
+    // filteredReportGroupOptions above. Clearing it here keeps the two fields from ever
+    // contradicting each other.
+    const selectedReportGroupId = this.reportGroupId();
+    if (selectedReportGroupId !== 'ALL' && country !== 'ALL') {
+      const stillValid = this.reportGroupOptions().some(
+        option => String(option.reportGroupId) === selectedReportGroupId && option.countryCode === country
+      );
+      if (!stillValid) {
+        this.reportGroupId.set('ALL');
+      }
+    }
   }
 
   setReportGroupValue(reportGroupId: string): void {
     this.reportGroupId.set(reportGroupId);
     this.filtersApplied.set(false);
+    // The reverse direction: a report group pins down its country unambiguously, so selecting one
+    // syncs the country field to match rather than truncating the country dropdown to a single
+    // option -- the user can still freely browse other countries afterward (which re-filters the
+    // report group list above, including clearing this selection if it's no longer valid there).
+    if (reportGroupId !== 'ALL') {
+      const selected = this.reportGroupOptions().find(option => String(option.reportGroupId) === reportGroupId);
+      if (selected) {
+        this.country.set(selected.countryCode);
+      }
+    }
   }
 
   setReportPeriod(event: Event): void {
