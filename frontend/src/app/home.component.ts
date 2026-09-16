@@ -1139,17 +1139,20 @@ export class HomeComponent implements OnInit {
     return `${ratePercent.toFixed(2)}%`;
   }
 
-  openPeriodTransactionExplorer(period: BatchHealthTrend, metricFocus: ExplorerMetricFocus): void {
-    void this.router.navigate(['/batches/explorer'], {
+  /** Same period-wide transactions view as openReportGroupExcludedTransactions, but for one
+   *  trend bucket from the Daily Transaction Totals heatmap instead of one report group's total.
+   *  metricFocus here is only ever 'REPORTED' or 'EXCLUDED' (the heatmap's two rows), which map
+   *  directly onto TransactionStatus -- this used to navigate to /batches/explorer with a
+   *  BatchMetricFocus-shaped `metricFocus` param instead, landing on the batch queue rather than
+   *  the transaction evidence for that day/week/month's reported or excluded transactions. */
+  openPeriodTransactionExplorer(period: BatchHealthTrend, metricFocus: 'REPORTED' | 'EXCLUDED'): void {
+    void this.router.navigate(['/transactions'], {
       queryParams: {
         fromDate: period.periodStart,
         toDate: period.periodEnd,
-        batchId: this.batchId().trim() || null,
         country: this.country(),
-        status: 'ALL',
-        issueType: 'ALL',
         reportGroupId: this.selectedReportGroupIdOrNull(),
-        metricFocus
+        status: metricFocus
       }
     });
   }
