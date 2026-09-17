@@ -1027,12 +1027,16 @@ public class TransactionReportRepository {
       .eq("REPORT_GENERATION")
       .and(upperJourneyStatus.eq("GENERATED"))
       .or(JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isTrue()));
-    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
-    // Same skip_reason/comments fallback as the exclusion reason column above, just taken across an
+    // comments leads (falling back to skip_reason) because skip_reason is frequently a verbose,
+    // per-record exception payload that embeds a record-specific index/path -- see
+    // DashboardRepository#getTopExclusionReasons for why that defeats grouping; comments is
+    // consistently a short, low-cardinality value instead.
+    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
+    // Same comments/skip_reason fallback as the exclusion reason column above, just taken across an
     // identifier's entire journey instead of only its EXCLUDED rows -- see
     // DashboardRepository#getNotReportedReasons for why (a not-reported identifier is never
     // excluded, so there's no status to condition this on).
-    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
+    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
 
     return dsl
       .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER,

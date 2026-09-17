@@ -422,12 +422,17 @@ public class DashboardRepository {
    * The same journey-derived "excluded" bucket as {@link #getTransactionOverview}'s {@code
    * excluded} count, broken out by reason instead of collapsed to one total -- for explaining
    * *why* transactions were excluded rather than just how many. Each excluded identifier's reason
-   * is {@code skip_reason} (falling back to {@code comments} when null), taken from whichever of
-   * its own EXCLUDED/EXCLUDED_SOFT_DEDUP rows has the lexicographically-greatest value -- the same
-   * two-column fallback chain the transaction report's own "Investigation Detail" column already
-   * uses for a single record. Shows the top 3 reasons by count plus a single "Other" bucket
-   * summing every remaining reason, rather than a longer flat list -- deliberately the actual
-   * free-text reason values (not a synthesized category), same as {@link #getNotReportedReasons}.
+   * is {@code comments} (falling back to {@code skip_reason} when null), taken from whichever of
+   * its own EXCLUDED/EXCLUDED_SOFT_DEDUP rows has the lexicographically-greatest value. {@code
+   * comments} leads (not {@code skip_reason}, despite that being the priority order the
+   * per-record "Investigation Detail" column uses) because {@code skip_reason} is frequently a
+   * verbose, per-record exception payload -- e.g. {@code [{"Exception": "...", "Path":
+   * "RECORDS[6615]/...", ...}]} -- that embeds a record-specific index, so two rows with the exact
+   * same underlying issue still fail to group together; {@code comments} is consistently a short,
+   * low-cardinality value (an enum-like code or short sentence) that groups meaningfully. Shows the
+   * top 3 reasons by count plus a single "Other" bucket summing every remaining reason, rather than
+   * a longer flat list -- deliberately the actual free-text reason values (not a synthesized
+   * category), same as {@link #getNotReportedReasons}.
    */
   @SqlQueryPurpose("Summarize excluded transactions by reason, from full journey history")
   public List<ExclusionReasonProjection> getTopExclusionReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
@@ -465,7 +470,7 @@ public class DashboardRepository {
       .eq(STAGE_REPORT_GENERATION)
       .and(upperStatus.eq(STATUS_GENERATED))
       .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
+    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
 
     var roll = dsl
       .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
@@ -532,8 +537,8 @@ public class DashboardRepository {
 
   /**
    * Breaks the same journey-derived "not reported" bucket {@link #getTransactionOverview}'s {@code
-   * notReported} counts down by *why* -- the same {@code skip_reason} (falling back to {@code
-   * comments}) free text {@link #getTopExclusionReasons} uses, just taken from the
+   * notReported} counts down by *why* -- the same {@code comments} (falling back to {@code
+   * skip_reason}) free text {@link #getTopExclusionReasons} uses, just taken from the
    * lexicographically-greatest non-null value across an identifier's *entire* journey (not just its
    * EXCLUDED rows, since a not-reported identifier is never excluded by definition). Replaced an
    * earlier fixed-category CASE (stalled-vs-still-processing, then four named buckets) that kept
@@ -577,7 +582,7 @@ public class DashboardRepository {
       .eq(STAGE_REPORT_GENERATION)
       .and(upperStatus.eq(STATUS_GENERATED))
       .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
+    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
 
     var roll = dsl
       .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
