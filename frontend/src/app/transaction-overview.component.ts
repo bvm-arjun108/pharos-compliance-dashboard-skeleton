@@ -326,7 +326,7 @@ type ReportPeriod = DashboardReportPeriod;
                   class="breakdown-stack__segment"
                   [style.flex]="item.count + ' 0 0'"
                   [style.background]="exclusionReasonColor(i)"
-                  [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0') + '%)'"
+                  [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-2') + '%)'"
                 ></span>
               }
             </div>
@@ -341,7 +341,7 @@ type ReportPeriod = DashboardReportPeriod;
                   >
                     <span class="breakdown-legend__swatch" [style.background]="exclusionReasonColor(i)"></span>
                     <span class="breakdown-legend__label">{{ humanizeReason(item.reason) }}</span>
-                    <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0' }}%</span>
+                    <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-2' }}%</span>
                     <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
                   </button>
                 </li>
@@ -376,7 +376,7 @@ type ReportPeriod = DashboardReportPeriod;
                   class="breakdown-stack__segment"
                   [style.flex]="item.count + ' 0 0'"
                   [style.background]="notReportedReasonColor(i)"
-                  [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
+                  [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-2') + '%)'"
                 ></span>
               }
             </div>
@@ -391,7 +391,7 @@ type ReportPeriod = DashboardReportPeriod;
                   >
                     <span class="breakdown-legend__swatch" [style.background]="notReportedReasonColor(i)"></span>
                     <span class="breakdown-legend__label">{{ humanizeReason(item.reason) }}</span>
-                    <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
+                    <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-2' }}%</span>
                     <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
                   </button>
                 </li>
@@ -952,6 +952,9 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
     return Math.max(1, ...periods.map(period => period.totalReportedTransactions));
   }
 
+  /** Exact share, unrounded -- rendered with the template's `number:'1.0-2'` (not the usual
+   *  '1.0-0'), since a whole-number display made a genuinely 99.9%/0.1% split print as a misleading
+   *  "100%"/"0%" for a category that still had real transactions in it. */
   exclusionReasonSharePercent(count: number, totalExcluded: number): number {
     return totalExcluded === 0 ? 0 : (count / totalExcluded) * 100;
   }
