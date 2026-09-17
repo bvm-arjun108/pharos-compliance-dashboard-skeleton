@@ -1115,6 +1115,29 @@ button.issue-kpi:focus-visible { outline: 2px solid #865057; outline-offset: 2px
 }
 .heatmap-cell-button:disabled { cursor: default; pointer-events: none; }
 
+.trend-line-chart-scroll { overflow-x: auto; padding-bottom: 4px; }
+.trend-line-chart { display: block; width: 100%; height: 220px; }
+.trend-line-chart__gridline { stroke: #e6e5df; stroke-width: 1; }
+.trend-line-chart__axis-label { fill: #918f86; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.trend-line-chart__area { fill: rgba(111, 146, 127, .16); stroke: none; }
+.trend-line-chart__line { fill: none; stroke: #4f7663; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.trend-line-chart__x-label {
+  fill: #777770;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .01em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.trend-line-chart__point-group { cursor: pointer; }
+.trend-line-chart__point-group--zero { cursor: default; }
+.trend-line-chart__hit { fill: transparent; }
+.trend-line-chart__point { fill: #4f7663; stroke: #fff; stroke-width: 1.5; transition: r .12s ease; }
+.trend-line-chart__point-group:hover .trend-line-chart__point { r: 5.5; }
+.trend-line-chart__point-group--zero .trend-line-chart__point { fill: #c9c7bd; }
+
 .attention-table-section { margin-top: 30px; }
 
 .attention-table-heading {

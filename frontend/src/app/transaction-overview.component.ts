@@ -484,6 +484,73 @@ type ReportPeriod = DashboardReportPeriod;
         }
       </div>
       </div>
+
+      <div class="issue-trend-section" aria-labelledby="reported-trend-heading">
+        <div class="issue-trend-heading">
+          <div>
+            <h2 id="reported-trend-heading">{{ reportedTransactionsTrendTitle(dashboardDetails()?.trendGranularity) }}</h2>
+            <p>Same periods as the totals above -- point count matches each period's own reported-transactions tile.</p>
+          </div>
+        </div>
+
+        <div class="issue-trend-card">
+          @if (countryRequired()) {
+            <div class="chart-message">Select a country to see the reported transactions trend.</div>
+          } @else if (dashboardLoading()) {
+            <div class="chart-message">Loading reported transactions…</div>
+          } @else if (dashboardError()) {
+            <div class="chart-message chart-message--error">Reported-transactions trend is unavailable.</div>
+          } @else if (dashboardDetails(); as details) {
+            @if (details.batchHealthTrend.length === 0) {
+              <div class="chart-message">No reported transactions in this period.</div>
+            } @else {
+              <div class="trend-line-chart-scroll">
+                <svg
+                  class="trend-line-chart"
+                  [attr.viewBox]="'0 0 ' + trendChartWidth(details.batchHealthTrend.length, details.trendGranularity) + ' 220'"
+                  preserveAspectRatio="none"
+                  role="img"
+                  [attr.aria-label]="reportedTransactionsTrendTitle(details.trendGranularity) + ' chart'"
+                >
+                  @for (line of reportedTrendGridlines(details.batchHealthTrend); track line.value) {
+                    <line
+                      class="trend-line-chart__gridline"
+                      x1="0"
+                      [attr.x2]="trendChartWidth(details.batchHealthTrend.length, details.trendGranularity)"
+                      [attr.y1]="line.y"
+                      [attr.y2]="line.y"
+                    ></line>
+                    <text class="trend-line-chart__axis-label" x="2" [attr.y]="line.y - 4">{{ line.value | number:'1.0-0' }}</text>
+                  }
+
+                  <path
+                    class="trend-line-chart__area"
+                    [attr.d]="reportedTrendAreaPath(details.batchHealthTrend, trendChartWidth(details.batchHealthTrend.length, details.trendGranularity))"
+                  ></path>
+                  <path
+                    class="trend-line-chart__line"
+                    [attr.d]="reportedTrendLinePath(details.batchHealthTrend, trendChartWidth(details.batchHealthTrend.length, details.trendGranularity))"
+                  ></path>
+
+                  @for (point of reportedTrendPoints(details.batchHealthTrend, trendChartWidth(details.batchHealthTrend.length, details.trendGranularity)); track point.period.periodStart) {
+                    <text class="trend-line-chart__x-label" [attr.x]="point.x" y="212">{{ point.period.periodStart | date:trendDateFormat(details.trendGranularity):'UTC' }}</text>
+                    <g
+                      class="trend-line-chart__point-group"
+                      [class.trend-line-chart__point-group--zero]="point.period.totalReportedTransactions === 0"
+                      [attr.aria-label]="reportedTransactionsCellTitle(point.period)"
+                      (click)="openReportedTrendPoint(point.period)"
+                    >
+                      <circle class="trend-line-chart__hit" [attr.cx]="point.x" [attr.cy]="point.y" r="10"></circle>
+                      <circle class="trend-line-chart__point" [attr.cx]="point.x" [attr.cy]="point.y" r="3.5"></circle>
+                      <title>{{ reportedTransactionsCellTitle(point.period) }}</title>
+                    </g>
+                  }
+                </svg>
+              </div>
+            }
+          }
+        </div>
+      </div>
     </section>
   `
 })
@@ -876,6 +943,103 @@ export class TransactionOverviewComponent implements OnInit {
   heatmapMinimumWidth(periodCount: number, granularity: TrendGranularity): number {
     const bucketWidth = granularity === 'DAILY' ? 42 : granularity === 'WEEKLY' ? 64 : 78;
     return Math.max(760, 180 + periodCount * bucketWidth);
+  }
+
+  /** Same per-period bucket widths as {@link heatmapMinimumWidth} (so a daily/weekly/monthly view
+   *  keeps a consistent, already-proven-legible column width across both this chart and the
+   *  heatmap above it) -- just without that table's 180px metric-label column, since this chart's
+   *  y-axis labels live inside the plot area's own left padding instead. */
+  private static readonly TREND_CHART_HEIGHT = 220;
+  private static readonly TREND_CHART_PAD_LEFT = 36;
+  private static readonly TREND_CHART_PAD_RIGHT = 14;
+  private static readonly TREND_CHART_PAD_TOP = 14;
+  private static readonly TREND_CHART_PAD_BOTTOM = 34;
+
+  reportedTransactionsTrendTitle(granularity: TrendGranularity | undefined): string {
+    if (!granularity) {
+      return 'Reported Transactions Trend';
+    }
+    return `${granularity.charAt(0)}${granularity.slice(1).toLowerCase()} Reported Transactions`;
+  }
+
+  trendChartWidth(periodCount: number, granularity: TrendGranularity): number {
+    const bucketWidth = granularity === 'DAILY' ? 42 : granularity === 'WEEKLY' ? 64 : 78;
+    const { TREND_CHART_PAD_LEFT, TREND_CHART_PAD_RIGHT } = TransactionOverviewComponent;
+    return Math.max(640, TREND_CHART_PAD_LEFT + TREND_CHART_PAD_RIGHT + periodCount * bucketWidth);
+  }
+
+  private trendPointX(index: number, count: number, width: number): number {
+    const { TREND_CHART_PAD_LEFT, TREND_CHART_PAD_RIGHT } = TransactionOverviewComponent;
+    const innerWidth = width - TREND_CHART_PAD_LEFT - TREND_CHART_PAD_RIGHT;
+    return count <= 1 ? TREND_CHART_PAD_LEFT + innerWidth / 2 : TREND_CHART_PAD_LEFT + (innerWidth * index) / (count - 1);
+  }
+
+  private trendPointY(value: number, maximum: number): number {
+    const { TREND_CHART_HEIGHT, TREND_CHART_PAD_TOP, TREND_CHART_PAD_BOTTOM } = TransactionOverviewComponent;
+    const innerHeight = TREND_CHART_HEIGHT - TREND_CHART_PAD_TOP - TREND_CHART_PAD_BOTTOM;
+    return maximum <= 0
+      ? TREND_CHART_HEIGHT - TREND_CHART_PAD_BOTTOM
+      : TREND_CHART_HEIGHT - TREND_CHART_PAD_BOTTOM - (innerHeight * value) / maximum;
+  }
+
+  /** Unlike {@link trendReportedTransactionsMaximum} (floored at 1 so the heatmap's own
+   *  count/maximum ratio never divides by zero), this chart's own {@link trendPointY} already
+   *  treats a zero maximum as "everything sits on the baseline" -- flooring here too would instead
+   *  make a genuinely all-zero period compute a fake 50%/100% gridline split (see {@link
+   *  reportedTrendGridlines}), rendering two gridlines that both round to the same misleading "1". */
+  private reportedTrendMaximum(periods: BatchHealthTrend[]): number {
+    return Math.max(0, ...periods.map(period => period.totalReportedTransactions));
+  }
+
+  reportedTrendPoints(periods: BatchHealthTrend[], width: number): { x: number; y: number; period: BatchHealthTrend }[] {
+    const maximum = this.reportedTrendMaximum(periods);
+    return periods.map((period, index) => ({
+      x: this.trendPointX(index, periods.length, width),
+      y: this.trendPointY(period.totalReportedTransactions, maximum),
+      period
+    }));
+  }
+
+  reportedTrendLinePath(periods: BatchHealthTrend[], width: number): string {
+    return this.reportedTrendPoints(periods, width)
+      .map((point, i) => `${i === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+      .join(' ');
+  }
+
+  /** Same line, closed down to the baseline and back to the first point -- a light fill under the
+   *  line makes the trend's shape easier to read at a glance than the stroke alone, especially once
+   *  a daily view has 20+ points packed into a scrollable width. */
+  reportedTrendAreaPath(periods: BatchHealthTrend[], width: number): string {
+    const points = this.reportedTrendPoints(periods, width);
+    if (points.length === 0) {
+      return '';
+    }
+    const baseline = TransactionOverviewComponent.TREND_CHART_HEIGHT - TransactionOverviewComponent.TREND_CHART_PAD_BOTTOM;
+    const line = points.map((point, i) => `${i === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+    const first = points[0];
+    const last = points[points.length - 1];
+    return `${line} L${last.x.toFixed(1)},${baseline} L${first.x.toFixed(1)},${baseline} Z`;
+  }
+
+  /** Three reference lines (0%, 50%, 100% of the same maximum the line itself is scaled against) --
+   *  enough to judge relative height at a glance without the grid competing with the data line.
+   *  Collapses to a single "0" line when every period in scope is zero, rather than three lines
+   *  that would all land on the same baseline y and round to the same (misleading) label. */
+  reportedTrendGridlines(periods: BatchHealthTrend[]): { y: number; value: number }[] {
+    const maximum = this.reportedTrendMaximum(periods);
+    if (maximum === 0) {
+      return [{ y: this.trendPointY(0, 0), value: 0 }];
+    }
+    return [0, 0.5, 1].map(fraction => ({ y: this.trendPointY(maximum * fraction, maximum), value: Math.round(maximum * fraction) }));
+  }
+
+  /** Guards the zero-count case the same way the heatmap's own cell buttons do ([disabled] there) --
+   *  an empty period has nothing to drill into. */
+  openReportedTrendPoint(period: BatchHealthTrend): void {
+    if (period.totalReportedTransactions === 0) {
+      return;
+    }
+    this.openPeriodTransactionExplorer(period, 'REPORTED');
   }
 
   excludedHeatmapCellColor(excludedCount: number, totalTransactions: number): string {
