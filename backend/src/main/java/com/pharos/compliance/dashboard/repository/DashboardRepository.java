@@ -51,16 +51,10 @@ public class DashboardRepository {
   private static final String BATCH_GENERATED_COLUMN = "batch_generated";
   private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
   private static final String EVER_REPORTED_COLUMN = "ever_reported";
-  private static final String EVER_PROCESSING_ERROR_COLUMN = "ever_processing_error";
-  private static final String EVER_BATCH_REPORT_FAILED_COLUMN = "ever_batch_report_failed";
-  private static final String EVER_VALIDATION_FAILED_COLUMN = "ever_validation_failed";
-  private static final String EVER_NOT_YET_ATTEMPTED_COLUMN = "ever_not_yet_attempted";
   private static final String REASON_COLUMN = "reason";
   private static final String UNSPECIFIED_REASON = "Unspecified";
-  private static final String REASON_PROCESSING_ERROR = "Processing error";
-  private static final String REASON_BATCH_REPORT_FAILED = "Batch report generation failed";
-  private static final String REASON_VALIDATION_FAILED = "Transformation validation failed";
-  private static final String REASON_NOT_YET_ATTEMPTED = "Not yet attempted";
+  private static final String OTHER_REASON = "Other";
+  private static final int TOP_REASON_LIMIT = 3;
   private static final String STATUS_EXCLUDED = "EXCLUDED";
   private static final String STATUS_EXCLUDED_SOFT_DEDUP = "EXCLUDED_SOFT_DEDUP";
   private static final String STATUS_GENERATED = "GENERATED";
@@ -431,8 +425,9 @@ public class DashboardRepository {
    * is {@code skip_reason} (falling back to {@code comments} when null), taken from whichever of
    * its own EXCLUDED/EXCLUDED_SOFT_DEDUP rows has the lexicographically-greatest value -- the same
    * two-column fallback chain the transaction report's own "Investigation Detail" column already
-   * uses for a single record. Capped at the top 8 reasons by count, matching this project's
-   * dataviz convention for a single-hue bar chart's row count.
+   * uses for a single record. Shows the top 3 reasons by count plus a single "Other" bucket
+   * summing every remaining reason, rather than a longer flat list -- deliberately the actual
+   * free-text reason values (not a synthesized category), same as {@link #getNotReportedReasons}.
    */
   @SqlQueryPurpose("Summarize excluded transactions by reason, from full journey history")
   public List<ExclusionReasonProjection> getTopExclusionReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
@@ -487,30 +482,64 @@ public class DashboardRepository {
     Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
     Field<String> reason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
 
-    return dsl
-      .select(reason.as(REASON_COLUMN), DSL.count().as("count"))
-      .from(roll)
-      .where(everExcluded.isTrue().and(everReported.isFalse()))
-      .groupBy(reason)
-      .orderBy(DSL.field(DSL.name("count"), Integer.class).desc(), reason)
-      .limit(8)
-      .fetch(r -> new ExclusionReasonProjection(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
+    return topReasonsThenOther(roll, everExcluded.isTrue().and(everReported.isFalse()), reason)
+      .stream()
+      .map(r -> new ExclusionReasonProjection(r.reason(), r.count()))
+      .toList();
   }
 
   /**
+   * Groups {@code roll}'s rows matching {@code filter} by {@code reasonField}, keeps the top {@link
+   * #TOP_REASON_LIMIT} by count, and collapses every remaining group into a single {@code "Other"}
+   * row -- shared by {@link #getTopExclusionReasons} and {@link #getNotReportedReasons} since both
+   * need the identical "top N, then a catch-all" shape over their own raw reason text. "Other" is
+   * always ordered last regardless of its own count (it's a residual bucket, not a real contender
+   * for "top"), which can otherwise outrank the 3rd-place reason on a long tail of distinct values.
+   */
+  private List<ReasonCount> topReasonsThenOther(Table<?> roll, Condition filter, Field<String> reasonField) {
+    var reasonCounts =
+        dsl.select(reasonField.as(REASON_COLUMN), DSL.count().as("count")).from(roll).where(filter).groupBy(reasonField).asTable("reason_counts");
+
+    Field<String> countsReason = requiredField(reasonCounts, REASON_COLUMN, String.class);
+    Field<Integer> countsCount = requiredField(reasonCounts, "count", Integer.class);
+    Field<Integer> rank = DSL.rowNumber().over(DSL.orderBy(countsCount.desc(), countsReason)).as("rn");
+
+    var ranked = dsl.select(countsReason, countsCount, rank).from(reasonCounts).asTable("ranked_reasons");
+
+    Field<String> rankedReason = requiredField(ranked, REASON_COLUMN, String.class);
+    Field<Integer> rankedCount = requiredField(ranked, "count", Integer.class);
+    Field<Integer> rankedRank = requiredField(ranked, "rn", Integer.class);
+    Field<String> bucketed = DSL.when(rankedRank.le(TOP_REASON_LIMIT), rankedReason).otherwise(DSL.inline(OTHER_REASON));
+
+    // Materialized as its own table (rather than grouping/ordering by the `bucketed` CASE
+    // expression directly) so the outer aggregate below groups and orders by a plain output column
+    // -- Postgres rejects an ORDER BY expression that re-embeds `rn` (via `bucketed`) once the query
+    // has already grouped past it, even though it's logically the same value the GROUP BY used.
+    var bucketedRows = dsl.select(bucketed.as(REASON_COLUMN), rankedCount.as("count")).from(ranked).asTable("bucketed_reasons");
+    Field<String> bucketedReason = requiredField(bucketedRows, REASON_COLUMN, String.class);
+    Field<Integer> bucketedRawCount = requiredField(bucketedRows, "count", Integer.class);
+    Field<Long> totalCount = DSL.sum(bucketedRawCount).cast(SQLDataType.BIGINT);
+
+    return dsl
+      .select(bucketedReason, totalCount.as("count"))
+      .from(bucketedRows)
+      .groupBy(bucketedReason)
+      .orderBy(bucketedReason.eq(DSL.inline(OTHER_REASON)).asc(), DSL.field(DSL.name("count"), Long.class).desc())
+      .fetch(r -> new ReasonCount(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
+  }
+
+  private record ReasonCount(String reason, long count) {}
+
+  /**
    * Breaks the same journey-derived "not reported" bucket {@link #getTransactionOverview}'s {@code
-   * notReported} counts down by *why* -- plain facts about what actually happened to each
-   * transaction, not a judgment call about whether that counts as "bad." Replaced an earlier
-   * stalled-vs-still-processing binary that kept producing contradictions (e.g. a row showing
-   * status SUCCESS under a bucket labeled "stalled") because it tried to compress several distinct
-   * situations into one yes/no signal. Verified directly against the full dataset before building
-   * this: every one of these four conditions is real and sizable on its own (not_yet_attempted
-   * ~3,044 identifiers, processing_error ~1,480, batch_report_failed ~2,649, validation_failed 16
-   * dataset-wide), and -- checked pairwise -- **no identifier ever matches more than one of them**,
-   * so the priority order in the CASE below is a safety net for data this hasn't been seen in yet,
-   * not something actually adjudicating real overlaps today. A rare (~11-row, single test batch)
-   * {@code SUCCESS with processing_complete=false} shape matches none of the four and falls into
-   * "Other".
+   * notReported} counts down by *why* -- the same {@code skip_reason} (falling back to {@code
+   * comments}) free text {@link #getTopExclusionReasons} uses, just taken from the
+   * lexicographically-greatest non-null value across an identifier's *entire* journey (not just its
+   * EXCLUDED rows, since a not-reported identifier is never excluded by definition). Replaced an
+   * earlier fixed-category CASE (stalled-vs-still-processing, then four named buckets) that kept
+   * needing a new bucket carved out whenever the data didn't fit cleanly -- showing the actual
+   * recorded reason text plus a top-3-then-"Other" cutoff avoids that redefinition cycle entirely,
+   * matching the exclusion reasons card's own shape.
    */
   @SqlQueryPurpose("Summarize not-reported transactions by reason, from full journey history")
   public List<NotReportedReasonProjection> getNotReportedReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
@@ -548,18 +577,11 @@ public class DashboardRepository {
       .eq(STAGE_REPORT_GENERATION)
       .and(upperStatus.eq(STATUS_GENERATED))
       .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-    Condition everProcessingErrorCondition = upperStatus.eq("ERROR");
-    Condition everBatchReportFailedCondition = JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isFalse());
-    Condition everValidationFailedCondition = upperStatus.in("FAILED", "FAILURE");
-    Condition everNotYetAttemptedCondition = upperStatus.in("NOT_YET_REPORTED", "ATTEMPT_MISSING");
+    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
 
     var roll = dsl
       .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
-          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
-          DSL.boolOr(everProcessingErrorCondition).as(EVER_PROCESSING_ERROR_COLUMN),
-          DSL.boolOr(everBatchReportFailedCondition).as(EVER_BATCH_REPORT_FAILED_COLUMN),
-          DSL.boolOr(everValidationFailedCondition).as(EVER_VALIDATION_FAILED_COLUMN),
-          DSL.boolOr(everNotYetAttemptedCondition).as(EVER_NOT_YET_ATTEMPTED_COLUMN))
+          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN), DSL.max(notReportedReasonColumn).as(REASON_COLUMN))
       .from(JOURNEY)
       .join(batchEvidence)
       .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
@@ -569,24 +591,11 @@ public class DashboardRepository {
 
     Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
     Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-    Field<Boolean> everProcessingError = requiredField(roll, EVER_PROCESSING_ERROR_COLUMN, Boolean.class);
-    Field<Boolean> everBatchReportFailed = requiredField(roll, EVER_BATCH_REPORT_FAILED_COLUMN, Boolean.class);
-    Field<Boolean> everValidationFailed = requiredField(roll, EVER_VALIDATION_FAILED_COLUMN, Boolean.class);
-    Field<Boolean> everNotYetAttempted = requiredField(roll, EVER_NOT_YET_ATTEMPTED_COLUMN, Boolean.class);
-    Field<String> notReportedReason = DSL
-      .when(everProcessingError.isTrue(), DSL.inline(REASON_PROCESSING_ERROR))
-      .when(everBatchReportFailed.isTrue(), DSL.inline(REASON_BATCH_REPORT_FAILED))
-      .when(everValidationFailed.isTrue(), DSL.inline(REASON_VALIDATION_FAILED))
-      .when(everNotYetAttempted.isTrue(), DSL.inline(REASON_NOT_YET_ATTEMPTED))
-      .otherwise(DSL.inline(UNSPECIFIED_REASON));
+    Field<String> reason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
 
-    return dsl
-      .select(notReportedReason.as(REASON_COLUMN), DSL.count().as("count"))
-      .from(roll)
-      .where(everExcluded.isFalse().and(everReported.isFalse()))
-      .groupBy(notReportedReason)
-      .orderBy(DSL.field(DSL.name("count"), Integer.class).desc(), notReportedReason)
-      .limit(8)
-      .fetch(r -> new NotReportedReasonProjection(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
+    return topReasonsThenOther(roll, everReported.isFalse().and(everExcluded.isFalse()), reason)
+      .stream()
+      .map(r -> new NotReportedReasonProjection(r.reason(), r.count()))
+      .toList();
   }
 }

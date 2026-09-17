@@ -58,20 +58,15 @@ public class TransactionReportRepository {
   private static final String CURRENCY_CODE = "currency_code";
   private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
   private static final String EVER_REPORTED_COLUMN = "ever_reported";
-  private static final String EVER_PROCESSING_ERROR_COLUMN = "ever_processing_error";
-  private static final String EVER_BATCH_REPORT_FAILED_COLUMN = "ever_batch_report_failed";
-  private static final String EVER_VALIDATION_FAILED_COLUMN = "ever_validation_failed";
-  private static final String EVER_NOT_YET_ATTEMPTED_COLUMN = "ever_not_yet_attempted";
   private static final String REASON_COLUMN = "reason";
+  private static final String NOT_REPORTED_REASON_COLUMN = "not_reported_reason";
   private static final String UNSPECIFIED_REASON = "Unspecified";
-  // Same fixed not-reported categories as DashboardRepository#getNotReportedReasons -- kept as
-  // literal duplicates (not shared constants) for the same reason the whole roll/target pipeline is
+  // Same "top N, then Other" cutoff as DashboardRepository#topReasonsThenOther -- kept as literal
+  // duplicates (not shared constants) for the same reason the whole roll/target pipeline is
   // duplicated here: this repository answers "give me the rows," DashboardRepository answers "give
-  // me the count," and they need to agree on the label text without depending on each other.
-  private static final String REASON_PROCESSING_ERROR = "Processing error";
-  private static final String REASON_BATCH_REPORT_FAILED = "Batch report generation failed";
-  private static final String REASON_VALIDATION_FAILED = "Transformation validation failed";
-  private static final String REASON_NOT_YET_ATTEMPTED = "Not yet attempted";
+  // me the count," and they need to agree on the bucketing without depending on each other.
+  private static final String OTHER_REASON = "Other";
+  private static final int TOP_REASON_LIMIT = 3;
   private static final String EVIDENCE_BATCH_ID = "evidence_batch_id";
   private static final String EVIDENCE_SOURCE = "evidence_source";
   private static final String EXCLUSION_REASON = "exclusion_reason";
@@ -1032,25 +1027,18 @@ public class TransactionReportRepository {
       .eq("REPORT_GENERATION")
       .and(upperJourneyStatus.eq("GENERATED"))
       .or(JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isTrue()));
-    // Same conditions DashboardRepository#getTopExclusionReasons/#getNotReportedReasons use for
-    // their own reason buckets -- ported here (not shared) so the drill-through from either
-    // dashboard card lands on exactly the identifiers that card counted, not a re-derived subset.
-    Condition everProcessingErrorCondition = upperJourneyStatus.eq("ERROR");
-    Condition everBatchReportFailedCondition =
-        JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isFalse());
-    Condition everValidationFailedCondition = upperJourneyStatus.in("FAILED", "FAILURE");
-    Condition everNotYetAttemptedCondition = upperJourneyStatus.in("NOT_YET_REPORTED", "ATTEMPT_MISSING");
     Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
+    // Same skip_reason/comments fallback as the exclusion reason column above, just taken across an
+    // identifier's entire journey instead of only its EXCLUDED rows -- see
+    // DashboardRepository#getNotReportedReasons for why (a not-reported identifier is never
+    // excluded, so there's no status to condition this on).
+    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
 
     return dsl
-      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL
-            .boolOr(everExcludedCondition)
-            .as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
-          DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN), DSL
-            .boolOr(everProcessingErrorCondition)
-            .as(EVER_PROCESSING_ERROR_COLUMN), DSL.boolOr(everBatchReportFailedCondition).as(EVER_BATCH_REPORT_FAILED_COLUMN),
-          DSL.boolOr(everValidationFailedCondition).as(EVER_VALIDATION_FAILED_COLUMN),
-          DSL.boolOr(everNotYetAttemptedCondition).as(EVER_NOT_YET_ATTEMPTED_COLUMN))
+      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER,
+          DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
+          DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN),
+          DSL.max(notReportedReasonColumn).as(NOT_REPORTED_REASON_COLUMN))
       .from(JOURNEY)
       .join(batchEvidence)
       .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
@@ -1079,10 +1067,11 @@ public class TransactionReportRepository {
    * (rpt_grp_id, identifier)} by construction (the roll itself is grouped that way), so this table's
    * own row count already answers "how many transactions are in this bucket" with no further
    * dedup needed. {@code reason} narrows further to the exact slice a dashboard breakdown legend row
-   * represents -- for {@code EXCLUDED} it's a skip_reason/comments value (see {@link
-   * #reportingRoll}'s {@code REASON_COLUMN}); for {@code NOT_REPORTED} it's one of the fixed
-   * categories {@link #notReportedReason} computes. Empty/null means "no further narrowing,"
-   * matching every other optional filter in this class.
+   * represents -- a skip_reason/comments value for either status (see {@link #reportingRoll}'s
+   * {@code REASON_COLUMN}/{@code NOT_REPORTED_REASON_COLUMN}), or the literal {@code "Other"} for
+   * that card's catch-all row, matched via {@link #otherReasonCondition} against the same top-3
+   * cutoff {@code DashboardRepository#topReasonsThenOther} used to build the card. Empty/null means
+   * "no further narrowing," matching every other optional filter in this class.
    */
   private Table<?> reportingTarget(Table<?> roll, String status, String reason) {
     Field<Integer> rollRptGrpId = requiredField(roll, REPORT_GROUP_ID_COLUMN, Integer.class);
@@ -1093,32 +1082,30 @@ public class TransactionReportRepository {
         VALUE_EXCLUDED.equals(status)
         ? everExcluded.isTrue().and(everReported.isFalse())
         : everReported.isFalse().and(everExcluded.isFalse());
-    if (reason != null && !reason.isEmpty()) {
-      if (VALUE_EXCLUDED.equals(status)) {
-        Field<String> rollReason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
-        bucketCondition = bucketCondition.and(rollReason.eq(reason));
-      } else if (VALUE_NOT_REPORTED.equals(status)) {
-        bucketCondition = bucketCondition.and(notReportedReason(roll).eq(reason));
-      }
+    if (reason != null && !reason.isEmpty() && (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
+      String reasonColumnName = VALUE_EXCLUDED.equals(status) ? REASON_COLUMN : NOT_REPORTED_REASON_COLUMN;
+      Field<String> rollReason = DSL.coalesce(requiredField(roll, reasonColumnName, String.class), DSL.inline(UNSPECIFIED_REASON));
+      bucketCondition = bucketCondition.and(
+          OTHER_REASON.equals(reason) ? otherReasonCondition(roll, rollReason, bucketCondition) : rollReason.eq(reason));
     }
 
     return dsl.select(rollRptGrpId, rollIdentifier).from(roll).where(bucketCondition).asTable("reporting_target");
   }
 
-  /** Same fixed category CASE as DashboardRepository#getNotReportedReasons, applied here to filter
-   *  rather than group -- see this class's REASON_PROCESSING_ERROR/etc. constants for why the label
-   *  text is duplicated rather than shared. */
-  private Field<String> notReportedReason(Table<?> roll) {
-    Field<Boolean> everProcessingError = requiredField(roll, EVER_PROCESSING_ERROR_COLUMN, Boolean.class);
-    Field<Boolean> everBatchReportFailed = requiredField(roll, EVER_BATCH_REPORT_FAILED_COLUMN, Boolean.class);
-    Field<Boolean> everValidationFailed = requiredField(roll, EVER_VALIDATION_FAILED_COLUMN, Boolean.class);
-    Field<Boolean> everNotYetAttempted = requiredField(roll, EVER_NOT_YET_ATTEMPTED_COLUMN, Boolean.class);
-    return DSL
-      .when(everProcessingError.isTrue(), DSL.inline(REASON_PROCESSING_ERROR))
-      .when(everBatchReportFailed.isTrue(), DSL.inline(REASON_BATCH_REPORT_FAILED))
-      .when(everValidationFailed.isTrue(), DSL.inline(REASON_VALIDATION_FAILED))
-      .when(everNotYetAttempted.isTrue(), DSL.inline(REASON_NOT_YET_ATTEMPTED))
-      .otherwise(DSL.inline(UNSPECIFIED_REASON));
+  /** "Other" isn't one reason value -- it's every reason DashboardRepository#topReasonsThenOther
+   *  didn't rank in its own top {@code TOP_REASON_LIMIT}. Reproducing that same ranking here (over
+   *  the identical {@code roll}, scoped to the same {@code baseCondition} the caller already
+   *  narrowed to EXCLUDED/NOT_REPORTED) keeps this "Other" click limited to exactly the rows the
+   *  dashboard card's own "Other" count summed, without the two repositories sharing code. */
+  private Condition otherReasonCondition(Table<?> roll, Field<String> rollReason, Condition baseCondition) {
+    var topReasons = dsl
+      .select(rollReason)
+      .from(roll)
+      .where(baseCondition)
+      .groupBy(rollReason)
+      .orderBy(DSL.count().desc(), rollReason)
+      .limit(TOP_REASON_LIMIT);
+    return rollReason.notIn(topReasons);
   }
 
   /**

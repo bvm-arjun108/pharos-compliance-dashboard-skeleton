@@ -376,7 +376,7 @@ type ReportPeriod = DashboardReportPeriod;
                   class="breakdown-stack__segment"
                   [style.flex]="item.count + ' 0 0'"
                   [style.background]="notReportedReasonColor(i)"
-                  [attr.title]="item.reason + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
+                  [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
                 ></span>
               }
             </div>
@@ -386,11 +386,11 @@ type ReportPeriod = DashboardReportPeriod;
                   <button
                     type="button"
                     class="breakdown-legend__row"
-                    [attr.aria-label]="'View ' + item.count + ' not-reported transactions for ' + item.reason"
+                    [attr.aria-label]="'View ' + item.count + ' not-reported transactions for ' + humanizeReason(item.reason)"
                     (click)="openNotReportedTransactionsExplorer(item.reason)"
                   >
                     <span class="breakdown-legend__swatch" [style.background]="notReportedReasonColor(i)"></span>
-                    <span class="breakdown-legend__label">{{ item.reason }}</span>
+                    <span class="breakdown-legend__label">{{ humanizeReason(item.reason) }}</span>
                     <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
                     <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
                   </button>
