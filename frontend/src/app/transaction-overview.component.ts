@@ -777,7 +777,8 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
         reportGroupId: this.selectedReportGroupIdOrNull(),
         status: 'EXCLUDED',
         reason: reason || null,
-        view: 'overview'
+        view: 'overview',
+        origin: 'overview'
       }
     });
   }
@@ -799,7 +800,8 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
         reportGroupId: this.selectedReportGroupIdOrNull(),
         status: 'NOT_REPORTED',
         reason: reason || null,
-        view: 'overview'
+        view: 'overview',
+        origin: 'overview'
       }
     });
   }
@@ -811,7 +813,13 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
         toDate: period.periodEnd,
         country: this.country(),
         reportGroupId: this.selectedReportGroupIdOrNull(),
-        status: metricFocus
+        status: metricFocus,
+        // Distinct from `view: 'overview'` (openExcludedTransactionsExplorer/
+        // openNotReportedTransactionsExplorer) -- that flag also restricts the report's status
+        // dropdown to EXCLUDED/NOT_REPORTED, which is wrong here since a REPORTED total still needs
+        // the full dropdown. `origin` only tells the report page where "Back to dashboard" should
+        // return to, independent of that restriction.
+        origin: 'overview'
       }
     });
   }

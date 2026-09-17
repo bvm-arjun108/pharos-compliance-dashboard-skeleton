@@ -274,11 +274,11 @@
                 <span class="evidence-bar-segment evidence-bar-segment--soft-dedup" [style.width.%]="barShare(details.softDedupTransactions, details.selectedTransactions)" [title]="details.softDedupTransactions + ' soft-dedup dropped — click to view'" (click)="openTransactionReport('SOFT_DEDUP')">{{ details.softDedupTransactions }}</span>
               }
             </div>
-            <div class="evidence-values evidence-values--two">
+            <div class="evidence-values evidence-values--two evidence-values--selection-summary">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SELECTED')" aria-label="View selected transaction evidence"><span>Selected data</span><strong>{{ details.selectedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTERED')" aria-label="View filtered transaction evidence"><span>Filtered data</span><strong [class.issue-number]="filteredTransactions(details) > 0">{{ filteredTransactions(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTERED')" aria-label="View excluded transaction evidence"><span>Total exclusions</span><strong [class.issue-number]="filteredTransactions(details) > 0">{{ filteredTransactions(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
-            <p class="evidence-panel__subheading">Filtered by reason</p>
+            <p class="evidence-panel__subheading">Exclusions by reason</p>
             <div class="evidence-values evidence-values--five">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SIMULATED')" aria-label="View simulated (SML) transaction evidence"><span>Simulated (SML)</span><strong>{{ details.simulatedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Excluded</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>

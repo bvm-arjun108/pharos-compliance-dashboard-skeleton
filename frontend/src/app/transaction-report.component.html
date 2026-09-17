@@ -30,7 +30,7 @@
           <h1>{{ result.metricLabel }}</h1>
           <span>{{ contextGroupLabel(result.context) }} · {{ result.context.countryName }}</span>
         </div>
-        <button type="button" (click)="goBack()">{{ mode() === 'BATCH' ? '← Back to batch' : '← Back to dashboard' }}</button>
+        <button type="button" (click)="goBack()">{{ mode() === 'BATCH' ? '← Back to batch' : returnToTransactionView() ? '← Back to Transaction View' : '← Back to dashboard' }}</button>
       </header>
 
       @if (result.context.kind === 'BATCH') {

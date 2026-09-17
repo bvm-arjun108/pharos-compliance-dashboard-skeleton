@@ -211,6 +211,11 @@ export class TransactionReportComponent implements OnInit {
   // every other status uses — restricting the dropdown to just those two keeps the UI honest about
   // which query is actually running.
   readonly overviewOnly = signal(false);
+  // Broader than overviewOnly above (also true for the Reported/Excluded totals reached from that
+  // page's daily/weekly/monthly trend chart, which use the ordinary batch-grain pipeline and so
+  // must NOT get overviewOnly's dropdown restriction) -- tracks only where "Back to dashboard"
+  // should return to, independent of that restriction. See goBack().
+  readonly returnToTransactionView = signal(false);
 
   readonly reportGroupId = signal<number | null>(null);
   readonly batchId = signal('');
@@ -336,10 +341,23 @@ export class TransactionReportComponent implements OnInit {
    *  regardless of how many in-page interactions happened first.
    *  In BATCH mode this must deep-link back to the specific batch (same as openBatchView()) --
    *  navigating to a bare /batches/explorer drops all context and lands on an empty explorer list
-   *  instead of the batch the user actually came from. */
+   *  instead of the batch the user actually came from. Likewise, a PERIOD-mode report reached from
+   *  the Transactions Overview page (returnToTransactionView -- see readRouteState) must return
+   *  there with its own filters, not to the unrelated, unfiltered Batch View dashboard. */
   goBack(): void {
     if (this.mode() === 'BATCH') {
       this.openBatchView();
+      return;
+    }
+    if (this.returnToTransactionView()) {
+      void this.router.navigate(['/transaction-view'], {
+        queryParams: {
+          country: this.country(),
+          reportGroupId: this.reportGroupId(),
+          fromDate: this.fromDate(),
+          toDate: this.toDate()
+        }
+      });
       return;
     }
     void this.router.navigate(['/batches']);
@@ -641,6 +659,7 @@ export class TransactionReportComponent implements OnInit {
     this.sortDirection.set(params.get('sortDirection') === 'ASC' ? 'ASC' : 'DESC');
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
     this.overviewOnly.set(params.get('view') === 'overview');
+    this.returnToTransactionView.set(params.get('origin') === 'overview');
 
     if (batchId && this.reportGroupId() !== null && this.sequenceNumber() !== null) {
       this.mode.set('BATCH');

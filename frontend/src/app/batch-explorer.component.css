@@ -805,12 +805,24 @@
 .evidence-bar-segment--gap { background: repeating-linear-gradient(135deg, #ebe9e2, #ebe9e2 4px, #ddd9cd 4px, #ddd9cd 8px); }
 
 .evidence-panel__subheading {
-  margin: 14px 0 0;
+  margin: 7px 0 0;
+  padding: 9px 0 7px;
+  border-top: 1px solid #dedcd4;
   color: #85837a;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: .06em;
   text-transform: uppercase;
+}
+
+.evidence-panel__subheading + .evidence-values {
+  border-top: 0;
+}
+
+/* The hover hint should not reserve a blank line between the selection summary
+   and the exclusions breakdown. The whole summary cell remains clickable. */
+.evidence-values--selection-summary .evidence-value-link small {
+  display: none;
 }
 
 .evidence-values {
