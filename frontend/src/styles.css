@@ -429,9 +429,15 @@ main {
   gap: 14px;
 }
 
-/* Transaction Totals sits beside the exclusion-reasons chart on the Transaction View page (unlike
-   Batch View, where .kpi-transaction-group used to be one of two side-by-side .kpi-grid columns) --
-   this caps the first column's width so it doesn't stretch edge-to-edge on a wide screen. */
+/* Transaction Totals sits beside a stack of the two breakdown cards on the Transaction View page
+   (unlike Batch View, where .kpi-transaction-group used to be one of two side-by-side .kpi-grid
+   columns) -- caps the first column's width so it doesn't stretch edge-to-edge on a wide screen.
+   align-items:start keeps each column sized to its own content rather than stretched to match the
+   other -- with two compact cards now stacked in the second column instead of one, their combined
+   height comes close to Transaction Totals' without needing to force either to match exactly (see
+   .kpi-card.kpi-card--exclusion-reasons/--not-reported-breakdown's min-height:0 override below,
+   which is still what keeps each of those two cards from separately inheriting the shared
+   .kpi-card 205px floor). */
 .kpi-transaction-only {
   display: grid;
   grid-template-columns: minmax(320px, 580px) minmax(280px, 1fr);
@@ -440,8 +446,7 @@ main {
 }
 
 .kpi-batch-group,
-.kpi-transaction-group,
-.kpi-exclusion-reasons-group {
+.kpi-transaction-group {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -456,18 +461,17 @@ main {
   min-width: 0;
 }
 
-.kpi-exclusion-reasons-group > .kpi-card {
-  flex: 1 1 auto;
-}
+.kpi-breakdowns-group { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
-/* Part-to-whole, nominal categorical: every reason is its own named category (not a
-   magnitude-ordered rank), so distinguishing them needs real hue variety, not one flat color --
-   unlike a plain ranked bar list, a single stacked bar has no length/position channel to fall back
-   on for telling segments apart. Colors are the dataviz skill's validated default categorical
-   eight (references/palette.md), assigned by position; this app has no categorical set of its own
-   to draw from, and reusing a status/brand color here would either misread as severity or collide
-   with the "excluded" gold used elsewhere on this page for a different (magnitude) job. */
-.exclusion-reason-stack {
+/* Shared by the two breakdown cards beside Transaction Totals: Top Exclusion Reasons (a
+   part-to-whole, nominal-categorical split -- every reason is its own named category, not a
+   magnitude-ordered rank, so distinguishing segments needs real hue variety; colors are the
+   dataviz skill's validated default categorical eight from references/palette.md, assigned by
+   position) and the Not Reported breakdown (a good/bad split, so it wears status tokens instead --
+   see exclusionReasonColor vs the inline stalled/still-processing colors in
+   transaction-overview.component.ts). Both are a stacked bar + a one-row-per-category legend list,
+   so the layout CSS is shared; only the color source differs per chart. */
+.breakdown-stack {
   display: flex;
   gap: 2px;
   height: 18px;
@@ -476,26 +480,26 @@ main {
   overflow: hidden;
 }
 
-.exclusion-reason-stack__segment { display: block; min-width: 3px; }
+.breakdown-stack__segment { display: block; min-width: 3px; }
 
-.exclusion-reason-legend { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 0; padding: 0; list-style: none; }
+.breakdown-legend { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 0; padding: 0; list-style: none; }
 
-.exclusion-reason-legend__row { display: flex; align-items: center; gap: 9px; }
+.breakdown-legend__row { display: flex; align-items: center; gap: 8px; }
 
-.exclusion-reason-legend__swatch {
+.breakdown-legend__swatch {
   flex: 0 0 auto;
   width: 10px;
   height: 10px;
   border-radius: 2px;
 }
 
-.exclusion-reason-legend__label { flex: 1 1 auto; min-width: 0; color: #33332f; font-size: 12.5px; font-weight: 650; }
+.breakdown-legend__label { flex: 1 1 auto; min-width: 0; color: #33332f; font-size: 12.5px; font-weight: 650; }
 
-.exclusion-reason-legend__percent { flex: 0 0 auto; color: #6d6c65; font-size: 12px; font-variant-numeric: tabular-nums; }
+.breakdown-legend__percent { flex: 0 0 auto; color: #6d6c65; font-size: 12px; font-variant-numeric: tabular-nums; }
 
-.exclusion-reason-legend__value {
+.breakdown-legend__value {
   flex: 0 0 auto;
-  min-width: 26px;
+  min-width: 20px;
   color: #20201d;
   font-size: 13px;
   font-weight: 800;
@@ -567,7 +571,8 @@ main {
    few-reasons case. Doubled-up selector for specificity, not just source order, so this can't be
    silently re-overridden by a later edit to the shared .kpi-card rule the way the single-class
    version of this override just was. */
-.kpi-card.kpi-card--exclusion-reasons { min-height: 0; }
+.kpi-card.kpi-card--exclusion-reasons,
+.kpi-card.kpi-card--not-reported-breakdown { min-height: 0; }
 
 .kpi-card--link {
   cursor: pointer;

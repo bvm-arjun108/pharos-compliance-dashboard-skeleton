@@ -3,6 +3,7 @@ package com.pharos.compliance.dashboard.repository;
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
+import com.pharos.compliance.dashboard.repository.projection.NotReportedBreakdownProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
@@ -50,6 +51,7 @@ public class DashboardRepository {
   private static final String BATCH_GENERATED_COLUMN = "batch_generated";
   private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
   private static final String EVER_REPORTED_COLUMN = "ever_reported";
+  private static final String EVER_STALLED_COLUMN = "ever_stalled";
   private static final String REASON_COLUMN = "reason";
   private static final String UNSPECIFIED_REASON = "Unspecified";
   private static final String STATUS_EXCLUDED = "EXCLUDED";
@@ -486,5 +488,81 @@ public class DashboardRepository {
       .orderBy(DSL.field(DSL.name("count"), Integer.class).desc(), reason)
       .limit(8)
       .fetch(r -> new ExclusionReasonProjection(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
+  }
+
+  /**
+   * A two-way split of the same journey-derived "not reported" bucket {@link
+   * #getTransactionOverview}'s {@code notReported} counts, into {@code stalled} (at least one of
+   * the identifier's own rows has {@code processing_complete = true} in a terminal non-success
+   * state -- processing genuinely finished without ever excluding or reporting it, a real problem)
+   * versus {@code stillProcessing} (everything else in the bucket -- no terminal failure yet, so
+   * still potentially in flight). Verified directly against the database before building this:
+   * {@code processing_complete} turns out to be fully determined by each row's own
+   * {@code (stage, status)} pair (e.g. {@code TRANSFORMATION/ERROR} is always {@code true},
+   * {@code SELECTION/NOT_YET_REPORTED} is always {@code false}), so this is a real, non-degenerate
+   * split rather than a coin flip -- confirmed on real report groups (e.g. 84 not-reported split
+   * 19/65, another split 22 as 1/21).
+   */
+  @SqlQueryPurpose("Split not-reported transactions into stalled vs. still-processing, from full journey history")
+  public NotReportedBreakdownProjection getNotReportedBreakdown(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
+      .ge(fromTimestamp)
+      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
+      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
+      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+
+    var batchScope =
+        dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable("batch_scope");
+
+    Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);
+
+    var batchEvidence = dsl
+      .select(bsRptGrpId, bsBatchId,
+          DSL
+            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
+            .as(BATCH_GENERATED_COLUMN))
+      .from(batchScope)
+      .leftJoin(BATCH_INFO)
+      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
+      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
+      .asTable("batch_evidence");
+
+    Field<Integer> beRptGrpId = requiredField(batchEvidence, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> beBatchId = requiredField(batchEvidence, RECONCILIATION.BATCH_ID.getName(), String.class);
+    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
+
+    Field<String> upperStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
+    Condition everExcludedCondition = upperStatus.in(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP);
+    Condition everReportedCondition = JOURNEY.STAGE
+      .eq(STAGE_REPORT_GENERATION)
+      .and(upperStatus.eq(STATUS_GENERATED))
+      .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
+    Condition everStalledCondition = JOURNEY.PROCESSING_COMPLETE
+      .isTrue()
+      .and(upperStatus.notIn(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP, STATUS_GENERATED, STATUS_SUCCESS));
+
+    var roll = dsl
+      .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
+          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN), DSL.boolOr(everStalledCondition).as(EVER_STALLED_COLUMN))
+      .from(JOURNEY)
+      .join(batchEvidence)
+      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
+      .and(beBatchId.eq(JOURNEY.BATCH_ID))
+      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
+      .asTable("roll");
+
+    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
+    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
+    Field<Boolean> everStalled = requiredField(roll, EVER_STALLED_COLUMN, Boolean.class);
+    Condition notReported = everReported.isFalse().and(everExcluded.isFalse());
+
+    return dsl
+      .select(DSL.count().filterWhere(notReported.and(everStalled.isTrue())).as("stalled"),
+          DSL.count().filterWhere(notReported.and(everStalled.isFalse())).as("still_processing"))
+      .from(roll)
+      .fetchOptional(r -> new NotReportedBreakdownProjection(requiredLong(r, "stalled"), requiredLong(r, "still_processing")))
+      .orElseThrow(() -> new IllegalStateException("Not-reported breakdown aggregate returned no row"));
   }
 }

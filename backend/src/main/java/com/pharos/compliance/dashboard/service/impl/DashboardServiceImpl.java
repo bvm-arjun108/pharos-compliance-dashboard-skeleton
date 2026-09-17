@@ -5,6 +5,7 @@ import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.dashboard.dto.BatchHealthTrendResponse;
 import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
 import com.pharos.compliance.dashboard.dto.ExclusionReasonResponse;
+import com.pharos.compliance.dashboard.dto.NotReportedBreakdownResponse;
 import com.pharos.compliance.dashboard.dto.ReportGroupAttentionResponse;
 import com.pharos.compliance.dashboard.dto.TransactionOverviewResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
@@ -12,6 +13,7 @@ import com.pharos.compliance.dashboard.repository.DashboardRepository;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
+import com.pharos.compliance.dashboard.repository.projection.NotReportedBreakdownProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.service.DashboardService;
@@ -74,6 +76,12 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toExclusionReasonResponse)
       .toList();
 
+    NotReportedBreakdownProjection notReportedBreakdownProjection = dashboardRepository.getNotReportedBreakdown(fromTimestamp,
+        toTimestampExclusive, normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup,
+        reportGroupIdFilter);
+    NotReportedBreakdownResponse notReportedBreakdown =
+        new NotReportedBreakdownResponse(notReportedBreakdownProjection.stalled(), notReportedBreakdownProjection.stillProcessing());
+
     List<BatchHealthTrendResponse> trend = dashboardRepository
       .getBatchHealthTrend(fromTimestamp, toTimestampExclusive, fromDate, toDate, trendGranularity.name(), normalizedBatchId,
           countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter)
@@ -88,8 +96,8 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toReportGroupResponse)
       .toList();
 
-    DashboardDetailsResponse response =
-        toDashboardResponse(counts, transactionOverview, topExclusionReasons, trendGranularity, trend, reportGroups, fromDate, toDate);
+    DashboardDetailsResponse response = toDashboardResponse(counts, transactionOverview, topExclusionReasons, notReportedBreakdown,
+        trendGranularity, trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={} | attention={}"
         + " | notYetReported={} | reportedTransactions={} | excludedTransactions={} | txnSelected={} | txnExpected={} | txnExcluded={}"
@@ -103,8 +111,9 @@ public class DashboardServiceImpl implements DashboardService {
   }
 
   private DashboardDetailsResponse toDashboardResponse(DashboardCountsProjection counts, TransactionOverviewProjection transactionOverview,
-      List<ExclusionReasonResponse> topExclusionReasons, TrendGranularity trendGranularity, List<BatchHealthTrendResponse> trend,
-      List<ReportGroupAttentionResponse> reportGroups, LocalDate fromDate, LocalDate toDate) {
+      List<ExclusionReasonResponse> topExclusionReasons, NotReportedBreakdownResponse notReportedBreakdown,
+      TrendGranularity trendGranularity, List<BatchHealthTrendResponse> trend, List<ReportGroupAttentionResponse> reportGroups,
+      LocalDate fromDate, LocalDate toDate) {
     return new DashboardDetailsResponse(counts.batchesRan(),
         counts.batchesRan() - counts.batchesNeedingAttention() - counts.batchesNotYetReported(), counts.batchesNotYetReported(),
         counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
@@ -112,7 +121,8 @@ public class DashboardServiceImpl implements DashboardService {
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), counts.totalReportedTransactions(),
         counts.totalExcludedTransactions(),
         new TransactionOverviewResponse(transactionOverview.selected(), transactionOverview.expected(), transactionOverview.excluded(),
-            transactionOverview.notReported()), topExclusionReasons, trendGranularity, trend, reportGroups, fromDate, toDate);
+            transactionOverview.notReported()), topExclusionReasons, notReportedBreakdown, trendGranularity, trend, reportGroups, fromDate,
+        toDate);
   }
 
   private ExclusionReasonResponse toExclusionReasonResponse(ExclusionReasonProjection reason) {

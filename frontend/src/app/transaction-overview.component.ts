@@ -54,6 +54,11 @@ interface ExclusionReason {
   count: number;
 }
 
+interface NotReportedBreakdown {
+  stalled: number;
+  stillProcessing: number;
+}
+
 type TrendGranularity = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 
 interface BatchHealthTrend {
@@ -69,6 +74,7 @@ interface BatchHealthTrend {
 interface DashboardDetailsResponse {
   transactionOverview: TransactionOverview;
   topExclusionReasons: ExclusionReason[];
+  notReportedBreakdown: NotReportedBreakdown;
   trendGranularity: TrendGranularity;
   batchHealthTrend: BatchHealthTrend[];
   fromDate: string;
@@ -295,48 +301,98 @@ type ReportPeriod = DashboardReportPeriod;
         </article>
         </div>
 
-        <div class="kpi-exclusion-reasons-group">
-          <article class="kpi-card kpi-card--exclusion-reasons">
-            <div class="kpi-card__topline">
-              <span>Top Exclusion Reasons</span>
-            </div>
-            @if (countryRequired()) {
-              <p class="kpi-scope-prompt">Select a country to see exclusion reasons for it.</p>
-            } @else if (dashboardLoading()) {
-              <span class="kpi-loading">Loading…</span>
-            } @else if (dashboardError()) {
-              <strong class="kpi-error">Unavailable</strong>
-            } @else if (dashboardDetails(); as details) {
-              @if (details.topExclusionReasons.length === 0) {
-                <p class="kpi-scope-prompt">No excluded transactions in this period.</p>
-              } @else {
-                <div
-                  class="exclusion-reason-stack"
-                  role="img"
-                  [attr.aria-label]="'Exclusion reasons for ' + (details.transactionOverview.excluded | number:'1.0-0') + ' excluded transactions'"
-                >
-                  @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
-                    <span
-                      class="exclusion-reason-stack__segment"
-                      [style.flex]="item.count + ' 0 0'"
-                      [style.background]="exclusionReasonColor(i)"
-                      [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0') + '%)'"
-                    ></span>
-                  }
-                </div>
-                <ul class="exclusion-reason-legend">
-                  @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
-                    <li class="exclusion-reason-legend__row">
-                      <span class="exclusion-reason-legend__swatch" [style.background]="exclusionReasonColor(i)"></span>
-                      <span class="exclusion-reason-legend__label">{{ humanizeReason(item.reason) }}</span>
-                      <span class="exclusion-reason-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0' }}%</span>
-                      <span class="exclusion-reason-legend__value">{{ item.count | number:'1.0-0' }}</span>
-                    </li>
-                  }
-                </ul>
+        <div class="kpi-breakdowns-group">
+        <article class="kpi-card kpi-card--exclusion-reasons">
+        <div class="kpi-card__topline">
+          <span>Top Exclusion Reasons</span>
+        </div>
+        @if (countryRequired()) {
+          <p class="kpi-scope-prompt">Select a country to see exclusion reasons for it.</p>
+        } @else if (dashboardLoading()) {
+          <span class="kpi-loading">Loading…</span>
+        } @else if (dashboardError()) {
+          <strong class="kpi-error">Unavailable</strong>
+        } @else if (dashboardDetails(); as details) {
+          @if (details.topExclusionReasons.length === 0) {
+            <p class="kpi-scope-prompt">No excluded transactions in this period.</p>
+          } @else {
+            <div
+              class="breakdown-stack"
+              role="img"
+              [attr.aria-label]="'Exclusion reasons for ' + (details.transactionOverview.excluded | number:'1.0-0') + ' excluded transactions'"
+            >
+              @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
+                <span
+                  class="breakdown-stack__segment"
+                  [style.flex]="item.count + ' 0 0'"
+                  [style.background]="exclusionReasonColor(i)"
+                  [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0') + '%)'"
+                ></span>
               }
-            }
-          </article>
+            </div>
+            <ul class="breakdown-legend">
+              @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
+                <li class="breakdown-legend__row">
+                  <span class="breakdown-legend__swatch" [style.background]="exclusionReasonColor(i)"></span>
+                  <span class="breakdown-legend__label">{{ humanizeReason(item.reason) }}</span>
+                  <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0' }}%</span>
+                  <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </article>
+
+      <article class="kpi-card kpi-card--not-reported-breakdown">
+        <div class="kpi-card__topline">
+          <span>Not Reported Breakdown</span>
+        </div>
+        @if (countryRequired()) {
+          <p class="kpi-scope-prompt">Select a country to see the not-reported breakdown for it.</p>
+        } @else if (dashboardLoading()) {
+          <span class="kpi-loading">Loading…</span>
+        } @else if (dashboardError()) {
+          <strong class="kpi-error">Unavailable</strong>
+        } @else if (dashboardDetails(); as details) {
+          @if (details.transactionOverview.notReported === 0) {
+            <p class="kpi-scope-prompt">No not-reported transactions in this period.</p>
+          } @else {
+            <div
+              class="breakdown-stack"
+              role="img"
+              [attr.aria-label]="'Not-reported breakdown for ' + (details.transactionOverview.notReported | number:'1.0-0') + ' not-reported transactions'"
+            >
+              <span
+                class="breakdown-stack__segment"
+                [style.flex]="details.notReportedBreakdown.stalled + ' 0 0'"
+                [style.background]="notReportedStalledColor"
+                [attr.title]="'Stalled: ' + (details.notReportedBreakdown.stalled | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(details.notReportedBreakdown.stalled, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
+              ></span>
+              <span
+                class="breakdown-stack__segment"
+                [style.flex]="details.notReportedBreakdown.stillProcessing + ' 0 0'"
+                [style.background]="notReportedStillProcessingColor"
+                [attr.title]="'Still processing: ' + (details.notReportedBreakdown.stillProcessing | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(details.notReportedBreakdown.stillProcessing, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
+              ></span>
+            </div>
+            <ul class="breakdown-legend">
+              <li class="breakdown-legend__row">
+                <span class="breakdown-legend__swatch" [style.background]="notReportedStalledColor"></span>
+                <span class="breakdown-legend__label">Stalled -- processing finished without reporting</span>
+                <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(details.notReportedBreakdown.stalled, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
+                <span class="breakdown-legend__value">{{ details.notReportedBreakdown.stalled | number:'1.0-0' }}</span>
+              </li>
+              <li class="breakdown-legend__row">
+                <span class="breakdown-legend__swatch" [style.background]="notReportedStillProcessingColor"></span>
+                <span class="breakdown-legend__label">Still processing</span>
+                <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(details.notReportedBreakdown.stillProcessing, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
+                <span class="breakdown-legend__value">{{ details.notReportedBreakdown.stillProcessing | number:'1.0-0' }}</span>
+              </li>
+            </ul>
+          }
+        }
+        </article>
         </div>
       </div>
     </section>
@@ -726,6 +782,15 @@ export class TransactionOverviewComponent implements OnInit {
   exclusionReasonColor(index: number): string {
     return TransactionOverviewComponent.EXCLUSION_REASON_PALETTE[index % TransactionOverviewComponent.EXCLUSION_REASON_PALETTE.length];
   }
+
+  /** Unlike exclusion reasons (nominal categories -- no segment means "good" or "bad"), stalled vs.
+   *  still-processing is a genuine good/bad split, so it wears the dataviz skill's fixed status
+   *  tokens instead of a categorical hue: critical for stalled (processing finished without ever
+   *  reporting or excluding it -- a real problem), a neutral gray for still-processing (in flight,
+   *  not yet due for concern -- not "good" exactly, just not-yet-a-problem, so it doesn't get the
+   *  status-good green either). */
+  readonly notReportedStalledColor = '#d03b3b';
+  readonly notReportedStillProcessingColor = '#8a8981';
 
   /** Same SCREAMING_SNAKE_CASE -> "Screaming Snake Case" humanization as
    *  transaction-report.component.ts's humanizeIfCode -- only applied to machine-constant-shaped
