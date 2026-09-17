@@ -429,16 +429,19 @@ main {
   gap: 14px;
 }
 
-/* Standalone wrapper for .kpi-transaction-group on the Transaction View page, where it's the only
-   card rather than one of two side-by-side .kpi-grid columns -- caps its width so the card doesn't
-   stretch edge-to-edge on a wide screen. */
+/* Transaction Totals sits beside the exclusion-reasons chart on the Transaction View page (unlike
+   Batch View, where .kpi-transaction-group used to be one of two side-by-side .kpi-grid columns) --
+   this caps the first column's width so it doesn't stretch edge-to-edge on a wide screen. */
 .kpi-transaction-only {
   display: grid;
-  max-width: 580px;
+  grid-template-columns: minmax(320px, 580px) minmax(280px, 1fr);
+  align-items: start;
+  gap: 14px;
 }
 
 .kpi-batch-group,
-.kpi-transaction-group {
+.kpi-transaction-group,
+.kpi-exclusion-reasons-group {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -451,6 +454,53 @@ main {
      748px, and without this override that minimum wins over .kpi-grid's minmax(0, 1fr) track,
      forcing this panel to overflow into its sibling instead of actually shrinking. */
   min-width: 0;
+}
+
+.kpi-exclusion-reasons-group > .kpi-card {
+  flex: 1 1 auto;
+}
+
+/* Part-to-whole, nominal categorical: every reason is its own named category (not a
+   magnitude-ordered rank), so distinguishing them needs real hue variety, not one flat color --
+   unlike a plain ranked bar list, a single stacked bar has no length/position channel to fall back
+   on for telling segments apart. Colors are the dataviz skill's validated default categorical
+   eight (references/palette.md), assigned by position; this app has no categorical set of its own
+   to draw from, and reusing a status/brand color here would either misread as severity or collide
+   with the "excluded" gold used elsewhere on this page for a different (magnitude) job. */
+.exclusion-reason-stack {
+  display: flex;
+  gap: 2px;
+  height: 18px;
+  margin-top: 4px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.exclusion-reason-stack__segment { display: block; min-width: 3px; }
+
+.exclusion-reason-legend { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 0; padding: 0; list-style: none; }
+
+.exclusion-reason-legend__row { display: flex; align-items: center; gap: 9px; }
+
+.exclusion-reason-legend__swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.exclusion-reason-legend__label { flex: 1 1 auto; min-width: 0; color: #33332f; font-size: 12.5px; font-weight: 650; }
+
+.exclusion-reason-legend__percent { flex: 0 0 auto; color: #6d6c65; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.exclusion-reason-legend__value {
+  flex: 0 0 auto;
+  min-width: 26px;
+  color: #20201d;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .kpi-batch-group {
@@ -509,6 +559,15 @@ main {
   font: inherit;
   text-align: left;
 }
+
+/* Unlike the KPI cards this sits beside (fixed content -- counts, gauges -- so a shared minimum
+   height keeps them visually anchored), this card's content is a variable-length reason list: one
+   country might have a single exclusion reason, another a full eight. Sizing it to its own content
+   instead of inheriting the 205px floor above avoids a mostly-empty card on the common
+   few-reasons case. Doubled-up selector for specificity, not just source order, so this can't be
+   silently re-overridden by a later edit to the shared .kpi-card rule the way the single-class
+   version of this override just was. */
+.kpi-card.kpi-card--exclusion-reasons { min-height: 0; }
 
 .kpi-card--link {
   cursor: pointer;
@@ -1302,6 +1361,7 @@ button.metric-value,
   .kpi-card { width: 100%; }
   .kpi-card--attention,
   .kpi-card--success { grid-column: 1 / -1; }
+  .kpi-transaction-only { grid-template-columns: minmax(0, 580px); }
 }
 
 @media (max-width: 700px) {

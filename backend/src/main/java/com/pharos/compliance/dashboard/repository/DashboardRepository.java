@@ -2,6 +2,7 @@ package com.pharos.compliance.dashboard.repository;
 
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
+import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
@@ -49,6 +50,8 @@ public class DashboardRepository {
   private static final String BATCH_GENERATED_COLUMN = "batch_generated";
   private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
   private static final String EVER_REPORTED_COLUMN = "ever_reported";
+  private static final String REASON_COLUMN = "reason";
+  private static final String UNSPECIFIED_REASON = "Unspecified";
   private static final String STATUS_EXCLUDED = "EXCLUDED";
   private static final String STATUS_EXCLUDED_SOFT_DEDUP = "EXCLUDED_SOFT_DEDUP";
   private static final String STATUS_GENERATED = "GENERATED";
@@ -410,5 +413,78 @@ public class DashboardRepository {
       .fetchOptional(r -> new TransactionOverviewProjection(requiredLong(r, "selected"), requiredLong(r, "expected"),
           requiredLong(r, "excluded"), requiredLong(r, "not_reported")))
       .orElseThrow(() -> new IllegalStateException("Transaction overview aggregate returned no row"));
+  }
+
+  /**
+   * The same journey-derived "excluded" bucket as {@link #getTransactionOverview}'s {@code
+   * excluded} count, broken out by reason instead of collapsed to one total -- for explaining
+   * *why* transactions were excluded rather than just how many. Each excluded identifier's reason
+   * is {@code skip_reason} (falling back to {@code comments} when null), taken from whichever of
+   * its own EXCLUDED/EXCLUDED_SOFT_DEDUP rows has the lexicographically-greatest value -- the same
+   * two-column fallback chain the transaction report's own "Investigation Detail" column already
+   * uses for a single record. Capped at the top 8 reasons by count, matching this project's
+   * dataviz convention for a single-hue bar chart's row count.
+   */
+  @SqlQueryPurpose("Summarize excluded transactions by reason, from full journey history")
+  public List<ExclusionReasonProjection> getTopExclusionReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
+      .ge(fromTimestamp)
+      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
+      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
+      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+
+    var batchScope =
+        dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable("batch_scope");
+
+    Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);
+
+    var batchEvidence = dsl
+      .select(bsRptGrpId, bsBatchId,
+          DSL
+            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
+            .as(BATCH_GENERATED_COLUMN))
+      .from(batchScope)
+      .leftJoin(BATCH_INFO)
+      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
+      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
+      .asTable("batch_evidence");
+
+    Field<Integer> beRptGrpId = requiredField(batchEvidence, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> beBatchId = requiredField(batchEvidence, RECONCILIATION.BATCH_ID.getName(), String.class);
+    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
+
+    Field<String> upperStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
+    Condition everExcludedCondition = upperStatus.in(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP);
+    Condition everReportedCondition = JOURNEY.STAGE
+      .eq(STAGE_REPORT_GENERATION)
+      .and(upperStatus.eq(STATUS_GENERATED))
+      .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
+    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
+
+    var roll = dsl
+      .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
+          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
+          DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN))
+      .from(JOURNEY)
+      .join(batchEvidence)
+      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
+      .and(beBatchId.eq(JOURNEY.BATCH_ID))
+      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
+      .asTable("roll");
+
+    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
+    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
+    Field<String> reason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
+
+    return dsl
+      .select(reason.as(REASON_COLUMN), DSL.count().as("count"))
+      .from(roll)
+      .where(everExcluded.isTrue().and(everReported.isFalse()))
+      .groupBy(reason)
+      .orderBy(DSL.field(DSL.name("count"), Integer.class).desc(), reason)
+      .limit(8)
+      .fetch(r -> new ExclusionReasonProjection(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
   }
 }

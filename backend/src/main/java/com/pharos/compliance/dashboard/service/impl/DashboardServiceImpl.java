@@ -4,12 +4,14 @@ import com.pharos.compliance.common.exception.InvalidDateRangeException;
 import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.dashboard.dto.BatchHealthTrendResponse;
 import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
+import com.pharos.compliance.dashboard.dto.ExclusionReasonResponse;
 import com.pharos.compliance.dashboard.dto.ReportGroupAttentionResponse;
 import com.pharos.compliance.dashboard.dto.TransactionOverviewResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.repository.DashboardRepository;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
+import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.service.DashboardService;
@@ -65,6 +67,13 @@ public class DashboardServiceImpl implements DashboardService {
     TransactionOverviewProjection transactionOverview = dashboardRepository.getTransactionOverview(fromTimestamp, toTimestampExclusive,
         normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
 
+    List<ExclusionReasonResponse> topExclusionReasons = dashboardRepository
+      .getTopExclusionReasons(fromTimestamp, toTimestampExclusive, normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(),
+          filterByReportGroup, reportGroupIdFilter)
+      .stream()
+      .map(this::toExclusionReasonResponse)
+      .toList();
+
     List<BatchHealthTrendResponse> trend = dashboardRepository
       .getBatchHealthTrend(fromTimestamp, toTimestampExclusive, fromDate, toDate, trendGranularity.name(), normalizedBatchId,
           countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter)
@@ -80,7 +89,7 @@ public class DashboardServiceImpl implements DashboardService {
       .toList();
 
     DashboardDetailsResponse response =
-        toDashboardResponse(counts, transactionOverview, trendGranularity, trend, reportGroups, fromDate, toDate);
+        toDashboardResponse(counts, transactionOverview, topExclusionReasons, trendGranularity, trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={} | attention={}"
         + " | notYetReported={} | reportedTransactions={} | excludedTransactions={} | txnSelected={} | txnExpected={} | txnExcluded={}"
@@ -94,8 +103,8 @@ public class DashboardServiceImpl implements DashboardService {
   }
 
   private DashboardDetailsResponse toDashboardResponse(DashboardCountsProjection counts, TransactionOverviewProjection transactionOverview,
-      TrendGranularity trendGranularity, List<BatchHealthTrendResponse> trend, List<ReportGroupAttentionResponse> reportGroups,
-      LocalDate fromDate, LocalDate toDate) {
+      List<ExclusionReasonResponse> topExclusionReasons, TrendGranularity trendGranularity, List<BatchHealthTrendResponse> trend,
+      List<ReportGroupAttentionResponse> reportGroups, LocalDate fromDate, LocalDate toDate) {
     return new DashboardDetailsResponse(counts.batchesRan(),
         counts.batchesRan() - counts.batchesNeedingAttention() - counts.batchesNotYetReported(), counts.batchesNotYetReported(),
         counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
@@ -103,7 +112,11 @@ public class DashboardServiceImpl implements DashboardService {
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), counts.totalReportedTransactions(),
         counts.totalExcludedTransactions(),
         new TransactionOverviewResponse(transactionOverview.selected(), transactionOverview.expected(), transactionOverview.excluded(),
-            transactionOverview.notReported()), trendGranularity, trend, reportGroups, fromDate, toDate);
+            transactionOverview.notReported()), topExclusionReasons, trendGranularity, trend, reportGroups, fromDate, toDate);
+  }
+
+  private ExclusionReasonResponse toExclusionReasonResponse(ExclusionReasonProjection reason) {
+    return new ExclusionReasonResponse(reason.reason(), reason.count());
   }
 
   private BatchHealthTrendResponse toTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate, LocalDate requestedToDate,

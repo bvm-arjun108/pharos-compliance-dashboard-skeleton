@@ -49,6 +49,11 @@ interface TransactionOverview {
   notReported: number;
 }
 
+interface ExclusionReason {
+  reason: string;
+  count: number;
+}
+
 type TrendGranularity = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 
 interface BatchHealthTrend {
@@ -63,6 +68,7 @@ interface BatchHealthTrend {
 // fine since HttpClient's typed get<T>() doesn't validate the response shape, only casts it.
 interface DashboardDetailsResponse {
   transactionOverview: TransactionOverview;
+  topExclusionReasons: ExclusionReason[];
   trendGranularity: TrendGranularity;
   batchHealthTrend: BatchHealthTrend[];
   fromDate: string;
@@ -287,6 +293,50 @@ type ReportPeriod = DashboardReportPeriod;
             <small class="transaction-overview-note">Reported/excluded status derived from each transaction's full journey history, not batch-level aggregates</small>
           }
         </article>
+        </div>
+
+        <div class="kpi-exclusion-reasons-group">
+          <article class="kpi-card kpi-card--exclusion-reasons">
+            <div class="kpi-card__topline">
+              <span>Top Exclusion Reasons</span>
+            </div>
+            @if (countryRequired()) {
+              <p class="kpi-scope-prompt">Select a country to see exclusion reasons for it.</p>
+            } @else if (dashboardLoading()) {
+              <span class="kpi-loading">Loading…</span>
+            } @else if (dashboardError()) {
+              <strong class="kpi-error">Unavailable</strong>
+            } @else if (dashboardDetails(); as details) {
+              @if (details.topExclusionReasons.length === 0) {
+                <p class="kpi-scope-prompt">No excluded transactions in this period.</p>
+              } @else {
+                <div
+                  class="exclusion-reason-stack"
+                  role="img"
+                  [attr.aria-label]="'Exclusion reasons for ' + (details.transactionOverview.excluded | number:'1.0-0') + ' excluded transactions'"
+                >
+                  @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
+                    <span
+                      class="exclusion-reason-stack__segment"
+                      [style.flex]="item.count + ' 0 0'"
+                      [style.background]="exclusionReasonColor(i)"
+                      [attr.title]="humanizeReason(item.reason) + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0') + '%)'"
+                    ></span>
+                  }
+                </div>
+                <ul class="exclusion-reason-legend">
+                  @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
+                    <li class="exclusion-reason-legend__row">
+                      <span class="exclusion-reason-legend__swatch" [style.background]="exclusionReasonColor(i)"></span>
+                      <span class="exclusion-reason-legend__label">{{ humanizeReason(item.reason) }}</span>
+                      <span class="exclusion-reason-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0' }}%</span>
+                      <span class="exclusion-reason-legend__value">{{ item.count | number:'1.0-0' }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            }
+          </article>
         </div>
       </div>
     </section>
@@ -650,6 +700,56 @@ export class TransactionOverviewComponent implements OnInit {
 
   trendReportedTransactionsMaximum(periods: BatchHealthTrend[]): number {
     return Math.max(1, ...periods.map(period => period.totalReportedTransactions));
+  }
+
+  exclusionReasonSharePercent(count: number, totalExcluded: number): number {
+    return totalExcluded === 0 ? 0 : (count / totalExcluded) * 100;
+  }
+
+  /** The dataviz skill's validated default categorical palette (see references/palette.md) --
+   *  eight hues in a fixed order that clear CVD-safety checks for adjacent marks (a stacked bar's
+   *  touching segments), assigned by position since exclusion reasons are nominal categories with
+   *  no persistent cross-scope identity (the top reason for Portugal isn't "always slot 1" in any
+   *  meaningful sense -- each chart instance pairs its own swatches with its own legend). Capped at
+   *  8 server-side, matching this palette's slot count. */
+  private static readonly EXCLUSION_REASON_PALETTE = [
+    '#2a78d6', // blue
+    '#eb6834', // orange
+    '#1baf7a', // aqua
+    '#eda100', // yellow
+    '#e87ba4', // magenta
+    '#008300', // green
+    '#4a3aa7', // violet
+    '#e34948' // red
+  ];
+
+  exclusionReasonColor(index: number): string {
+    return TransactionOverviewComponent.EXCLUSION_REASON_PALETTE[index % TransactionOverviewComponent.EXCLUSION_REASON_PALETTE.length];
+  }
+
+  /** Same SCREAMING_SNAKE_CASE -> "Screaming Snake Case" humanization as
+   *  transaction-report.component.ts's humanizeIfCode -- only applied to machine-constant-shaped
+   *  reasons (skip_reason), leaving already-readable free-text ones (a configured-strategy
+   *  sentence, typically from comments) untouched. */
+  humanizeReason(value: string): string {
+    if (!/^[A-Z0-9_()./-]+$/.test(value)) {
+      return value;
+    }
+    return value
+      .replace(/_/g, ' ')
+      .replace(/\(/g, ' (')
+      .trim()
+      .split(/\s+/)
+      .map(word => {
+        const match = word.match(/^(\()?(.*?)(\))?$/);
+        if (!match || !match[2]) {
+          return word;
+        }
+        const [, open, core, close] = match;
+        const lower = core.toLowerCase();
+        return `${open ?? ''}${lower.charAt(0).toUpperCase()}${lower.slice(1)}${close ?? ''}`;
+      })
+      .join(' ');
   }
 
   reportedHeatmapCellColor(reportedCount: number, maximum: number): string {
