@@ -54,9 +54,9 @@ interface ExclusionReason {
   count: number;
 }
 
-interface NotReportedBreakdown {
-  stalled: number;
-  stillProcessing: number;
+interface NotReportedReason {
+  reason: string;
+  count: number;
 }
 
 type TrendGranularity = 'DAILY' | 'WEEKLY' | 'MONTHLY';
@@ -74,7 +74,7 @@ interface BatchHealthTrend {
 interface DashboardDetailsResponse {
   transactionOverview: TransactionOverview;
   topExclusionReasons: ExclusionReason[];
-  notReportedBreakdown: NotReportedBreakdown;
+  notReportedReasons: NotReportedReason[];
   trendGranularity: TrendGranularity;
   batchHealthTrend: BatchHealthTrend[];
   fromDate: string;
@@ -332,14 +332,22 @@ type ReportPeriod = DashboardReportPeriod;
             </div>
             <ul class="breakdown-legend">
               @for (item of details.topExclusionReasons; track item.reason; let i = $index) {
-                <li class="breakdown-legend__row">
-                  <span class="breakdown-legend__swatch" [style.background]="exclusionReasonColor(i)"></span>
-                  <span class="breakdown-legend__label">{{ humanizeReason(item.reason) }}</span>
-                  <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0' }}%</span>
-                  <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
+                <li>
+                  <button
+                    type="button"
+                    class="breakdown-legend__row"
+                    [attr.aria-label]="'View ' + item.count + ' excluded transactions for ' + humanizeReason(item.reason)"
+                    (click)="openExcludedTransactionsExplorer(item.reason)"
+                  >
+                    <span class="breakdown-legend__swatch" [style.background]="exclusionReasonColor(i)"></span>
+                    <span class="breakdown-legend__label">{{ humanizeReason(item.reason) }}</span>
+                    <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.excluded) | number:'1.0-0' }}%</span>
+                    <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
+                  </button>
                 </li>
               }
             </ul>
+            <small>Reason reflects why each transaction was excluded, based on its full processing history -- not necessarily its most recent status.</small>
           }
         }
       </article>
@@ -355,7 +363,7 @@ type ReportPeriod = DashboardReportPeriod;
         } @else if (dashboardError()) {
           <strong class="kpi-error">Unavailable</strong>
         } @else if (dashboardDetails(); as details) {
-          @if (details.transactionOverview.notReported === 0) {
+          @if (details.notReportedReasons.length === 0) {
             <p class="kpi-scope-prompt">No not-reported transactions in this period.</p>
           } @else {
             <div
@@ -363,33 +371,33 @@ type ReportPeriod = DashboardReportPeriod;
               role="img"
               [attr.aria-label]="'Not-reported breakdown for ' + (details.transactionOverview.notReported | number:'1.0-0') + ' not-reported transactions'"
             >
-              <span
-                class="breakdown-stack__segment"
-                [style.flex]="details.notReportedBreakdown.stalled + ' 0 0'"
-                [style.background]="notReportedStalledColor"
-                [attr.title]="'Stalled: ' + (details.notReportedBreakdown.stalled | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(details.notReportedBreakdown.stalled, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
-              ></span>
-              <span
-                class="breakdown-stack__segment"
-                [style.flex]="details.notReportedBreakdown.stillProcessing + ' 0 0'"
-                [style.background]="notReportedStillProcessingColor"
-                [attr.title]="'Still processing: ' + (details.notReportedBreakdown.stillProcessing | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(details.notReportedBreakdown.stillProcessing, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
-              ></span>
+              @for (item of details.notReportedReasons; track item.reason; let i = $index) {
+                <span
+                  class="breakdown-stack__segment"
+                  [style.flex]="item.count + ' 0 0'"
+                  [style.background]="notReportedReasonColor(i)"
+                  [attr.title]="item.reason + ': ' + (item.count | number:'1.0-0') + ' (' + (exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0') + '%)'"
+                ></span>
+              }
             </div>
             <ul class="breakdown-legend">
-              <li class="breakdown-legend__row">
-                <span class="breakdown-legend__swatch" [style.background]="notReportedStalledColor"></span>
-                <span class="breakdown-legend__label">Stalled -- processing finished without reporting</span>
-                <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(details.notReportedBreakdown.stalled, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
-                <span class="breakdown-legend__value">{{ details.notReportedBreakdown.stalled | number:'1.0-0' }}</span>
-              </li>
-              <li class="breakdown-legend__row">
-                <span class="breakdown-legend__swatch" [style.background]="notReportedStillProcessingColor"></span>
-                <span class="breakdown-legend__label">Still processing</span>
-                <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(details.notReportedBreakdown.stillProcessing, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
-                <span class="breakdown-legend__value">{{ details.notReportedBreakdown.stillProcessing | number:'1.0-0' }}</span>
-              </li>
+              @for (item of details.notReportedReasons; track item.reason; let i = $index) {
+                <li>
+                  <button
+                    type="button"
+                    class="breakdown-legend__row"
+                    [attr.aria-label]="'View ' + item.count + ' not-reported transactions for ' + item.reason"
+                    (click)="openNotReportedTransactionsExplorer(item.reason)"
+                  >
+                    <span class="breakdown-legend__swatch" [style.background]="notReportedReasonColor(i)"></span>
+                    <span class="breakdown-legend__label">{{ item.reason }}</span>
+                    <span class="breakdown-legend__percent">{{ exclusionReasonSharePercent(item.count, details.transactionOverview.notReported) | number:'1.0-0' }}%</span>
+                    <span class="breakdown-legend__value">{{ item.count | number:'1.0-0' }}</span>
+                  </button>
+                </li>
+              }
             </ul>
+            <small>Reason reflects why each transaction hasn't been reported, based on its full processing history -- not necessarily its most recent status.</small>
           }
         }
         </article>
@@ -649,7 +657,11 @@ export class TransactionOverviewComponent implements OnInit {
     this.loadDashboardDetails();
   }
 
-  openExcludedTransactionsExplorer(): void {
+  /** `reason` narrows to one Top Exclusion Reasons legend row -- the raw (un-humanized) value from
+   *  ExclusionReasonResponse, matched server-side against the exact same full-journey-history
+   *  reason bucket TransactionReportRepository#reportingTarget computes, so the drill-through's row
+   *  count matches the legend's count exactly. */
+  openExcludedTransactionsExplorer(reason?: string): void {
     const period = this.resolvePeriod();
     if (!period) {
       this.dashboardError.set('Select both custom dates.');
@@ -662,12 +674,16 @@ export class TransactionOverviewComponent implements OnInit {
         country: this.country(),
         reportGroupId: this.selectedReportGroupIdOrNull(),
         status: 'EXCLUDED',
+        reason: reason || null,
         view: 'overview'
       }
     });
   }
 
-  openNotReportedTransactionsExplorer(): void {
+  /** `reason` narrows to one Not Reported Reasons legend row, matched server-side against the same
+   *  full-journey-history category TransactionReportRepository#notReportedReason computes, so the
+   *  drill-through's row count matches the legend's count exactly. */
+  openNotReportedTransactionsExplorer(reason?: string): void {
     const period = this.resolvePeriod();
     if (!period) {
       this.dashboardError.set('Select both custom dates.');
@@ -680,6 +696,7 @@ export class TransactionOverviewComponent implements OnInit {
         country: this.country(),
         reportGroupId: this.selectedReportGroupIdOrNull(),
         status: 'NOT_REPORTED',
+        reason: reason || null,
         view: 'overview'
       }
     });
@@ -783,14 +800,22 @@ export class TransactionOverviewComponent implements OnInit {
     return TransactionOverviewComponent.EXCLUSION_REASON_PALETTE[index % TransactionOverviewComponent.EXCLUSION_REASON_PALETTE.length];
   }
 
-  /** Unlike exclusion reasons (nominal categories -- no segment means "good" or "bad"), stalled vs.
-   *  still-processing is a genuine good/bad split, so it wears the dataviz skill's fixed status
-   *  tokens instead of a categorical hue: critical for stalled (processing finished without ever
-   *  reporting or excluding it -- a real problem), a neutral gray for still-processing (in flight,
-   *  not yet due for concern -- not "good" exactly, just not-yet-a-problem, so it doesn't get the
-   *  status-good green either). */
-  readonly notReportedStalledColor = '#d03b3b';
-  readonly notReportedStillProcessingColor = '#8a8981';
+  /** Not Reported Reasons reuses the same healthy/low/elevated/high status-band colors as this
+   *  card's own Exclusion Rate / Not Reported Rate gauges (.exclusion-gauge__band--*) instead of
+   *  the generic categorical palette, so the two color languages on this page stay in sync rather
+   *  than introducing a second, unrelated hue set. */
+  private static readonly NOT_REPORTED_REASON_PALETTE = [
+    '#6f927f', // healthy
+    '#b8ab72', // low
+    '#c08c5b', // elevated
+    '#c4474f' // high (--failure-red)
+  ];
+
+  notReportedReasonColor(index: number): string {
+    return TransactionOverviewComponent.NOT_REPORTED_REASON_PALETTE[
+      index % TransactionOverviewComponent.NOT_REPORTED_REASON_PALETTE.length
+    ];
+  }
 
   /** Same SCREAMING_SNAKE_CASE -> "Screaming Snake Case" humanization as
    *  transaction-report.component.ts's humanizeIfCode -- only applied to machine-constant-shaped

@@ -224,6 +224,10 @@ export class TransactionReportComponent implements OnInit {
   readonly search = signal('');
   readonly source = signal<TransactionEvidenceSource>('ALL');
   readonly status = signal<TransactionStatus>('ALL');
+  // Period mode only, reached from the Transactions Overview dashboard's breakdown cards -- narrows
+  // EXCLUDED or NOT_REPORTED to one reason bucket, matching the exact slice the clicked legend row
+  // counted (see TransactionReportRepository#reportingTarget).
+  readonly reason = signal('');
   readonly sortDirection = signal<TransactionSortDirection>('DESC');
   readonly page = signal(0);
   readonly size = signal(25);
@@ -490,8 +494,11 @@ export class TransactionReportComponent implements OnInit {
   }
 
   /** A "code" is a machine constant (SCREAMING_SNAKE_CASE, dotted IDs, etc) — humanize only those,
-   *  leaving free-text config values (e.g. an exclusion reason sentence) untouched. */
-  private humanizeIfCode(value: string): string {
+   *  leaving free-text config values (e.g. an exclusion reason sentence) untouched. Public so the
+   *  PERIOD-mode context strip's "Reason" line (set when arriving from the dashboard's Top
+   *  Exclusion Reasons legend) can reuse it directly rather than re-deriving the same display text
+   *  a second way. */
+  humanizeIfCode(value: string): string {
     return /^[A-Z0-9_()./-]+$/.test(value) ? this.humanize(value) : value;
   }
 
@@ -593,6 +600,9 @@ export class TransactionReportComponent implements OnInit {
     if (this.reportGroupId() !== null) {
       params = params.set('reportGroupId', this.reportGroupId()!);
     }
+    if (this.reason().trim()) {
+      params = params.set('reason', this.reason().trim());
+    }
 
     this.http.get<RawPeriodReportResponse>('/api/v1/transactions/period-report', { params }).subscribe({
       next: raw => {
@@ -627,6 +637,7 @@ export class TransactionReportComponent implements OnInit {
     this.search.set(params.get('search') ?? '');
     this.source.set(this.parseSource(params.get('source')));
     this.status.set(this.parseStatus(params.get('status')));
+    this.reason.set(params.get('reason')?.trim() ?? '');
     this.sortDirection.set(params.get('sortDirection') === 'ASC' ? 'ASC' : 'DESC');
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
     this.overviewOnly.set(params.get('view') === 'overview');

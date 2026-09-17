@@ -5,7 +5,7 @@ import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.dashboard.dto.BatchHealthTrendResponse;
 import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
 import com.pharos.compliance.dashboard.dto.ExclusionReasonResponse;
-import com.pharos.compliance.dashboard.dto.NotReportedBreakdownResponse;
+import com.pharos.compliance.dashboard.dto.NotReportedReasonResponse;
 import com.pharos.compliance.dashboard.dto.ReportGroupAttentionResponse;
 import com.pharos.compliance.dashboard.dto.TransactionOverviewResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
@@ -13,7 +13,7 @@ import com.pharos.compliance.dashboard.repository.DashboardRepository;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
-import com.pharos.compliance.dashboard.repository.projection.NotReportedBreakdownProjection;
+import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.service.DashboardService;
@@ -76,11 +76,12 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toExclusionReasonResponse)
       .toList();
 
-    NotReportedBreakdownProjection notReportedBreakdownProjection = dashboardRepository.getNotReportedBreakdown(fromTimestamp,
-        toTimestampExclusive, normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup,
-        reportGroupIdFilter);
-    NotReportedBreakdownResponse notReportedBreakdown =
-        new NotReportedBreakdownResponse(notReportedBreakdownProjection.stalled(), notReportedBreakdownProjection.stillProcessing());
+    List<NotReportedReasonResponse> notReportedReasons = dashboardRepository
+      .getNotReportedReasons(fromTimestamp, toTimestampExclusive, normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(),
+          filterByReportGroup, reportGroupIdFilter)
+      .stream()
+      .map(this::toNotReportedReasonResponse)
+      .toList();
 
     List<BatchHealthTrendResponse> trend = dashboardRepository
       .getBatchHealthTrend(fromTimestamp, toTimestampExclusive, fromDate, toDate, trendGranularity.name(), normalizedBatchId,
@@ -96,7 +97,7 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toReportGroupResponse)
       .toList();
 
-    DashboardDetailsResponse response = toDashboardResponse(counts, transactionOverview, topExclusionReasons, notReportedBreakdown,
+    DashboardDetailsResponse response = toDashboardResponse(counts, transactionOverview, topExclusionReasons, notReportedReasons,
         trendGranularity, trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={} | attention={}"
@@ -111,7 +112,7 @@ public class DashboardServiceImpl implements DashboardService {
   }
 
   private DashboardDetailsResponse toDashboardResponse(DashboardCountsProjection counts, TransactionOverviewProjection transactionOverview,
-      List<ExclusionReasonResponse> topExclusionReasons, NotReportedBreakdownResponse notReportedBreakdown,
+      List<ExclusionReasonResponse> topExclusionReasons, List<NotReportedReasonResponse> notReportedReasons,
       TrendGranularity trendGranularity, List<BatchHealthTrendResponse> trend, List<ReportGroupAttentionResponse> reportGroups,
       LocalDate fromDate, LocalDate toDate) {
     return new DashboardDetailsResponse(counts.batchesRan(),
@@ -121,12 +122,16 @@ public class DashboardServiceImpl implements DashboardService {
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), counts.totalReportedTransactions(),
         counts.totalExcludedTransactions(),
         new TransactionOverviewResponse(transactionOverview.selected(), transactionOverview.expected(), transactionOverview.excluded(),
-            transactionOverview.notReported()), topExclusionReasons, notReportedBreakdown, trendGranularity, trend, reportGroups, fromDate,
+            transactionOverview.notReported()), topExclusionReasons, notReportedReasons, trendGranularity, trend, reportGroups, fromDate,
         toDate);
   }
 
   private ExclusionReasonResponse toExclusionReasonResponse(ExclusionReasonProjection reason) {
     return new ExclusionReasonResponse(reason.reason(), reason.count());
+  }
+
+  private NotReportedReasonResponse toNotReportedReasonResponse(NotReportedReasonProjection reason) {
+    return new NotReportedReasonResponse(reason.reason(), reason.count());
   }
 
   private BatchHealthTrendResponse toTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate, LocalDate requestedToDate,

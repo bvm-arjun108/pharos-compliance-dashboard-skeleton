@@ -3,7 +3,7 @@ package com.pharos.compliance.dashboard.repository;
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
-import com.pharos.compliance.dashboard.repository.projection.NotReportedBreakdownProjection;
+import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
@@ -51,9 +51,16 @@ public class DashboardRepository {
   private static final String BATCH_GENERATED_COLUMN = "batch_generated";
   private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
   private static final String EVER_REPORTED_COLUMN = "ever_reported";
-  private static final String EVER_STALLED_COLUMN = "ever_stalled";
+  private static final String EVER_PROCESSING_ERROR_COLUMN = "ever_processing_error";
+  private static final String EVER_BATCH_REPORT_FAILED_COLUMN = "ever_batch_report_failed";
+  private static final String EVER_VALIDATION_FAILED_COLUMN = "ever_validation_failed";
+  private static final String EVER_NOT_YET_ATTEMPTED_COLUMN = "ever_not_yet_attempted";
   private static final String REASON_COLUMN = "reason";
   private static final String UNSPECIFIED_REASON = "Unspecified";
+  private static final String REASON_PROCESSING_ERROR = "Processing error";
+  private static final String REASON_BATCH_REPORT_FAILED = "Batch report generation failed";
+  private static final String REASON_VALIDATION_FAILED = "Transformation validation failed";
+  private static final String REASON_NOT_YET_ATTEMPTED = "Not yet attempted";
   private static final String STATUS_EXCLUDED = "EXCLUDED";
   private static final String STATUS_EXCLUDED_SOFT_DEDUP = "EXCLUDED_SOFT_DEDUP";
   private static final String STATUS_GENERATED = "GENERATED";
@@ -491,21 +498,23 @@ public class DashboardRepository {
   }
 
   /**
-   * A two-way split of the same journey-derived "not reported" bucket {@link
-   * #getTransactionOverview}'s {@code notReported} counts, into {@code stalled} (at least one of
-   * the identifier's own rows has {@code processing_complete = true} in a terminal non-success
-   * state -- processing genuinely finished without ever excluding or reporting it, a real problem)
-   * versus {@code stillProcessing} (everything else in the bucket -- no terminal failure yet, so
-   * still potentially in flight). Verified directly against the database before building this:
-   * {@code processing_complete} turns out to be fully determined by each row's own
-   * {@code (stage, status)} pair (e.g. {@code TRANSFORMATION/ERROR} is always {@code true},
-   * {@code SELECTION/NOT_YET_REPORTED} is always {@code false}), so this is a real, non-degenerate
-   * split rather than a coin flip -- confirmed on real report groups (e.g. 84 not-reported split
-   * 19/65, another split 22 as 1/21).
+   * Breaks the same journey-derived "not reported" bucket {@link #getTransactionOverview}'s {@code
+   * notReported} counts down by *why* -- plain facts about what actually happened to each
+   * transaction, not a judgment call about whether that counts as "bad." Replaced an earlier
+   * stalled-vs-still-processing binary that kept producing contradictions (e.g. a row showing
+   * status SUCCESS under a bucket labeled "stalled") because it tried to compress several distinct
+   * situations into one yes/no signal. Verified directly against the full dataset before building
+   * this: every one of these four conditions is real and sizable on its own (not_yet_attempted
+   * ~3,044 identifiers, processing_error ~1,480, batch_report_failed ~2,649, validation_failed 16
+   * dataset-wide), and -- checked pairwise -- **no identifier ever matches more than one of them**,
+   * so the priority order in the CASE below is a safety net for data this hasn't been seen in yet,
+   * not something actually adjudicating real overlaps today. A rare (~11-row, single test batch)
+   * {@code SUCCESS with processing_complete=false} shape matches none of the four and falls into
+   * "Other".
    */
-  @SqlQueryPurpose("Split not-reported transactions into stalled vs. still-processing, from full journey history")
-  public NotReportedBreakdownProjection getNotReportedBreakdown(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+  @SqlQueryPurpose("Summarize not-reported transactions by reason, from full journey history")
+  public List<NotReportedReasonProjection> getNotReportedReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     Condition scope = RECONCILIATION.CREATED_TIMESTAMP
       .ge(fromTimestamp)
       .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
@@ -539,13 +548,18 @@ public class DashboardRepository {
       .eq(STAGE_REPORT_GENERATION)
       .and(upperStatus.eq(STATUS_GENERATED))
       .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-    Condition everStalledCondition = JOURNEY.PROCESSING_COMPLETE
-      .isTrue()
-      .and(upperStatus.notIn(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP, STATUS_GENERATED, STATUS_SUCCESS));
+    Condition everProcessingErrorCondition = upperStatus.eq("ERROR");
+    Condition everBatchReportFailedCondition = JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isFalse());
+    Condition everValidationFailedCondition = upperStatus.in("FAILED", "FAILURE");
+    Condition everNotYetAttemptedCondition = upperStatus.in("NOT_YET_REPORTED", "ATTEMPT_MISSING");
 
     var roll = dsl
       .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
-          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN), DSL.boolOr(everStalledCondition).as(EVER_STALLED_COLUMN))
+          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
+          DSL.boolOr(everProcessingErrorCondition).as(EVER_PROCESSING_ERROR_COLUMN),
+          DSL.boolOr(everBatchReportFailedCondition).as(EVER_BATCH_REPORT_FAILED_COLUMN),
+          DSL.boolOr(everValidationFailedCondition).as(EVER_VALIDATION_FAILED_COLUMN),
+          DSL.boolOr(everNotYetAttemptedCondition).as(EVER_NOT_YET_ATTEMPTED_COLUMN))
       .from(JOURNEY)
       .join(batchEvidence)
       .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
@@ -555,14 +569,24 @@ public class DashboardRepository {
 
     Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
     Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-    Field<Boolean> everStalled = requiredField(roll, EVER_STALLED_COLUMN, Boolean.class);
-    Condition notReported = everReported.isFalse().and(everExcluded.isFalse());
+    Field<Boolean> everProcessingError = requiredField(roll, EVER_PROCESSING_ERROR_COLUMN, Boolean.class);
+    Field<Boolean> everBatchReportFailed = requiredField(roll, EVER_BATCH_REPORT_FAILED_COLUMN, Boolean.class);
+    Field<Boolean> everValidationFailed = requiredField(roll, EVER_VALIDATION_FAILED_COLUMN, Boolean.class);
+    Field<Boolean> everNotYetAttempted = requiredField(roll, EVER_NOT_YET_ATTEMPTED_COLUMN, Boolean.class);
+    Field<String> notReportedReason = DSL
+      .when(everProcessingError.isTrue(), DSL.inline(REASON_PROCESSING_ERROR))
+      .when(everBatchReportFailed.isTrue(), DSL.inline(REASON_BATCH_REPORT_FAILED))
+      .when(everValidationFailed.isTrue(), DSL.inline(REASON_VALIDATION_FAILED))
+      .when(everNotYetAttempted.isTrue(), DSL.inline(REASON_NOT_YET_ATTEMPTED))
+      .otherwise(DSL.inline(UNSPECIFIED_REASON));
 
     return dsl
-      .select(DSL.count().filterWhere(notReported.and(everStalled.isTrue())).as("stalled"),
-          DSL.count().filterWhere(notReported.and(everStalled.isFalse())).as("still_processing"))
+      .select(notReportedReason.as(REASON_COLUMN), DSL.count().as("count"))
       .from(roll)
-      .fetchOptional(r -> new NotReportedBreakdownProjection(requiredLong(r, "stalled"), requiredLong(r, "still_processing")))
-      .orElseThrow(() -> new IllegalStateException("Not-reported breakdown aggregate returned no row"));
+      .where(everExcluded.isFalse().and(everReported.isFalse()))
+      .groupBy(notReportedReason)
+      .orderBy(DSL.field(DSL.name("count"), Integer.class).desc(), notReportedReason)
+      .limit(8)
+      .fetch(r -> new NotReportedReasonProjection(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
   }
 }

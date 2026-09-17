@@ -58,6 +58,20 @@ public class TransactionReportRepository {
   private static final String CURRENCY_CODE = "currency_code";
   private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
   private static final String EVER_REPORTED_COLUMN = "ever_reported";
+  private static final String EVER_PROCESSING_ERROR_COLUMN = "ever_processing_error";
+  private static final String EVER_BATCH_REPORT_FAILED_COLUMN = "ever_batch_report_failed";
+  private static final String EVER_VALIDATION_FAILED_COLUMN = "ever_validation_failed";
+  private static final String EVER_NOT_YET_ATTEMPTED_COLUMN = "ever_not_yet_attempted";
+  private static final String REASON_COLUMN = "reason";
+  private static final String UNSPECIFIED_REASON = "Unspecified";
+  // Same fixed not-reported categories as DashboardRepository#getNotReportedReasons -- kept as
+  // literal duplicates (not shared constants) for the same reason the whole roll/target pipeline is
+  // duplicated here: this repository answers "give me the rows," DashboardRepository answers "give
+  // me the count," and they need to agree on the label text without depending on each other.
+  private static final String REASON_PROCESSING_ERROR = "Processing error";
+  private static final String REASON_BATCH_REPORT_FAILED = "Batch report generation failed";
+  private static final String REASON_VALIDATION_FAILED = "Transformation validation failed";
+  private static final String REASON_NOT_YET_ATTEMPTED = "Not yet attempted";
   private static final String EVIDENCE_BATCH_ID = "evidence_batch_id";
   private static final String EVIDENCE_SOURCE = "evidence_source";
   private static final String EXCLUSION_REASON = "exclusion_reason";
@@ -1018,11 +1032,25 @@ public class TransactionReportRepository {
       .eq("REPORT_GENERATION")
       .and(upperJourneyStatus.eq("GENERATED"))
       .or(JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isTrue()));
+    // Same conditions DashboardRepository#getTopExclusionReasons/#getNotReportedReasons use for
+    // their own reason buckets -- ported here (not shared) so the drill-through from either
+    // dashboard card lands on exactly the identifiers that card counted, not a re-derived subset.
+    Condition everProcessingErrorCondition = upperJourneyStatus.eq("ERROR");
+    Condition everBatchReportFailedCondition =
+        JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isFalse());
+    Condition everValidationFailedCondition = upperJourneyStatus.in("FAILED", "FAILURE");
+    Condition everNotYetAttemptedCondition = upperJourneyStatus.in("NOT_YET_REPORTED", "ATTEMPT_MISSING");
+    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.SKIP_REASON, JOURNEY.COMMENTS);
 
     return dsl
       .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL
             .boolOr(everExcludedCondition)
-            .as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN))
+            .as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
+          DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN), DSL
+            .boolOr(everProcessingErrorCondition)
+            .as(EVER_PROCESSING_ERROR_COLUMN), DSL.boolOr(everBatchReportFailedCondition).as(EVER_BATCH_REPORT_FAILED_COLUMN),
+          DSL.boolOr(everValidationFailedCondition).as(EVER_VALIDATION_FAILED_COLUMN),
+          DSL.boolOr(everNotYetAttemptedCondition).as(EVER_NOT_YET_ATTEMPTED_COLUMN))
       .from(JOURNEY)
       .join(batchEvidence)
       .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
@@ -1050,9 +1078,13 @@ public class TransactionReportRepository {
    * The identifiers belonging to one {@link #reportingRoll} bucket -- already one row per {@code
    * (rpt_grp_id, identifier)} by construction (the roll itself is grouped that way), so this table's
    * own row count already answers "how many transactions are in this bucket" with no further
-   * dedup needed.
+   * dedup needed. {@code reason} narrows further to the exact slice a dashboard breakdown legend row
+   * represents -- for {@code EXCLUDED} it's a skip_reason/comments value (see {@link
+   * #reportingRoll}'s {@code REASON_COLUMN}); for {@code NOT_REPORTED} it's one of the fixed
+   * categories {@link #notReportedReason} computes. Empty/null means "no further narrowing,"
+   * matching every other optional filter in this class.
    */
-  private Table<?> reportingTarget(Table<?> roll, String status) {
+  private Table<?> reportingTarget(Table<?> roll, String status, String reason) {
     Field<Integer> rollRptGrpId = requiredField(roll, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> rollIdentifier = requiredField(roll, IDENTIFIER, String.class);
     Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
@@ -1061,8 +1093,32 @@ public class TransactionReportRepository {
         VALUE_EXCLUDED.equals(status)
         ? everExcluded.isTrue().and(everReported.isFalse())
         : everReported.isFalse().and(everExcluded.isFalse());
+    if (reason != null && !reason.isEmpty()) {
+      if (VALUE_EXCLUDED.equals(status)) {
+        Field<String> rollReason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
+        bucketCondition = bucketCondition.and(rollReason.eq(reason));
+      } else if (VALUE_NOT_REPORTED.equals(status)) {
+        bucketCondition = bucketCondition.and(notReportedReason(roll).eq(reason));
+      }
+    }
 
     return dsl.select(rollRptGrpId, rollIdentifier).from(roll).where(bucketCondition).asTable("reporting_target");
+  }
+
+  /** Same fixed category CASE as DashboardRepository#getNotReportedReasons, applied here to filter
+   *  rather than group -- see this class's REASON_PROCESSING_ERROR/etc. constants for why the label
+   *  text is duplicated rather than shared. */
+  private Field<String> notReportedReason(Table<?> roll) {
+    Field<Boolean> everProcessingError = requiredField(roll, EVER_PROCESSING_ERROR_COLUMN, Boolean.class);
+    Field<Boolean> everBatchReportFailed = requiredField(roll, EVER_BATCH_REPORT_FAILED_COLUMN, Boolean.class);
+    Field<Boolean> everValidationFailed = requiredField(roll, EVER_VALIDATION_FAILED_COLUMN, Boolean.class);
+    Field<Boolean> everNotYetAttempted = requiredField(roll, EVER_NOT_YET_ATTEMPTED_COLUMN, Boolean.class);
+    return DSL
+      .when(everProcessingError.isTrue(), DSL.inline(REASON_PROCESSING_ERROR))
+      .when(everBatchReportFailed.isTrue(), DSL.inline(REASON_BATCH_REPORT_FAILED))
+      .when(everValidationFailed.isTrue(), DSL.inline(REASON_VALIDATION_FAILED))
+      .when(everNotYetAttempted.isTrue(), DSL.inline(REASON_NOT_YET_ATTEMPTED))
+      .otherwise(DSL.inline(UNSPECIFIED_REASON));
   }
 
   /**
@@ -1138,19 +1194,19 @@ public class TransactionReportRepository {
    * single-pass helper is what gives this path real cursor-pagination support for free, instead of
    * a client's cursor being silently ignored whenever the requested status happens to route here.
    */
-  private EvidencePage findOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome, String sortDirection,
-      int size, long offset, EvidenceCursor cursor) {
+  private EvidencePage findOverviewEvidenceRecords(Table<?> batchScope, String status, String reason, String search, String outcome,
+      String sortDirection, int size, long offset, EvidenceCursor cursor) {
     var roll = reportingRoll(batchScope);
-    var target = reportingTarget(roll, status);
+    var target = reportingTarget(roll, status, reason);
     var latest = latestJourneyForTarget(batchScope, target);
     var filtered = filteredEvidenceForPeriod(latest, search, outcome, "ALL");
     var ruleHitMatches = ruleHitMatchesForPeriod(batchScope, status);
     return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
   }
 
-  private long countOverviewEvidenceRecords(Table<?> batchScope, String status, String search, String outcome) {
+  private long countOverviewEvidenceRecords(Table<?> batchScope, String status, String reason, String search, String outcome) {
     var roll = reportingRoll(batchScope);
-    var target = reportingTarget(roll, status);
+    var target = reportingTarget(roll, status, reason);
     if (search.isEmpty() && "ALL".equals(outcome)) {
       return dsl.selectCount().from(target).fetchOne(0, Long.class);
     }
@@ -1165,10 +1221,10 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      String reason, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return findOverviewEvidenceRecords(scope, status, search, outcome, sortDirection, size, offset, cursor);
+      return findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset, cursor);
     }
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
@@ -1178,10 +1234,11 @@ public class TransactionReportRepository {
 
   @SqlQueryPurpose("Count filtered transaction evidence records across the selected reporting period")
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
-      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status) {
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
+      String reason) {
     var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return countOverviewEvidenceRecords(scope, status, search, outcome);
+      return countOverviewEvidenceRecords(scope, status, reason, search, outcome);
     }
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);

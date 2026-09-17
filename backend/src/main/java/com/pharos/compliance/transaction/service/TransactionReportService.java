@@ -17,8 +17,8 @@ public interface TransactionReportService {
       TransactionSortDirection sortDirection, int page, int size, String cursor);
 
   PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId,
-      String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection, int page, int size,
-      String cursor);
+      String search, TransactionOutcome outcome, TransactionStatus status, String reason, TransactionSortDirection sortDirection, int page,
+      int size, String cursor);
 
   TransactionSearchResponse searchTransactions(String query);
 }

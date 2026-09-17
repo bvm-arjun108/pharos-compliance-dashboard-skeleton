@@ -46,6 +46,9 @@
           <div><span>Country</span><strong>{{ result.context.countryName }}</strong></div>
           <div><span>Date range</span><strong>{{ result.context.fromDate | date:'MMM d, y' }} – {{ result.context.toDate | date:'MMM d, y' }}</strong></div>
           <div><span>Batches in scope</span><strong>{{ result.context.batchCount | number:'1.0-0' }}</strong></div>
+          @if (reason()) {
+            <div><span>Reason</span><strong>{{ humanizeIfCode(reason()) }}</strong></div>
+          }
         </section>
       }
 

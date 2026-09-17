@@ -155,12 +155,13 @@ public class TransactionReportServiceImpl implements TransactionReportService {
 
   @Override
   public PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country,
-      Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, TransactionSortDirection sortDirection,
-      int page, int size, String cursor) {
+      Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, String reason,
+      TransactionSortDirection sortDirection, int page, int size, String cursor) {
     if (fromDate.isAfter(toDate)) {
       throw new InvalidDateRangeException("fromDate must be on or before toDate");
     }
     String normalizedSearch = search == null ? "" : search.trim();
+    String normalizedReason = reason == null ? "" : reason.trim();
     String normalizedCountry = normalizeCountryCode(country);
     boolean filterByReportGroup = reportGroupId != null;
     int reportGroupIdFilter = filterByReportGroup ? reportGroupId : -1;
@@ -174,19 +175,19 @@ public class TransactionReportServiceImpl implements TransactionReportService {
 
     return logOperation("Period transaction evidence report",
         () -> LOGGER.debug("Period transaction evidence scope resolved | period={}..{} | country={} | reportGroupId={} | outcome={}"
-            + " | status={} | sortDirection={} | searchApplied={} | page={} | size={} | cursorApplied={}", fromDate, toDate,
-            normalizedCountry, reportGroupId == null ? "ALL" : reportGroupId, outcome, status, sortDirection, !normalizedSearch.isEmpty(),
-            page, size, decodedCursor != null),
+            + " | status={} | sortDirection={} | searchApplied={} | reasonApplied={} | page={} | size={} | cursorApplied={}", fromDate,
+            toDate, normalizedCountry, reportGroupId == null ? "ALL" : reportGroupId, outcome, status, sortDirection,
+            !normalizedSearch.isEmpty(), !normalizedReason.isEmpty(), page, size, decodedCursor != null),
         () -> {
           PeriodAggregateProjection aggregate = transactionEvidenceCache.findPeriodAggregate(fromTimestamp, toTimestampExclusive,
               countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
           var page1 = transactionEvidenceCache.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, countryFilter.enabled(),
               countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch, outcome.name(), status.name(),
-              sortDirection.name(), size, offset, decodedCursor);
+              normalizedReason, sortDirection.name(), size, offset, decodedCursor);
           List<TransactionEvidenceProjection> evidence = page1.records();
           long matchingCount = transactionEvidenceCache.countPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive,
               countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch,
-              outcome.name(), status.name());
+              outcome.name(), status.name(), normalizedReason);
           // The reconciliation-sourced excluded_txn sum is only a meaningful "aggregate"
           // to compare record counts against when the user is actually viewing Excluded
           // evidence — it has no equivalent for Success/Reported/etc, so treating it as

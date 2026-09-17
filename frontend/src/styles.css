@@ -484,7 +484,25 @@ main {
 
 .breakdown-legend { display: flex; flex-direction: column; gap: 9px; margin: 14px 0 0; padding: 0; list-style: none; }
 
-.breakdown-legend__row { display: flex; align-items: center; gap: 8px; }
+.breakdown-legend__row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.breakdown-legend__row:hover:not(:disabled),
+.breakdown-legend__row:focus-visible { background: #f4f3ee; }
+.breakdown-legend__row:disabled { opacity: .55; cursor: default; }
 
 .breakdown-legend__swatch {
   flex: 0 0 auto;
@@ -761,7 +779,9 @@ main {
 .exclusion-gauge__legend-dot--elevated { background: #c08c5b; }
 .exclusion-gauge__legend-dot--high { background: var(--failure-red); }
 
-.kpi-card--transactions > .transaction-overview-note { margin-top: 12px; }
+.kpi-card--transactions > .transaction-overview-note,
+.kpi-card--exclusion-reasons > small,
+.kpi-card--not-reported-breakdown > small { margin-top: 12px; }
 
 .issue-breakdown {
   display: grid;

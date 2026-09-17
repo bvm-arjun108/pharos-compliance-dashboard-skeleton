@@ -79,6 +79,10 @@ public interface TransactionReportApi {
       @RequestParam(value = "search", defaultValue = "") String search,
       @RequestParam(value = "outcome", defaultValue = "ALL") TransactionOutcome outcome,
       @RequestParam(value = "status", defaultValue = "ALL") TransactionStatus status,
+      @Parameter(description = "Exact match against the same reason bucket the Transactions Overview dashboard legends "
+      + "count: for status=EXCLUDED, the Top Exclusion Reasons bucket (identifier's skip_reason, falling back to "
+      + "comments); for status=NOT_REPORTED, the Not Reported Reasons category. Ignored for other status values",
+      example = "Already Reported In Prior Batch") @RequestParam(value = "reason", defaultValue = "") String reason,
       @RequestParam(value = "sortDirection", defaultValue = "DESC") TransactionSortDirection sortDirection,
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size,
