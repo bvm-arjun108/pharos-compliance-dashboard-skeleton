@@ -551,6 +551,73 @@ type ReportPeriod = DashboardReportPeriod;
           }
         </div>
       </div>
+
+      <div class="issue-trend-section" aria-labelledby="excluded-line-trend-heading">
+        <div class="issue-trend-heading">
+          <div>
+            <h2 id="excluded-line-trend-heading">{{ excludedLineTrendTitle(dashboardDetails()?.trendGranularity) }}</h2>
+            <p>Same periods as the totals above -- point count matches each period's own excluded-transactions tile.</p>
+          </div>
+        </div>
+
+        <div class="issue-trend-card">
+          @if (countryRequired()) {
+            <div class="chart-message">Select a country to see the excluded transactions trend.</div>
+          } @else if (dashboardLoading()) {
+            <div class="chart-message">Loading excluded transactions…</div>
+          } @else if (dashboardError()) {
+            <div class="chart-message chart-message--error">Excluded-transactions trend is unavailable.</div>
+          } @else if (dashboardDetails(); as details) {
+            @if (details.batchHealthTrend.length === 0) {
+              <div class="chart-message">No excluded transactions in this period.</div>
+            } @else {
+              <div class="trend-line-chart-scroll">
+                <svg
+                  class="trend-line-chart trend-line-chart--excluded"
+                  [attr.viewBox]="'0 0 ' + trendChartWidth(details.batchHealthTrend.length, details.trendGranularity) + ' 220'"
+                  [style.width.px]="trendChartWidth(details.batchHealthTrend.length, details.trendGranularity)"
+                  role="img"
+                  [attr.aria-label]="excludedLineTrendTitle(details.trendGranularity) + ' chart'"
+                >
+                  @for (line of excludedTrendGridlines(details.batchHealthTrend); track line.value) {
+                    <line
+                      class="trend-line-chart__gridline"
+                      x1="0"
+                      [attr.x2]="trendChartWidth(details.batchHealthTrend.length, details.trendGranularity)"
+                      [attr.y1]="line.y"
+                      [attr.y2]="line.y"
+                    ></line>
+                    <text class="trend-line-chart__axis-label" x="2" [attr.y]="line.y - 4">{{ line.value | number:'1.0-0' }}</text>
+                  }
+
+                  <path
+                    class="trend-line-chart__area"
+                    [attr.d]="excludedTrendAreaPath(details.batchHealthTrend, trendChartWidth(details.batchHealthTrend.length, details.trendGranularity))"
+                  ></path>
+                  <path
+                    class="trend-line-chart__line"
+                    [attr.d]="excludedTrendLinePath(details.batchHealthTrend, trendChartWidth(details.batchHealthTrend.length, details.trendGranularity))"
+                  ></path>
+
+                  @for (point of excludedTrendPoints(details.batchHealthTrend, trendChartWidth(details.batchHealthTrend.length, details.trendGranularity)); track point.period.periodStart) {
+                    <text class="trend-line-chart__x-label" [attr.x]="point.x" y="212">{{ point.period.periodStart | date:trendDateFormat(details.trendGranularity):'UTC' }}</text>
+                    <g
+                      class="trend-line-chart__point-group"
+                      [class.trend-line-chart__point-group--zero]="point.period.totalExcludedTransactions === 0"
+                      [attr.aria-label]="excludedTransactionsCellTitle(point.period)"
+                      (click)="openExcludedTrendPoint(point.period)"
+                    >
+                      <circle class="trend-line-chart__hit" [attr.cx]="point.x" [attr.cy]="point.y" r="10"></circle>
+                      <circle class="trend-line-chart__point" [attr.cx]="point.x" [attr.cy]="point.y" r="3.5"></circle>
+                      <title>{{ excludedTransactionsCellTitle(point.period) }}</title>
+                    </g>
+                  }
+                </svg>
+              </div>
+            }
+          }
+        </div>
+      </div>
     </section>
   `
 })
@@ -1008,6 +1075,13 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
     return `${granularity.charAt(0)}${granularity.slice(1).toLowerCase()} Reported Transactions`;
   }
 
+  excludedLineTrendTitle(granularity: TrendGranularity | undefined): string {
+    if (!granularity) {
+      return 'Excluded Transactions Trend';
+    }
+    return `${granularity.charAt(0)}${granularity.slice(1).toLowerCase()} Excluded Transactions`;
+  }
+
   /** Floored at the measured container width (see {@link trendChartContainerWidth}) so a short
    *  range's chart fills the whole card instead of sitting in a small box with blank space beside
    *  it, and floored separately at each period's own minimum legible bucket width so a long daily
@@ -1094,6 +1168,55 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
       return;
     }
     this.openPeriodTransactionExplorer(period, 'REPORTED');
+  }
+
+  private excludedTrendMaximum(periods: BatchHealthTrend[]): number {
+    return Math.max(0, ...periods.map(period => period.totalExcludedTransactions));
+  }
+
+  excludedTrendPoints(periods: BatchHealthTrend[], width: number): { x: number; y: number; period: BatchHealthTrend }[] {
+    const maximum = this.excludedTrendMaximum(periods);
+    return periods.map((period, index) => ({
+      x: this.trendPointX(index, periods.length, width),
+      y: this.trendPointY(period.totalExcludedTransactions, maximum),
+      period
+    }));
+  }
+
+  excludedTrendLinePath(periods: BatchHealthTrend[], width: number): string {
+    return this.excludedTrendPoints(periods, width)
+      .map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+      .join(' ');
+  }
+
+  excludedTrendAreaPath(periods: BatchHealthTrend[], width: number): string {
+    const points = this.excludedTrendPoints(periods, width);
+    if (points.length === 0) {
+      return '';
+    }
+    const baseline = TransactionOverviewComponent.TREND_CHART_HEIGHT - TransactionOverviewComponent.TREND_CHART_PAD_BOTTOM;
+    const line = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+    const first = points[0];
+    const last = points[points.length - 1];
+    return `${line} L${last.x.toFixed(1)},${baseline} L${first.x.toFixed(1)},${baseline} Z`;
+  }
+
+  excludedTrendGridlines(periods: BatchHealthTrend[]): { y: number; value: number }[] {
+    const maximum = this.excludedTrendMaximum(periods);
+    if (maximum === 0) {
+      return [{ y: this.trendPointY(0, 0), value: 0 }];
+    }
+    return [0, 0.5, 1].map(fraction => ({
+      y: this.trendPointY(maximum * fraction, maximum),
+      value: Math.round(maximum * fraction)
+    }));
+  }
+
+  openExcludedTrendPoint(period: BatchHealthTrend): void {
+    if (period.totalExcludedTransactions === 0) {
+      return;
+    }
+    this.openPeriodTransactionExplorer(period, 'EXCLUDED');
   }
 
   excludedHeatmapCellColor(excludedCount: number, totalTransactions: number): string {

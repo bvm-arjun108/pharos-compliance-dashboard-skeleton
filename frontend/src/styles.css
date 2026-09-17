@@ -1144,6 +1144,11 @@ button.issue-kpi:focus-visible { outline: 2px solid #865057; outline-offset: 2px
 .trend-line-chart__point-group:hover .trend-line-chart__point { r: 5.5; }
 .trend-line-chart__point-group--zero .trend-line-chart__point { fill: #c9c7bd; }
 
+.trend-line-chart--excluded .trend-line-chart__area { fill: rgba(190, 58, 68, .12); }
+.trend-line-chart--excluded .trend-line-chart__line { stroke: #be3a44; }
+.trend-line-chart--excluded .trend-line-chart__point { fill: #be3a44; }
+.trend-line-chart--excluded .trend-line-chart__point-group--zero .trend-line-chart__point { fill: #c9c7bd; }
+
 .attention-table-section { margin-top: 30px; }
 
 .attention-table-heading {
