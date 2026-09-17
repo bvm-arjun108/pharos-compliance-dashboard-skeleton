@@ -1,6 +1,6 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DashboardFilterStateService, DashboardReportPeriod } from './dashboard-filter-state.service';
@@ -493,7 +493,7 @@ type ReportPeriod = DashboardReportPeriod;
           </div>
         </div>
 
-        <div class="issue-trend-card">
+        <div class="issue-trend-card" #trendCardHost>
           @if (countryRequired()) {
             <div class="chart-message">Select a country to see the reported transactions trend.</div>
           } @else if (dashboardLoading()) {
@@ -508,7 +508,7 @@ type ReportPeriod = DashboardReportPeriod;
                 <svg
                   class="trend-line-chart"
                   [attr.viewBox]="'0 0 ' + trendChartWidth(details.batchHealthTrend.length, details.trendGranularity) + ' 220'"
-                  preserveAspectRatio="none"
+                  [style.width.px]="trendChartWidth(details.batchHealthTrend.length, details.trendGranularity)"
                   role="img"
                   [attr.aria-label]="reportedTransactionsTrendTitle(details.trendGranularity) + ' chart'"
                 >
@@ -554,7 +554,7 @@ type ReportPeriod = DashboardReportPeriod;
     </section>
   `
 })
-export class TransactionOverviewComponent implements OnInit {
+export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly country = signal('ALL');
   readonly reportPeriod = signal<ReportPeriod>('LAST_7_DAYS');
   readonly startDate = signal('');
@@ -570,6 +570,18 @@ export class TransactionOverviewComponent implements OnInit {
   readonly searchQuery = signal('');
   readonly searchLoading = signal(false);
   readonly searchError = signal<string | null>(null);
+
+  /** Measured live from the card's own content box (see {@link ngAfterViewInit}) so the line
+   *  chart's SVG can render at that exact pixel width -- a 1:1 viewBox-to-pixel mapping, with no
+   *  CSS stretch/`preserveAspectRatio` scaling involved. Stretching a non-square viewBox to fill a
+   *  wider container (the earlier approach) scaled the x and y axes by different factors, which
+   *  visibly distorted the axis-label text into a stretched/squashed look on any window size where
+   *  that mismatch was large. The default here is only what's visible before the first
+   *  ResizeObserver callback fires (typically the same frame). */
+  readonly trendChartContainerWidth = signal(680);
+
+  @ViewChild('trendCardHost') private trendCardHost?: ElementRef<HTMLDivElement>;
+  private trendChartResizeObserver?: ResizeObserver;
 
   private readonly filterState = inject(DashboardFilterStateService);
 
@@ -599,6 +611,29 @@ export class TransactionOverviewComponent implements OnInit {
       error: () => this.reportGroupOptions.set([])
     });
     this.loadDashboardDetails();
+  }
+
+  /** ResizeObserver's contentRect is always the content box (padding excluded) regardless of
+   *  box-sizing, and .trend-line-chart-scroll adds no horizontal padding of its own -- so this is
+   *  exactly the width available to the chart, no manual padding math needed. Guarded for
+   *  environments without ResizeObserver (e.g. some test runners); the chart just keeps its
+   *  fallback width there instead of resizing live. */
+  ngAfterViewInit(): void {
+    const element = this.trendCardHost?.nativeElement;
+    if (!element || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    this.trendChartResizeObserver = new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect.width;
+      if (width) {
+        this.trendChartContainerWidth.set(Math.round(width));
+      }
+    });
+    this.trendChartResizeObserver.observe(element);
+  }
+
+  ngOnDestroy(): void {
+    this.trendChartResizeObserver?.disconnect();
   }
 
   setSearchQuery(event: Event): void {
@@ -951,7 +986,10 @@ export class TransactionOverviewComponent implements OnInit {
    *  y-axis labels live inside the plot area's own left padding instead. */
   private static readonly TREND_CHART_HEIGHT = 220;
   private static readonly TREND_CHART_PAD_LEFT = 36;
-  private static readonly TREND_CHART_PAD_RIGHT = 14;
+  // Wide enough that the last point's centered x-axis label (e.g. "AUG 31", the longest a daily
+  // "MMM d" format produces) doesn't clip past the chart's right edge -- 14px only cleared shorter
+  // labels like "AUG 1".
+  private static readonly TREND_CHART_PAD_RIGHT = 26;
   private static readonly TREND_CHART_PAD_TOP = 14;
   private static readonly TREND_CHART_PAD_BOTTOM = 34;
 
@@ -962,10 +1000,18 @@ export class TransactionOverviewComponent implements OnInit {
     return `${granularity.charAt(0)}${granularity.slice(1).toLowerCase()} Reported Transactions`;
   }
 
+  /** Floored at the measured container width (see {@link trendChartContainerWidth}) so a short
+   *  range's chart fills the whole card instead of sitting in a small box with blank space beside
+   *  it, and floored separately at each period's own minimum legible bucket width so a long daily
+   *  range scrolls instead of cramming points closer than that once it would no longer fit even the
+   *  full container. Both floors, plus the fixed 220 viewBox height, are rendered 1:1 to actual
+   *  pixels (see the template's [style.width.px]) -- never stretched -- which is what keeps the
+   *  axis-label text and stroke widths crisp at every size instead of visibly distorting. */
   trendChartWidth(periodCount: number, granularity: TrendGranularity): number {
     const bucketWidth = granularity === 'DAILY' ? 42 : granularity === 'WEEKLY' ? 64 : 78;
     const { TREND_CHART_PAD_LEFT, TREND_CHART_PAD_RIGHT } = TransactionOverviewComponent;
-    return Math.max(640, TREND_CHART_PAD_LEFT + TREND_CHART_PAD_RIGHT + periodCount * bucketWidth);
+    const naturalWidth = TREND_CHART_PAD_LEFT + TREND_CHART_PAD_RIGHT + periodCount * bucketWidth;
+    return Math.max(this.trendChartContainerWidth(), naturalWidth, 640);
   }
 
   private trendPointX(index: number, count: number, width: number): number {

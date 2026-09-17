@@ -1116,9 +1116,15 @@ button.issue-kpi:focus-visible { outline: 2px solid #865057; outline-offset: 2px
 .heatmap-cell-button:disabled { cursor: default; pointer-events: none; }
 
 .trend-line-chart-scroll { overflow-x: auto; padding-bottom: 4px; }
-.trend-line-chart { display: block; width: 100%; height: 220px; }
+/* width is set inline per-instance (trendChartWidth, itself floored at the live-measured container
+   width) to always equal the viewBox width exactly -- a straight 1:1 pixel mapping with no CSS
+   stretch or `preserveAspectRatio` scaling involved, which is what keeps axis-label text and stroke
+   widths crisp at every window size instead of visibly distorting. */
+.trend-line-chart { display: block; height: 220px; }
 .trend-line-chart__gridline { stroke: #e6e5df; stroke-width: 1; }
-.trend-line-chart__axis-label { fill: #918f86; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Same muted label gray as .heatmap-period/.heatmap-legend/.table-footnote above and below this
+   chart, so the axis text reads as part of one consistent type system rather than its own palette. */
+.trend-line-chart__axis-label { fill: #777770; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .trend-line-chart__area { fill: rgba(111, 146, 127, .16); stroke: none; }
 .trend-line-chart__line { fill: none; stroke: #4f7663; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
