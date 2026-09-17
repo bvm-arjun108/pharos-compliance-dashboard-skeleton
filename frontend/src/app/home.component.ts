@@ -434,8 +434,8 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
     <section class="attention-table-section" aria-labelledby="attention-table-heading">
       <div class="attention-table-heading">
         <div>
-          <p class="eyebrow">Prioritized investigation</p>
-          <h2 id="attention-table-heading">Report Groups Requiring Attention</h2>
+          <p class="eyebrow">{{ attentionTableScoped() ? 'Batch health' : 'Prioritized investigation' }}</p>
+          <h2 id="attention-table-heading">{{ attentionTableScoped() ? 'Report Group Batch Details' : 'Report Groups Requiring Attention' }}</h2>
         </div>
         @if (dashboardDetails(); as details) {
           <span>{{ details.reportGroupsRequiringAttention.length }} report groups</span>
@@ -449,7 +449,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
           <div class="table-message table-message--error">Report-group details are unavailable.</div>
         } @else if (dashboardDetails(); as details) {
           @if (details.reportGroupsRequiringAttention.length === 0) {
-            <div class="table-message">No report groups require attention for this period.</div>
+            <div class="table-message">{{ attentionTableScoped() ? 'No batches ran for this report group in this period.' : 'No report groups require attention for this period.' }}</div>
           } @else {
             <div class="attention-table-scroll">
               <table class="attention-table">
@@ -594,6 +594,13 @@ export class HomeComponent implements OnInit {
   readonly attentionSortDirection = signal<AttentionSortDirection>('desc');
   readonly attentionPage = signal(0);
   readonly attentionPageSize = 10;
+
+  /** Mirrors the backend's own override in DashboardRepository#getReportGroupsRequiringAttention --
+   *  once a country or report group is picked, that's a request to see that scope's full batch
+   *  health (attention-needing or not), not a narrower "only the problem ones" slice on top of an
+   *  already-narrow selection. Drives this table's title/copy so the UI says what it's actually
+   *  showing instead of a label that's only accurate for the unfiltered view. */
+  readonly attentionTableScoped = computed(() => this.country() !== 'ALL' || this.reportGroupId() !== 'ALL');
 
   private readonly filterState = inject(DashboardFilterStateService);
 

@@ -183,6 +183,15 @@ public class DashboardRepository {
       .orElseThrow(() -> new IllegalStateException("Dashboard count aggregate returned no row"));
   }
 
+  /**
+   * Across every report group in scope (unfiltered, or every group in the selected country), this
+   * narrows to only the ones with at least one batch needing attention -- otherwise a broad,
+   * unscoped view would be dozens of rows deep in groups with nothing to investigate. Once the
+   * caller has already narrowed scope to one specific report group or country (`filterByReportGroup`
+   * / `filterByCountry`), that narrowing is redundant and actively unhelpful -- the caller picked
+   * that scope specifically to see its full batch health, attention-needing or not, so this returns
+   * every group in scope unfiltered instead of possibly hiding the one row they came here for.
+   */
   @SqlQueryPurpose("Load report groups requiring attention, ordered by operational priority")
   public List<ReportGroupMetricsProjection> getReportGroupsRequiringAttention(LocalDateTime fromTimestamp,
       LocalDateTime toTimestampExclusive, String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup,
@@ -227,6 +236,10 @@ public class DashboardRepository {
     Field<Long> totalReported = requiredField(reportGroupMetrics, TOTAL_REPORTED_TRANSACTIONS_COLUMN, Long.class);
     Field<Long> totalExcluded = requiredField(reportGroupMetrics, TOTAL_EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
 
+    // A specific report group or country is exactly what the caller wants full detail on -- don't
+    // additionally hide rows within that already-narrow scope for having nothing to flag.
+    Condition attentionScope = filterByReportGroup || filterByCountry ? DSL.trueCondition() : batchesNeedingAttention.gt(0L);
+
     return dsl
       .select(rptGrpId.as("reportGroupId"), rptGrpName.as("reportGroupName"), batchesRan.as(BATCHES_RAN_ALIAS),
           batchesRan.sub(batchesNeedingAttention).as(SUCCESSFUL_BATCHES_ALIAS), batchesNeedingAttention.as(BATCHES_NEEDING_ATTENTION_ALIAS),
@@ -234,7 +247,7 @@ public class DashboardRepository {
           activityMissingBatches.as(ACTIVITY_MISSING_BATCHES_ALIAS), totalReported.as(TOTAL_REPORTED_TRANSACTIONS_ALIAS),
           totalExcluded.as(TOTAL_EXCLUDED_TRANSACTIONS_ALIAS))
       .from(reportGroupMetrics)
-      .where(batchesNeedingAttention.gt(0L))
+      .where(attentionScope)
       .orderBy(batchesNeedingAttention.desc(), transformationFailureBatches.add(missingAttemptBatches).add(activityMissingBatches).desc(),
           rptGrpId)
       .fetch(r -> new ReportGroupMetricsProjection(requiredInt(r, "reportGroupId"), r.get("reportGroupName", String.class),
