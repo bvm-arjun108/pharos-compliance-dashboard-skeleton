@@ -216,10 +216,12 @@ public class BatchEvidenceQueries {
   public Table<?> metricScoped(Table<?> evidence, String metric, String source) {
     Field<String> evidenceSource = requiredField(evidence, EVIDENCE_SOURCE, String.class);
     Field<String> stage = requiredField(evidence, STAGE, String.class);
+    Field<String> status = requiredField(evidence, STATUS, String.class);
     Field<String> outcome = requiredField(evidence, OUTCOME, String.class);
     Field<String> comments = requiredField(evidence, COMMENTS, String.class);
 
     Field<String> upperStage = DSL.upper(DSL.coalesce(stage, ""));
+    Field<String> upperStatus = DSL.upper(DSL.coalesce(status, ""));
     Field<String> upperComments = DSL.upper(DSL.coalesce(comments, ""));
 
     Condition metricCondition = switch (metric) {
@@ -264,10 +266,20 @@ public class BatchEvidenceQueries {
       case "FILTERED" -> evidenceSource
         .eq(SOURCE_EXCLUSION_AUDIT)
         .or(evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION)));
-      // MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method -- see
+      // Previously routed around this whole method as an aggregate-only metric on the theory that
+      // no journey row represents "this transaction never got an attempt" -- wrong, confirmed
+      // against real data: different report groups use one of two conventions for the exact same
+      // thing, and each matches report_transformation_reconciliation.txn_missing_attempt_count
+      // exactly for the batches using it. Matching both, rather than picking one, is the same
+      // multi-variant approach ALREADY_REPORTED takes above for its own two comment spellings.
+      case "MISSING" -> evidenceSource
+        .eq(SOURCE_JOURNEY)
+        .and(upperStage.eq("SELECTION").and(upperStatus.eq("ATTEMPT_MISSING"))
+          .or(upperStage.eq("TRANSACTION_JOIN").and(upperStatus.eq("ERROR")).and(upperComments.eq("ATTEMPT_NOT_RECEIVED"))));
+      // FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method -- see
       // TransactionReportServiceImpl.isAggregateOnlyMetric. This default remains a defensive
       // fallback for a metric this switch hasn't been taught yet, not a deliberate route for
-      // those three -- "match everything" was never a real condition for them, only an
+      // those two -- "match everything" was never a real condition for them, only an
       // unfiltered dump of the batch's evidence mislabeled as if it answered the metric.
       default -> DSL.trueCondition();
     };

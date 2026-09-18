@@ -77,16 +77,18 @@ public class TransactionReportServiceImpl implements TransactionReportService {
           long availableRecordCount;
           String nextCursor = null;
           if (isAggregateOnlyMetric(metric)) {
-            // MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE are each an absolute delta
-            // between two aggregate counts on the reconciliation row -- there is no row in
+            // FILTRATION_VARIANCE/RECONCILIATION_VARIANCE are each an absolute delta between two
+            // aggregate counts on the reconciliation row -- there is no row in
             // JOURNEY/EXCLUSION_AUDIT/RULE_HIT that represents "this transaction is part of the
             // gap," so no query condition can ever correctly select record-level evidence for
-            // them. Before this check, metricScoped() fell through to its default `true`
-            // condition for these three, which actually returned every evidence row in the batch
-            // -- unrelated, fully-processed transactions mislabeled as if they were the missing
-            // or variance ones -- after paying for the full 3-way UNION + LATERAL rule_hit
-            // correlated-match pipeline to compute it. Skip straight to the aggregate-only
-            // answer instead of running (and misreporting from) that pipeline at all.
+            // them (MISSING used to be grouped in here too -- see isAggregateOnlyMetric's
+            // Javadoc for why that was wrong). Before this check, metricScoped() fell through to
+            // its default `true` condition for these, which actually returned every evidence row
+            // in the batch -- unrelated, fully-processed transactions mislabeled as if they were
+            // the missing or variance ones -- after paying for the full 3-way UNION + LATERAL
+            // rule_hit correlated-match pipeline to compute it. Skip straight to the
+            // aggregate-only answer instead of running (and misreporting from) that pipeline at
+            // all.
             evidence = List.of();
             matchingCount = 0L;
             availableRecordCount = 0L;
@@ -282,16 +284,23 @@ public class TransactionReportServiceImpl implements TransactionReportService {
 
   /**
    * True for a metric whose value is an absolute delta between two aggregate counts on the
-   * reconciliation row (a transaction that was selected but never attempted, or the gap between an
-   * expected and an actual count), rather than a status a specific transaction can carry. No
-   * condition against JOURNEY/EXCLUSION_AUDIT/RULE_HIT can identify "the transactions that make up
-   * this gap" -- the schema simply does not record which ones they are, only how many. Callers must
-   * skip the evidence pipeline entirely for these rather than let it run and return an unfiltered,
-   * mislabeled batch of unrelated evidence (see the call site in getTransactionReport()).
+   * reconciliation row (the gap between an expected and an actual count), rather than a status a
+   * specific transaction can carry. No condition against JOURNEY/EXCLUSION_AUDIT/RULE_HIT can
+   * identify "the transactions that make up this gap" -- the schema simply does not record which
+   * ones they are, only how many. Callers must skip the evidence pipeline entirely for these rather
+   * than let it run and return an unfiltered, mislabeled batch of unrelated evidence (see the call
+   * site in getTransactionReport()).
+   *
+   * <p>MISSING used to be grouped in here too, on the same "no row represents it" theory -- wrong,
+   * confirmed against real data: a transaction that was selected but never attempted <em>does</em>
+   * get its own journey row (stage SELECTION/status ATTEMPT_MISSING, or the older stage
+   * TRANSACTION_JOIN/status ERROR/comments ATTEMPT_NOT_RECEIVED convention some report groups still
+   * use), and its count matches {@code report_transformation_reconciliation.txn_missing_attempt_count}
+   * exactly. See {@link BatchEvidenceQueries#metricScoped} for the corresponding query.
    */
   private boolean isAggregateOnlyMetric(TransactionMetric metric) {
     return switch (metric) {
-      case MISSING, FILTRATION_VARIANCE, RECONCILIATION_VARIANCE -> true;
+      case FILTRATION_VARIANCE, RECONCILIATION_VARIANCE -> true;
       default -> false;
     };
   }

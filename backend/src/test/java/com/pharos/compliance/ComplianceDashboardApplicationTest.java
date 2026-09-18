@@ -459,6 +459,31 @@ class ComplianceDashboardApplicationTest {
       .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"));
   }
 
+  /**
+   * MISSING used to be treated as aggregate-only for every batch (see
+   * TransactionReportServiceImpl#isAggregateOnlyMetric) -- wrong for a batch like this one, whose
+   * 3 unattempted transactions each got their own journey row (stage TRANSACTION_JOIN, status
+   * ERROR, comments ATTEMPT_NOT_RECEIVED -- the older of the two conventions BatchEvidenceQueries
+   * now matches) exactly matching txn_missing_attempt_count.
+   */
+  @Test
+  void returnsFullMissingAttemptTransactionEvidenceForOneBatch() throws Exception {
+    mockMvc
+      .perform(get("/api/v1/transactions/report")
+        .param("reportGroupId", "1000000007")
+        .param("batchId", "BIN10000000007260828220000")
+        .param("sequenceNumber", "1")
+        .param("metric", "MISSING"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.metric").value("MISSING"))
+      .andExpect(jsonPath("$.aggregateCount").value(3))
+      .andExpect(jsonPath("$.availableRecordCount").value(3))
+      .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"))
+      .andExpect(jsonPath("$.transactions.length()").value(3))
+      .andExpect(jsonPath("$.transactions[0].source").value("JOURNEY"))
+      .andExpect(jsonPath("$.transactions[0].stage").value("TRANSACTION_JOIN"));
+  }
+
   @Test
   void identifiesAggregateOnlyTransactionEvidenceWithoutInventingRows() throws Exception {
     mockMvc
