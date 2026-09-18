@@ -320,12 +320,14 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case SIMULATED -> context.simulated();
       case ALREADY_REPORTED -> context.alreadyReported();
       case SOFT_DEDUP -> context.softDedup();
-      // Mirrors the Data Selection card's "Filtered data" tile exactly: every reason a
-      // selected transaction did not carry through. Missing attempts are part of that
-      // total but have no record-level rows, so evidenceLevel/evidenceMessage will
-      // report the shortfall rather than the table silently coming up short.
+      // Mirrors the Data Selection card's "Filtered data" tile exactly: every reason a selected
+      // transaction did not carry through.
       case FILTERED -> context.missingAttempts() + context.excluded() + context.simulated() + context.alreadyReported()
           + context.softDedup();
+      // Mirrors the Skipped Status card: the two ways a selected transaction never reaches a
+      // reportable outcome outside of exclusion -- see BatchEvidenceQueries#metricScoped for the
+      // corresponding evidence condition (missingAttemptCondition OR FAILED's own condition).
+      case SKIPPED -> context.missingAttempts() + context.failed();
       case FILTRATION_VARIANCE -> context.filtrationVariance();
       case RECONCILIATION_VARIANCE -> context.reconciliationVariance();
     };
@@ -348,6 +350,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case ALREADY_REPORTED -> "Already reported transactions";
       case SOFT_DEDUP -> "Soft-dedup dropped transactions";
       case FILTERED -> "Filtered transactions";
+      case SKIPPED -> "Skipped transactions";
       case FILTRATION_VARIANCE -> "Filtration variance";
       case RECONCILIATION_VARIANCE -> "Reconciliation variance";
       case TRANSFORMER_OUTPUT -> "Transformer output";

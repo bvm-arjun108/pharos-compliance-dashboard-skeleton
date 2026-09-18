@@ -224,12 +224,23 @@ public class BatchEvidenceQueries {
     Field<String> upperStatus = DSL.upper(DSL.coalesce(status, ""));
     Field<String> upperComments = DSL.upper(DSL.coalesce(comments, ""));
 
+    // Two conventions for "this transaction never got an attempt," each used exclusively by
+    // different report groups -- see the MISSING case below, and FILTERED, which needs this same
+    // condition since its own aggregate (TransactionReportServiceImpl#aggregateCount) explicitly
+    // adds missingAttempts into its total.
+    Condition missingAttemptCondition = evidenceSource
+      .eq(SOURCE_JOURNEY)
+      .and(upperStage.eq("SELECTION").and(upperStatus.eq("ATTEMPT_MISSING"))
+        .or(upperStage.eq("TRANSACTION_JOIN").and(upperStatus.eq("ERROR")).and(upperComments.eq("ATTEMPT_NOT_RECEIVED"))));
+    // Reused by SKIPPED below, which needs the same condition FAILED matches on its own.
+    Condition failedCondition = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_ERROR));
+
     Condition metricCondition = switch (metric) {
       case "ALL" -> DSL.trueCondition();
       case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE",
           "TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_JOURNEY);
       case "TRANSFORMED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_SUCCESS));
-      case "FAILED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_ERROR));
+      case "FAILED" -> failedCondition;
       // Previously sourced from EXCLUSION_AUDIT alone, which only has a row for a transaction once
       // something (typically a downstream rule/reporting check) explicitly audits the exclusion --
       // confirmed against real production data that most FILTRATION/EXCLUDED journey rows never
@@ -263,19 +274,27 @@ public class BatchEvidenceQueries {
         .and(upperStage.eq(STAGE_FILTRATION))
         .and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
       case "ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_RULE_HIT);
+      // Mirrors its own aggregate exactly (missingAttempts + excluded + simulated +
+      // alreadyReported + softDedup): the FILTRATION-stage branch already catches every
+      // SML/ALREADY_REPORTED/SOFT_DEDUP/generic-EXCLUDED journey row (all four live at that one
+      // stage), so missingAttemptCondition is the only piece that was missing -- literally, before
+      // this fix a batch with real missing-attempt journey evidence still showed a "Filtered"
+      // aggregate bigger than the evidence returned for it.
       case "FILTERED" -> evidenceSource
         .eq(SOURCE_EXCLUSION_AUDIT)
-        .or(evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION)));
+        .or(evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION)))
+        .or(missingAttemptCondition);
+      // The Skipped Status card's own total: the two ways a selected transaction never reaches a
+      // reportable outcome outside of exclusion -- never attempted, or attempted and failed.
+      // Mirrors its aggregate (missingAttempts + failed) exactly.
+      case "SKIPPED" -> missingAttemptCondition.or(failedCondition);
       // Previously routed around this whole method as an aggregate-only metric on the theory that
       // no journey row represents "this transaction never got an attempt" -- wrong, confirmed
       // against real data: different report groups use one of two conventions for the exact same
       // thing, and each matches report_transformation_reconciliation.txn_missing_attempt_count
       // exactly for the batches using it. Matching both, rather than picking one, is the same
       // multi-variant approach ALREADY_REPORTED takes above for its own two comment spellings.
-      case "MISSING" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq("SELECTION").and(upperStatus.eq("ATTEMPT_MISSING"))
-          .or(upperStage.eq("TRANSACTION_JOIN").and(upperStatus.eq("ERROR")).and(upperComments.eq("ATTEMPT_NOT_RECEIVED"))));
+      case "MISSING" -> missingAttemptCondition;
       // FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method -- see
       // TransactionReportServiceImpl.isAggregateOnlyMetric. This default remains a defensive
       // fallback for a metric this switch hasn't been taught yet, not a deliberate route for

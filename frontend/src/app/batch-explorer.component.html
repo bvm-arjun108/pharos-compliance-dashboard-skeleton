@@ -335,9 +335,10 @@
                 <span class="evidence-bar-segment evidence-bar-segment--error" [style.width.%]="barShare(details.transformationFailures, skippedTotal(details))" [title]="details.transformationFailures + ' transformation failures — click to view'" (click)="openTransactionReport('FAILED')">{{ details.transformationFailures }}</span>
               }
             </div>
-            <div class="evidence-values evidence-values--two">
+            <div class="evidence-values evidence-values--three">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing attempts</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Transformation failures</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SKIPPED')" aria-label="View all skipped transaction evidence"><span>Total skipped</span><strong [class.issue-number]="skippedTotal(details) > 0">{{ skippedTotal(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
           </section>
 

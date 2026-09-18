@@ -484,6 +484,54 @@ class ComplianceDashboardApplicationTest {
       .andExpect(jsonPath("$.transactions[0].stage").value("TRANSACTION_JOIN"));
   }
 
+  /**
+   * Same batch as {@link #returnsFullMissingAttemptTransactionEvidenceForOneBatch}: its aggregate
+   * (missingAttempts + excluded + simulated + alreadyReported + softDedup) is 3 + 0 + 0 + 0 + 0,
+   * i.e. FILTERED here is entirely the batch's missing attempts -- confirming FILTERED's own
+   * evidence condition now includes missingAttemptCondition, not just the FILTRATION-stage branch.
+   */
+  @Test
+  void returnsFullFilteredTransactionEvidenceIncludingMissingAttempts() throws Exception {
+    mockMvc
+      .perform(get("/api/v1/transactions/report")
+        .param("reportGroupId", "1000000007")
+        .param("batchId", "BIN10000000007260828220000")
+        .param("sequenceNumber", "1")
+        .param("metric", "FILTERED"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.metric").value("FILTERED"))
+      .andExpect(jsonPath("$.aggregateCount").value(3))
+      .andExpect(jsonPath("$.availableRecordCount").value(3))
+      .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"))
+      .andExpect(jsonPath("$.transactions.length()").value(3))
+      .andExpect(jsonPath("$.transactions[0].source").value("JOURNEY"))
+      .andExpect(jsonPath("$.transactions[0].stage").value("TRANSACTION_JOIN"));
+  }
+
+  /**
+   * Backs the Skipped Status card's new "Total skipped" tile: a real batch with both a missing
+   * attempt (stage SELECTION/status ATTEMPT_MISSING) and two transformation failures (stage
+   * TRANSFORMATION/status ERROR), confirming SKIPPED's evidence condition is the union of
+   * MISSING's and FAILED's, matching its own aggregate (missingAttempts + failed) exactly.
+   */
+  @Test
+  void returnsFullSkippedTransactionEvidenceCombiningMissingAndFailed() throws Exception {
+    mockMvc
+      .perform(get("/api/v1/transactions/report")
+        .param("reportGroupId", "1000000007")
+        .param("batchId", "BIN10000000072606161816001157")
+        .param("sequenceNumber", "1")
+        .param("metric", "SKIPPED"))
+      .andExpect(status().isOk())
+      .andExpect(jsonPath("$.metric").value("SKIPPED"))
+      .andExpect(jsonPath("$.aggregateCount").value(3))
+      .andExpect(jsonPath("$.availableRecordCount").value(3))
+      .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"))
+      .andExpect(jsonPath("$.transactions.length()").value(3))
+      .andExpect(jsonPath("$.transactions[*].stage").value(org.hamcrest.Matchers.containsInAnyOrder("TRANSFORMATION", "TRANSFORMATION",
+          "SELECTION")));
+  }
+
   @Test
   void identifiesAggregateOnlyTransactionEvidenceWithoutInventingRows() throws Exception {
     mockMvc
