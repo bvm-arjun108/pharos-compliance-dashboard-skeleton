@@ -612,16 +612,30 @@ export class HomeComponent implements OnInit {
       error: () => this.countryOptions.set([])
     });
     this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs').subscribe({
-      next: response =>
+      // /api/v1/report-configs lists every config version as its own row (see
+      // ReportGroupConfigRepository), which is right for the Report Config page's own directory
+      // but means this batch filter -- which only cares which report group a batch belongs to,
+      // never which config version was active when it ran -- would otherwise offer several
+      // identical-looking options per group that all filter to the exact same report group ID.
+      next: response => {
+        const seenReportGroupIds = new Set<number>();
         this.reportGroupOptions.set(
           response.configurations
+            .filter(config => {
+              if (seenReportGroupIds.has(config.reportGroupId)) {
+                return false;
+              }
+              seenReportGroupIds.add(config.reportGroupId);
+              return true;
+            })
             .map(config => ({
               reportGroupId: config.reportGroupId,
               reportGroupName: config.reportGroupName,
               countryCode: config.countryCode
             }))
             .sort((a, b) => (a.reportGroupName || '').localeCompare(b.reportGroupName || ''))
-        ),
+        );
+      },
       error: () => this.reportGroupOptions.set([])
     });
     this.loadDashboardDetails();
