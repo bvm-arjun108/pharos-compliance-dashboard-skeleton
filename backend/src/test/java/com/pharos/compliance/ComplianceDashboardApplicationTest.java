@@ -284,9 +284,10 @@ class ComplianceDashboardApplicationTest {
       .perform(get("/api/v1/report-configs").param("country", "SG").param("status", "ACTIVE"))
       .andExpect(status().isOk())
       .andExpect(header().exists("X-Span-Id"))
+      // (distinct groups) stays 2 while the row-counted metrics reflect all 8 version rows.
       .andExpect(jsonPath("$.summary.totalConfigurations").value(2))
-      .andExpect(jsonPath("$.summary.activeConfigurations").value(2))
-      .andExpect(jsonPath("$.configurations.length()").value(2))
+      .andExpect(jsonPath("$.summary.activeConfigurations").value(8))
+      .andExpect(jsonPath("$.configurations.length()").value(8))
       .andExpect(jsonPath("$.configurations[0].countryCode").value("SG"));
   }
 
@@ -295,8 +296,9 @@ class ComplianceDashboardApplicationTest {
     mockMvc
       .perform(get("/api/v1/report-configs").param("reportGroupId", "1573742369"))
       .andExpect(status().isOk())
+      // the distinct group (1), while configurations lists every version (4).
       .andExpect(jsonPath("$.summary.totalConfigurations").value(1))
-      .andExpect(jsonPath("$.configurations.length()").value(1))
+      .andExpect(jsonPath("$.configurations.length()").value(4))
       .andExpect(jsonPath("$.configurations[0].reportGroupId").value(1573742369))
       .andExpect(jsonPath("$.reportGroupId").value(1573742369));
   }

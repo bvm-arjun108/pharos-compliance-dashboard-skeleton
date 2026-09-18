@@ -217,11 +217,13 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         + response.evidenceLevel() + " | page=" + page + " | size=" + size + " | hasNextCursor=" + (response.nextCursor() != null));
   }
 
-  /** No date range, no report group, no country -- the answer to "I have this MTCN/identifier/
+  /**
+   * No date range, no report group, no country -- the answer to "I have this MTCN/identifier/
    *  external transaction key, which country was it evaluated under?" Deliberately returns every
    *  raw matching row unmerged rather than trying to collapse them into one answer: the same real
    *  transaction can legitimately show up more than once (once per report group or rule side), and
-   *  showing all of them is the point, not a defect to hide. */
+   *  showing all of them is the point, not a defect to hide.
+   */
   @Override
   public TransactionSearchResponse searchTransactions(String query) {
     return logOperation("Transaction search", () -> LOGGER.debug("Transaction search scope resolved | queryLength={}", query.length()),
@@ -238,8 +240,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
                     match.countryName(), match.batchId(), match.evidenceSource(), match.stage(), match.status(), match.comments(),
                     match.matchedOn(), match.occurredAt(), match.mtcn()))
                 .toList());
-        },
-        response -> "resultCount=" + response.results().size());
+        }, response -> "resultCount=" + response.results().size());
   }
 
   private CountryFilter resolvePeriodCountryFilter(CountryCatalogSnapshot catalog, String countryCode, Integer reportGroupId) {

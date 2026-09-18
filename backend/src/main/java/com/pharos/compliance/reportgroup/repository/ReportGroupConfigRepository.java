@@ -18,7 +18,6 @@ import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
-import org.jooq.SortField;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -183,7 +182,6 @@ public class ReportGroupConfigRepository {
     Field<String> reportTypeField = requiredField(filteredConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
 
     return dsl
-      // Distinct report groups, not distinct rows -- one group with two matching versions still
       // counts once here, even though findReportConfigs lists both versions as separate entries.
       .select(DSL.countDistinct(reportGroupIdField).as("totalConfigurations"),
           DSL.count().filterWhere(configActiveFlag.isTrue()).as("activeConfigurations"),
@@ -231,8 +229,6 @@ public class ReportGroupConfigRepository {
           DSL.coalesce(dbLookupEnabled, DSL.inline(false)).as(DATABASE_LOOKUP_ENABLED_ALIAS),
           mappingServiceName.as(MAPPING_SERVICE_NAME_ALIAS), modifiedAt.as(MODIFIED_AT_ALIAS))
       .from(filteredConfigs)
-      // Grouped by report group first (country, then name, then ID) so a group's several versions
-      // stay adjacent in the list rather than scattering by active/inactive status across
       // unrelated groups; newest version first within each group.
       .orderBy(countryNameOut.nullsLast(), reportGroupNameOut.nullsLast(), reportGroupIdField, reportSelectionVersionId.desc(),
           transformerVersionId.desc())

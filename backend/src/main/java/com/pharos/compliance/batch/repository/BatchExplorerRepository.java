@@ -375,7 +375,8 @@ public class BatchExplorerRepository {
     return value == null ? null : value.toLocalDateTime();
   }
 
-  @SqlQueryPurpose("Selected batch > Data Selection, Data Transformation and Reconciliation cards > Load aggregate counters and evidence availability")
+  @SqlQueryPurpose("Selected batch > Data Selection, Data Transformation and Reconciliation cards > Load aggregate counters and evidence "
+      + "availability")
   public Optional<BatchDetailsProjection> getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
     return dsl
       .select(RECONCILIATION.RPT_GRP_ID.as(REPORT_GROUP_ID_ALIAS), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
@@ -431,12 +432,9 @@ public class BatchExplorerRepository {
                   RECONCILIATION.RPT_GRP_ID))
               .and(com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT.PROCESSING_BATCH_ID.eq(
                   RECONCILIATION.BATCH_ID)))
-            .as(EXCLUSIONS_AVAILABLE_ALIAS),
-          BATCH_INFO.SELECTION_VERSION.as(REPORT_SELECTION_VERSION_ID_ALIAS),
+            .as(EXCLUSIONS_AVAILABLE_ALIAS), BATCH_INFO.SELECTION_VERSION.as(REPORT_SELECTION_VERSION_ID_ALIAS),
           BATCH_INFO.TRANSFORMER_MAPPING_VERSION.as(TRANSFORMER_VERSION_ID_ALIAS))
       .from(RECONCILIATION)
-      // LEFT (not inner): a reconciliation row missing its report_batch_info counterpart should
-      // still return the rest of this batch's details -- it just can't identify which exact
       // report_group_config version processed it (see the projection's own null-handling note).
       .leftJoin(BATCH_INFO)
       .on(BATCH_INFO.RPT_GRP_ID.eq(RECONCILIATION.RPT_GRP_ID))

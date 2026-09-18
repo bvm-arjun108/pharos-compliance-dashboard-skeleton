@@ -6,7 +6,6 @@ import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECO
 import static com.pharos.compliance.jooq.tables.ReportGroupConfig.REPORT_GROUP_CONFIG;
 import static com.pharos.compliance.jooq.tables.RuleHit.RULE_HIT;
 import static com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT;
-
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.transaction.repository.projection.TransactionSearchResultProjection;
 import java.util.List;
@@ -56,7 +55,6 @@ public class TransactionSearchRepository {
   private static final String MTCN_LABEL = "mtcn";
   private static final String EXTERNAL_TXN_KEY_LABEL = "externalTxnKey";
   private static final String MTCN_COLUMN = "mtcn_value";
-
   private final DSLContext dsl;
 
   public TransactionSearchRepository(DSLContext dsl) {
@@ -75,8 +73,7 @@ public class TransactionSearchRepository {
           DSL
             .when(RECORD_TRANSFORMATION_JOURNEY.IDENTIFIER.eq(query), DSL.inline(IDENTIFIER_LABEL))
             .otherwise(DSL.inline(MTCN_LABEL))
-            .as(MATCHED_ON),
-          RECORD_TRANSFORMATION_JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT),
+            .as(MATCHED_ON), RECORD_TRANSFORMATION_JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT),
           RECORD_TRANSFORMATION_JOURNEY.MTCN.as(MTCN_COLUMN))
       .from(RECORD_TRANSFORMATION_JOURNEY)
       .where(RECORD_TRANSFORMATION_JOURNEY.IDENTIFIER.eq(query).or(RECORD_TRANSFORMATION_JOURNEY.MTCN.eq(query)));
@@ -85,11 +82,8 @@ public class TransactionSearchRepository {
       .select(RULE_HIT_EXCLUSION_AUDIT.RPT_GRP_ID.as(REPORT_GROUP_ID), RULE_HIT_EXCLUSION_AUDIT.RPT_GRP_NAME.as(REPORT_GROUP_NAME),
           RULE_HIT_EXCLUSION_AUDIT.PROCESSING_BATCH_ID.as(BATCH_ID), DSL.inline("EXCLUSION_AUDIT").as(EVIDENCE_SOURCE),
           DSL.inline("EXCLUSION").as(STAGE), DSL.inline("EXCLUDED").as(STATUS), RULE_HIT_EXCLUSION_AUDIT.EXCLUSION_REASON_ID.as(COMMENTS),
-          DSL
-            .when(RULE_HIT_EXCLUSION_AUDIT.MTCN.eq(query), DSL.inline(MTCN_LABEL))
-            .otherwise(DSL.inline(EXTERNAL_TXN_KEY_LABEL))
-            .as(MATCHED_ON),
-          RULE_HIT_EXCLUSION_AUDIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT),
+          DSL.when(RULE_HIT_EXCLUSION_AUDIT.MTCN.eq(query), DSL.inline(MTCN_LABEL)).otherwise(DSL.inline(EXTERNAL_TXN_KEY_LABEL)).as(
+              MATCHED_ON), RULE_HIT_EXCLUSION_AUDIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT),
           RULE_HIT_EXCLUSION_AUDIT.MTCN.as(MTCN_COLUMN))
       .from(RULE_HIT_EXCLUSION_AUDIT)
       .where(matchCondition(RULE_HIT_EXCLUSION_AUDIT.MTCN, RULE_HIT_EXCLUSION_AUDIT.EXTERNAL_TXN_KEY, query, numeric));
@@ -143,11 +137,13 @@ public class TransactionSearchRepository {
     }
   }
 
-  /** Same "latest version per report group" ordering as ReportGroupConfigRepository's
+  /**
+   * Same "latest version per report group" ordering as ReportGroupConfigRepository's
    *  latestConfigRank, applied as a correlated scalar subquery instead of a windowed rank -- the
    *  result set here is a handful of search matches, not a batch's worth of rows, so the per-row
    *  subquery cost is negligible and this avoids re-deriving the ranking CTE for a one-column
-   *  lookup. */
+   *  lookup.
+   */
   private Field<String> countryCodeFor(Field<Integer> reportGroupId) {
     return DSL.field(dsl
       .select(REPORT_GROUP_CONFIG.COUNTRY_CODE)
@@ -166,9 +162,11 @@ public class TransactionSearchRepository {
       .limit(1));
   }
 
-  /** Only needed for the rule_hit_exclusion_audit/rule_hit branches when their own rpt_grp_name
+  /**
+   * Only needed for the rule_hit_exclusion_audit/rule_hit branches when their own rpt_grp_name
    *  column happens to be null -- journey carries no report-group name at all, so it always falls
-   *  back to this. */
+   *  back to this.
+   */
   private Field<String> reportGroupNameFor(Field<Integer> reportGroupId) {
     return DSL.field(dsl
       .select(REPORT_GROUP_CONFIG.RPT_GRP_NAME)

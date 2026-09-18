@@ -70,8 +70,8 @@ public class DashboardServiceImpl implements DashboardService {
         normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
 
     List<ExclusionReasonResponse> topExclusionReasons = dashboardRepository
-      .getTopExclusionReasons(fromTimestamp, toTimestampExclusive, normalizedBatchId, countryFilter.enabled(), countryFilter.reportGroupIds(),
-          filterByReportGroup, reportGroupIdFilter)
+      .getTopExclusionReasons(fromTimestamp, toTimestampExclusive, normalizedBatchId, countryFilter.enabled(),
+          countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter)
       .stream()
       .map(this::toExclusionReasonResponse)
       .toList();

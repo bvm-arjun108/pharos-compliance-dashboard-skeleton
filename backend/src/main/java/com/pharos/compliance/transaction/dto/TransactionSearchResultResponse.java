@@ -9,7 +9,7 @@ public record TransactionSearchResultResponse(@Schema(example = "1000000007") in
     @Schema(example = "PORTUGAL OBJECTIVE") String reportGroupName, @Schema(example = "PT") String countryCode,
     @Schema(example = "Portugal") String countryName, String batchId,
     @Schema(description = "Which table this row came from", example = "JOURNEY") String evidenceSource, String stage, String status,
-    String comments, @Schema(description = "Which field the search query matched on", example = "mtcn") String matchedOn,
-    String occurredAt, @Schema(description = "This row's actual MTCN, regardless of which field the search query matched on -- "
+    String comments, @Schema(description = "Which field the search query matched on", example = "mtcn") String matchedOn, String occurredAt,
+    @Schema(description = "This row's actual MTCN, regardless of which field the search query matched on -- "
     + "used to jump straight to the transaction report's own identifier/MTCN search, which doesn't understand external "
     + "transaction keys", example = "9000000000217510") String mtcn) {}

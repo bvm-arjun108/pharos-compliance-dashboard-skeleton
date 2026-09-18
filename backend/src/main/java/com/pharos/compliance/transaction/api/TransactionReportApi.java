@@ -81,8 +81,8 @@ public interface TransactionReportApi {
       @RequestParam(value = "status", defaultValue = "ALL") TransactionStatus status,
       @Parameter(description = "Exact match against the same reason bucket the Transactions Overview dashboard legends "
       + "count: for status=EXCLUDED, the Top Exclusion Reasons bucket (identifier's skip_reason, falling back to "
-      + "comments); for status=NOT_REPORTED, the Not Reported Reasons category. Ignored for other status values",
-      example = "Already Reported In Prior Batch") @RequestParam(value = "reason", defaultValue = "") String reason,
+      + "comments); for status=NOT_REPORTED, the Not Reported Reasons category. Ignored for other status values", example = "Already "
+      + "Reported In Prior Batch") @RequestParam(value = "reason", defaultValue = "") String reason,
       @RequestParam(value = "sortDirection", defaultValue = "DESC") TransactionSortDirection sortDirection,
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size,
@@ -90,9 +90,8 @@ public interface TransactionReportApi {
       + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
       + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
 
-  @Operation(operationId = "searchTransactions",
-      summary = "Find every evidence row for an identifier, MTCN, or external transaction key, across every report group",
-      description = "No date range, report group, or country required -- for when the caller has a transaction "
+  @Operation(operationId = "searchTransactions", summary = "Find every evidence row for an identifier, MTCN, or external transaction key,"
+      + " across every report group", description = "No date range, report group, or country required -- for when the caller has a transaction "
       + "identifier but doesn't know which country or report group it belongs to. Returns every matching row from "
       + "journey, exclusion-audit, and rule_hit unmerged, since the same real transaction can be evaluated more than "
       + "once (once per report group or rule side) with genuinely different outcomes in each.")
@@ -102,6 +101,6 @@ public interface TransactionReportApi {
       @ApiResponse(responseCode = "503", description = "Compliance database unavailable", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))})
   @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
   TransactionSearchResponse searchTransactions(
-      @Parameter(description = "Identifier, MTCN, or external transaction key to search for", required = true,
-          example = "9000000000217510") @RequestParam("query") @NotBlank String query);
+      @Parameter(description = "Identifier, MTCN, or external transaction key to search for", required = true, example = "9000000000217510") @RequestParam("q"
+      + "uery") @NotBlank String query);
 }

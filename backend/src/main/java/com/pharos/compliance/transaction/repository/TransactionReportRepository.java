@@ -201,7 +201,6 @@ public class TransactionReportRepository {
       .where(JOURNEY.RPT_GRP_ID.eq(reportGroupId))
       .and(JOURNEY.BATCH_ID.eq(batchId))
       .asTable("journey_scoped");
-
     // efile_batch_id, not rule_hit's own unrelated integer batch_id column -- the same field the
     // merge's own RULE_HIT branch already uses as that row's evidence_batch_id. Matching an
     // identifier/mtcn alone (as this used to) could surface a rule_hit belonging to a *different*
