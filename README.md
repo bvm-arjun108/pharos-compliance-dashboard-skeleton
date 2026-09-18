@@ -173,6 +173,16 @@ mvn -f backend/pom.xml verify \
 
 Generated sources are written under `backend/target/generated-sources/jooq` and are not edited manually. The code generator version is inherited from Spring Boot dependency management so generated code and the runtime library remain aligned.
 
+### Backend tests
+
+The build intentionally separates schema discovery from test data:
+
+- jOOQ code generation reads the real PostgreSQL `pharos` schema during `generate-sources`.
+- Unit and service tests do not start Spring or connect to PostgreSQL for data.
+- Deterministic test rows are stored under `backend/src/test/resources/fixtures` and repository responses are mocked.
+
+This means `mvn clean install` still detects incompatible database-schema changes, while changing, adding, or removing rows in the database cannot change the test results.
+
 ## Included foundation
 
 - Java 21 compiler configuration
@@ -188,7 +198,7 @@ Generated sources are written under `backend/target/generated-sources/jooq` and 
 - Dashboard, batch explorer/control room, report configuration, and transaction evidence views
 - Backend health API and frontend connectivity handling
 - Local PostgreSQL Docker Compose service
-- Backend context and live PostgreSQL connection tests
+- Fixture-backed backend service tests that do not depend on live PostgreSQL data
 
 ## Deliberately deferred or incomplete
 

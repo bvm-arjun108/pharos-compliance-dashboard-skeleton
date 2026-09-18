@@ -1,0 +1,92 @@
+{
+  "countries": [
+    {
+      "code": "PT",
+      "name": "Portugal",
+      "reportGroupIds": [1000000007, 1000000008]
+    },
+    {
+      "code": "SG",
+      "name": "Singapore",
+      "reportGroupIds": [1573742369]
+    }
+  ],
+  "counts": {
+    "batchesRan": 12,
+    "batchesNotYetReported": 2,
+    "batchesNeedingAttention": 3,
+    "transformationFailureBatches": 2,
+    "missingAttemptBatches": 1,
+    "activityMissingBatches": 1,
+    "duplicateTransactionBatches": 1,
+    "exclusionBatches": 2,
+    "simulatedTransactionBatches": 1,
+    "softDedupBatches": 0,
+    "totalReportedTransactions": 1640,
+    "totalExcludedTransactions": 18
+  },
+  "trend": [
+    {
+      "periodStart": "2026-08-20",
+      "batchesRan": 5,
+      "successfulBatches": 4,
+      "batchesNeedingAttention": 1,
+      "transformationFailureBatches": 1,
+      "missingAttemptBatches": 0,
+      "activityMissingBatches": 0,
+      "totalReportedTransactions": 710,
+      "totalExcludedTransactions": 7
+    },
+    {
+      "periodStart": "2026-08-21",
+      "batchesRan": 5,
+      "successfulBatches": 3,
+      "batchesNeedingAttention": 2,
+      "transformationFailureBatches": 1,
+      "missingAttemptBatches": 1,
+      "activityMissingBatches": 1,
+      "totalReportedTransactions": 930,
+      "totalExcludedTransactions": 11
+    }
+  ],
+  "reportGroups": [
+    {
+      "reportGroupId": 1000000007,
+      "reportGroupName": "PORTUGAL OBJECTIVE",
+      "batchesRan": 8,
+      "successfulBatches": 5,
+      "batchesNeedingAttention": 3,
+      "transformationFailureBatches": 2,
+      "missingAttemptBatches": 1,
+      "activityMissingBatches": 1,
+      "totalReportedTransactions": 1200,
+      "totalExcludedTransactions": 14
+    }
+  ],
+  "transactionOverview": {
+    "selected": 583,
+    "expected": 564,
+    "excluded": 19,
+    "notReported": 22
+  },
+  "exclusionReasons": [
+    {
+      "reason": "EXCLUDED_BECAUSE_ALREADY_REPORTED",
+      "count": 14
+    },
+    {
+      "reason": "SOFT_DEDUP",
+      "count": 5
+    }
+  ],
+  "notReportedReasons": [
+    {
+      "reason": "TRANSFORMATION_COMPLETED",
+      "count": 21
+    },
+    {
+      "reason": "ATTEMPT_NOT_RECEIVED",
+      "count": 1
+    }
+  ]
+}
