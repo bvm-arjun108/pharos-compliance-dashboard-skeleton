@@ -11,7 +11,7 @@
     @if (response(); as result) {
       <div class="config-count-context">
         <strong>{{ result.configurations.length }}</strong>
-        <span>matching report groups</span>
+        <span>matching configurations</span>
       </div>
     }
   </header>
@@ -21,7 +21,7 @@
       <article>
         <span>Report groups</span>
         <strong>{{ result.summary.totalConfigurations }}</strong>
-        <small>Latest configuration per group</small>
+        <small>Distinct groups in this selection</small>
       </article>
       <article class="summary-active">
         <span>Active configs</span>
@@ -106,7 +106,7 @@
       <div class="directory-heading">
         <div>
           <p>Configuration directory</p>
-          <h2 id="config-directory-heading">Report groups</h2>
+          <h2 id="config-directory-heading">Configurations</h2>
         </div>
         @if (response(); as result) { <span>{{ result.configurations.length }}</span> }
       </div>

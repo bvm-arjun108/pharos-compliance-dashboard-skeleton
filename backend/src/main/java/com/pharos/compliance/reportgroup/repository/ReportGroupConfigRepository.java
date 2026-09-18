@@ -26,10 +26,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Every query here reads the same table, {@code pharos.report_group_config}, which stores every
- * version of every report group's configuration that has ever existed -- "the current state" is
- * always "the single latest version per report group", computed the same way everywhere: rank rows
- * by {@code rpt_grp_id} and keep rank 1, ordered newest-modified first (falling back to
- * newest-created, then highest version numbers, for rows with tied or null timestamps).
+ * version of every report group's configuration that has ever existed. {@link #findReportConfigs}
+ * (the configuration directory) and {@link #getSummary} (its summary tiles) show every version
+ * matching the caller's filters -- a report group with two versions is two distinct configuration
+ * entries, not one row deduped to "the latest." {@link #findCountryMappings} and {@link
+ * #findReportTypes} (which build filter dropdown options, where only the current set of
+ * countries/report types matters) still rank rows by {@code rpt_grp_id} and keep rank 1, ordered
+ * newest-modified first (falling back to newest-created, then highest version numbers, for rows
+ * with tied or null timestamps).
  */
 @Repository
 @Transactional(readOnly = true)
@@ -121,36 +125,37 @@ public class ReportGroupConfigRepository {
   }
 
   /**
-   * Shared by {@link #getSummary} and {@link #findReportConfigs}: the latest configuration per
-   * report group, with active/inactive status taken from that specific version's own {@code
-   * rpt_config_active_flag} -- narrowed by the caller's country/status/reportType/reportGroupId
-   * filters.
+   * Shared by {@link #getSummary} and {@link #findReportConfigs}: every {@code report_group_config}
+   * row matching the caller's country/status/reportType/reportGroupId filters, each with its own
+   * active/inactive status taken from that specific version's own {@code rpt_config_active_flag}.
    *
-   * <p>Previously this computed {@code BOOL_AND(rpt_config_active_flag)} across every version the
-   * report group has ever had, not just the one being shown. That meant a report group could be
-   * live today, on a config version that's flagged active, and still show "Inactive" forever
-   * simply because some earlier, since-superseded version had been deactivated when it was
-   * replaced -- an expected, normal event in that version's own history, not a sign anything is
-   * currently wrong with the group. Scoping the flag to the row actually being displayed avoids
-   * that.
+   * <p>Deliberately <em>not</em> deduped to one row per report group -- a report group can have
+   * several historical versions (see the class doc), and a version isn't a duplicate of its report
+   * group, it's a distinct configuration that was or is live. {@link #findReportConfigs} lists every
+   * one of them; {@link #getSummary} does its own {@code COUNT(DISTINCT rpt_grp_id)} where it
+   * specifically wants the group count rather than the version count.
+   *
+   * <p>Previously this also deduped to {@code ROW_NUMBER() ... = 1} (latest version only) before
+   * either caller saw a row, and separately computed {@code BOOL_AND(rpt_config_active_flag)}
+   * across every version ever, not just the one shown -- both hid real data: a report group with
+   * two versions showed as one row, and a live, active version could report "Inactive" solely
+   * because some earlier, since-superseded version had been deactivated when it was replaced (an
+   * expected, unremarkable event in that version's own history).
    */
-  private Table<Record> filteredLatestConfigs(String country, String status, String reportType, Integer reportGroupId) {
+  private Table<Record> filteredConfigs(String country, String status, String reportType, Integer reportGroupId) {
     Field<Boolean> configActiveFlag = DSL.coalesce(CONFIG.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false)).as(CONFIG_ACTIVE_FLAG_COLUMN);
 
-    Table<Record> rankedConfigs =
-        dsl.select(CONFIG.asterisk(), latestConfigRank(), configActiveFlag).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
+    Table<Record> configs = dsl.select(CONFIG.asterisk(), configActiveFlag).from(CONFIG).asTable("configs_with_active_flag");
 
-    Field<String> countryCode = requiredField(rankedConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
-    Field<String> reportTypeField = requiredField(rankedConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
-    Field<Integer> reportGroupIdField = requiredField(rankedConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
-    Field<Integer> configRank = requiredField(rankedConfigs, CONFIG_RANK_COLUMN, Integer.class);
-    Field<Boolean> configActiveFlagField = requiredField(rankedConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
+    Field<String> countryCode = requiredField(configs, CONFIG.COUNTRY_CODE.getName(), String.class);
+    Field<String> reportTypeField = requiredField(configs, CONFIG.REG_RPT_TYPE.getName(), String.class);
+    Field<Integer> reportGroupIdField = requiredField(configs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
+    Field<Boolean> configActiveFlagField = requiredField(configs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
 
     return dsl
-      .select(rankedConfigs.fields())
-      .from(rankedConfigs)
-      .where(configRank.eq(1))
-      .and("ALL".equals(country) ? DSL.trueCondition() : DSL.upper(DSL.trim(countryCode)).eq(country))
+      .select(configs.fields())
+      .from(configs)
+      .where("ALL".equals(country) ? DSL.trueCondition() : DSL.upper(DSL.trim(countryCode)).eq(country))
       .and(
           switch (status) {
             case "ALL" -> DSL.trueCondition();
@@ -170,14 +175,18 @@ public class ReportGroupConfigRepository {
 
   @SqlQueryPurpose("Summarize report-group configurations matching the selected filters")
   public ReportConfigSummaryProjection getSummary(String country, String status, String reportType, Integer reportGroupId) {
-    Table<Record> filteredConfigs = filteredLatestConfigs(country, status, reportType, reportGroupId);
+    Table<Record> filteredConfigs = filteredConfigs(country, status, reportType, reportGroupId);
 
+    Field<Integer> reportGroupIdField = requiredField(filteredConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
     Field<Boolean> configActiveFlag = requiredField(filteredConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
     Field<String> countryCode = requiredField(filteredConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
     Field<String> reportTypeField = requiredField(filteredConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
 
     return dsl
-      .select(DSL.count().as("totalConfigurations"), DSL.count().filterWhere(configActiveFlag.isTrue()).as("activeConfigurations"),
+      // Distinct report groups, not distinct rows -- one group with two matching versions still
+      // counts once here, even though findReportConfigs lists both versions as separate entries.
+      .select(DSL.countDistinct(reportGroupIdField).as("totalConfigurations"),
+          DSL.count().filterWhere(configActiveFlag.isTrue()).as("activeConfigurations"),
           DSL
             .countDistinct(DSL.upper(DSL.trim(countryCode)))
             .filterWhere(countryCode.isNotNull().and(DSL.trim(countryCode).ne("")))
@@ -191,7 +200,7 @@ public class ReportGroupConfigRepository {
 
   @SqlQueryPurpose("Load report-group configurations matching the selected filters")
   public List<ReportConfigListProjection> findReportConfigs(String country, String status, String reportType, Integer reportGroupId) {
-    Table<Record> filteredConfigs = filteredLatestConfigs(country, status, reportType, reportGroupId);
+    Table<Record> filteredConfigs = filteredConfigs(country, status, reportType, reportGroupId);
 
     Field<Integer> reportGroupIdField = requiredField(filteredConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
     Field<String> reportGroupName = requiredField(filteredConfigs, CONFIG.RPT_GRP_NAME.getName(), String.class);
@@ -213,8 +222,6 @@ public class ReportGroupConfigRepository {
         DSL.coalesce(DSL.nullif(DSL.trim(countryName), DSL.inline("")), DSL.upper(DSL.trim(countryCode))).as(COUNTRY_NAME_ALIAS);
     var reportGroupNameOut = reportGroupName.as(REPORT_GROUP_NAME_ALIAS);
 
-    SortField<?> activeFirst = DSL.when(configActiveFlag.isTrue(), 0).otherwise(1).asc();
-
     return dsl
       .select(reportGroupIdField.as(REPORT_GROUP_ID_ALIAS), reportGroupNameOut,
           reportSelectionVersionId.as(REPORT_SELECTION_VERSION_ID_ALIAS), transformerVersionId.as(TRANSFORMER_VERSION_ID_ALIAS),
@@ -224,7 +231,11 @@ public class ReportGroupConfigRepository {
           DSL.coalesce(dbLookupEnabled, DSL.inline(false)).as(DATABASE_LOOKUP_ENABLED_ALIAS),
           mappingServiceName.as(MAPPING_SERVICE_NAME_ALIAS), modifiedAt.as(MODIFIED_AT_ALIAS))
       .from(filteredConfigs)
-      .orderBy(activeFirst, countryNameOut.nullsLast(), reportGroupNameOut.nullsLast(), reportGroupIdField)
+      // Grouped by report group first (country, then name, then ID) so a group's several versions
+      // stay adjacent in the list rather than scattering by active/inactive status across
+      // unrelated groups; newest version first within each group.
+      .orderBy(countryNameOut.nullsLast(), reportGroupNameOut.nullsLast(), reportGroupIdField, reportSelectionVersionId.desc(),
+          transformerVersionId.desc())
       .fetch(r -> new ReportConfigListProjection(requiredInt(r, REPORT_GROUP_ID_ALIAS), r.get(REPORT_GROUP_NAME_ALIAS, String.class),
           requiredInt(r, REPORT_SELECTION_VERSION_ID_ALIAS), r.get(TRANSFORMER_VERSION_ID_ALIAS, String.class),
           r.get(COUNTRY_CODE_ALIAS, String.class), r.get(COUNTRY_NAME_ALIAS, String.class), r.get(REGION_NAME_ALIAS, String.class),
