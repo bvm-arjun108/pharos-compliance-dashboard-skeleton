@@ -166,36 +166,26 @@ public class TransactionReportRepository {
   // Batch-scoped evidence (findEvidenceRecords / countEvidenceRecords)
   // ---------------------------------------------------------------------------------------------
   /**
-   * {@code metricScoped} only ever matches a RULE_HIT-sourced row for metric ALL,
-   * ACTUAL_REPORTABLE, TRANSFORMER_OUTPUT, or ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT -- every other
-   * metric filters {@code evidenceSource} down to JOURNEY or EXCLUSION_AUDIT only, so a RULE_HIT row
-   * can never survive that filter regardless of status. Defaults to {@code true} (don't skip) for
-   * anything not on this explicit, verified-safe list, and any future metric -- this must never skip
-   * a case it hasn't actually confirmed is safe.
-   *
-   * <p>MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method at all --
-   * {@code TransactionReportServiceImpl.isAggregateOnlyMetric} short-circuits them before the
-   * evidence pipeline is invoked, since {@code metricScoped}'s default branch has no real filter
-   * condition for them (an aggregate delta has no corresponding evidence row to select) and was
-   * previously returning every unrelated evidence row in the batch as if it were the answer.
+   * Deliberately independent of {@code metric}: {@code metricScoped}'s own {@code evidenceSource}
+   * filter already keeps a RULE_HIT-sourced row out of the merged evidence for every metric except
+   * ALL/ACTUAL_REPORTABLE/TRANSFORMER_OUTPUT/ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT, so this method
+   * running (or not) never changes which rows the merge itself produces. But this same match also
+   * feeds {@code rollupRuleHits} -- the "Rule Hit Details" enrichment shown per row, independent of
+   * that row's own evidence source (see the class Javadoc). An earlier version of this method also
+   * skipped based on metric, on the theory that a metric which can't keep a RULE_HIT row has no use
+   * for the match at all -- true for the merge, but it silently starved that enrichment for every
+   * one of those metrics too: viewing the exact same transaction under EXCLUDED or FILTERED showed
+   * "no rule hits matched" for a transaction that, viewed under ALL, correctly showed a real match.
+   * Scoping to this batch specifically (not just the report group) is what keeps this affordable
+   * without the metric check -- see {@link #ruleHitMatches} for why a report-group-wide scope was
+   * expensive before that method was rewritten as a join, and {@link #ruleHitMatchesForPeriod} for
+   * the equivalent already-metric-independent period-scoped version this mirrors.
    */
-  private static boolean metricNeedsRuleHit(String metric) {
-    return switch (metric) {
-      case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE", "EXPECTED_REPORTABLE", "TRANSFORMED", "FAILED",
-          VALUE_EXCLUDED, "SIMULATED", "ALREADY_REPORTED", "SOFT_DEDUP", "FILTERED" -> false;
-      default -> true;
-    };
-  }
-
-  private Table<?> ruleHitMatchesForBatch(int reportGroupId, String batchId, String metric, String status) {
-    if (!metricNeedsRuleHit(metric) || !("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
-      // Same performance short-circuit as the original SQL: rule_hit evidence's status can only
-      // ever be REPORTED/NOT_REPORTED, so any other requested status matches zero rule_hit rows --
-      // skip the identifier-lookup join entirely rather than run it for no reason. The metric check
-      // is new: metricScoped() also can't ever keep a RULE_HIT row for most metrics regardless of
-      // status (see metricNeedsRuleHit) -- e.g. clicking a SIMULATED (SML) count was running this
-      // full match against the entire rule_hit table for the report group, on every request, for a
-      // result metricScoped() would discard unconditionally.
+  private Table<?> ruleHitMatchesForBatch(int reportGroupId, String batchId, String status) {
+    if (!("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
+      // rule_hit evidence's status can only ever be REPORTED/NOT_REPORTED, so any other requested
+      // status matches zero rule_hit rows -- skip the identifier-lookup join entirely rather than
+      // run it for no reason.
       return dsl
         .select(RULE_HIT_TABLE.fields())
         .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
@@ -212,7 +202,13 @@ public class TransactionReportRepository {
       .and(JOURNEY.BATCH_ID.eq(batchId))
       .asTable("journey_scoped");
 
-    return ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.eq(reportGroupId), journeyScoped);
+    // efile_batch_id, not rule_hit's own unrelated integer batch_id column -- the same field the
+    // merge's own RULE_HIT branch already uses as that row's evidence_batch_id. Matching an
+    // identifier/mtcn alone (as this used to) could surface a rule_hit belonging to a *different*
+    // batch that happens to share it -- e.g. a resubmitted transaction -- as if it were this
+    // batch's own evidence, which is exactly the mixing this scope prevents; it also bounds the
+    // scan to one batch's rule_hit rows instead of the whole report group's.
+    return ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.eq(reportGroupId).and(RULE_HIT_TABLE.EFILE_BATCH_ID.eq(batchId)), journeyScoped);
   }
 
   /**
@@ -815,7 +811,7 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
   public EvidencePage findEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
       String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor) {
-    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, metric, status);
+    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
     return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
@@ -824,7 +820,7 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Count filtered transaction evidence records for one batch")
   public long countEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
       String outcome, String status) {
-    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, metric, status);
+    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
     Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
