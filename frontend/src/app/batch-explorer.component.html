@@ -318,27 +318,26 @@
           </section>
 
           <section
-            id="reconciliation-evidence"
+            id="skipped-status-evidence"
             class="evidence-panel"
-            aria-labelledby="reconciliation-evidence-heading"
+            aria-labelledby="skipped-status-evidence-heading"
           >
             <div class="evidence-panel__heading">
-              <h3 id="reconciliation-evidence-heading">Reconciliation imbalance evidence</h3>
-              <span [class.bad]="details.reconciliationImbalance > 0">{{ details.reconciliationImbalance === 0 ? 'Balanced' : 'Imbalance' }}</span>
+              <h3 id="skipped-status-evidence-heading">Skipped Status</h3>
+              <span [class.bad]="skippedTotal(details) > 0">{{ skippedTotal(details) === 0 ? 'No skips' : 'Skips found' }}</span>
             </div>
-            <p>Expected and actual activities eligible for transformation are reconciled independently.</p>
-            <div class="evidence-bar" role="img" [attr.aria-label]="details.actualTransformationAttempts + ' actual eligible out of ' + details.expectedTransformationAttempts + ' expected eligible'">
-              @if (details.actualTransformationAttempts > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(details.actualTransformationAttempts, details.expectedTransformationAttempts)" [title]="details.actualTransformationAttempts + ' actual eligible — click to view'" (click)="openTransactionReport('ACTUAL_ELIGIBLE')">{{ details.actualTransformationAttempts }}</span>
+            <p>Transactions that never reached a reportable outcome, split by why: never attempted, or attempted and failed.</p>
+            <div class="evidence-bar" role="img" [attr.aria-label]="details.missingAttempts + ' missing attempts, ' + details.transformationFailures + ' transformation failures'">
+              @if (details.missingAttempts > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--pending" [style.width.%]="barShare(details.missingAttempts, skippedTotal(details))" [title]="details.missingAttempts + ' missing attempts — click to view'" (click)="openTransactionReport('MISSING')">{{ details.missingAttempts }}</span>
               }
-              @if (details.reconciliationImbalance > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--gap" [style.width.%]="barShare(details.reconciliationImbalance, details.expectedTransformationAttempts)" [title]="'Variance: ' + details.reconciliationImbalance + ' — click to view'" (click)="openTransactionReport('RECONCILIATION_VARIANCE')">{{ details.reconciliationImbalance }}</span>
+              @if (details.transformationFailures > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--error" [style.width.%]="barShare(details.transformationFailures, skippedTotal(details))" [title]="details.transformationFailures + ' transformation failures — click to view'" (click)="openTransactionReport('FAILED')">{{ details.transformationFailures }}</span>
               }
             </div>
-            <div class="evidence-values evidence-values--three">
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_ELIGIBLE')" aria-label="View expected eligible transaction evidence"><span>Expected eligible</span><strong>{{ details.expectedTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_ELIGIBLE')" aria-label="View actual eligible transaction evidence"><span>Actual eligible</span><strong>{{ details.actualTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('RECONCILIATION_VARIANCE')" aria-label="View reconciliation variance transaction report"><span>Variance</span><strong [class.issue-number]="details.reconciliationImbalance > 0">{{ details.reconciliationImbalance | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+            <div class="evidence-values evidence-values--two">
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing attempts</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Transformation failures</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
           </section>
 

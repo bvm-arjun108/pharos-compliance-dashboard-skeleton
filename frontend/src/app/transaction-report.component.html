@@ -215,7 +215,7 @@
                           <p class="transaction-detail-subnote">This row's own pharos.rule_hit_exclusion_audit record, if this evidence came from an exclusion.</p>
                           @if (record.exclusionReason || record.exclusionStrategy || record.source === 'EXCLUSION_AUDIT') {
                             <div class="transaction-detail-grid">
-                              <div><span>Exclusion rule ID</span><strong>{{ ruleIdsDisplay(record) }}</strong></div>
+                              <div><span>Rule ID</span><strong>{{ ruleIdsDisplay(record) }}</strong></div>
                               <div><span>Exclusion reason</span><strong>{{ record.exclusionReason || 'Not available' }}</strong></div>
                               <div><span>Exclusion strategy</span><strong>{{ record.exclusionStrategy || 'Not available' }}</strong></div>
                               <div><span>Reported batch</span><strong>{{ record.reportedBatchId || 'Not available' }}</strong></div>

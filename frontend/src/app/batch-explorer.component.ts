@@ -460,6 +460,15 @@ export class BatchExplorerComponent implements OnInit {
     );
   }
 
+  /** The two ways a selected transaction never reaches a reportable outcome outside of exclusion --
+   *  no matching attempt ever arrived, or an attempt arrived but its transformation failed. Replaced
+   *  the old "Reconciliation imbalance" card (expected vs. actual eligible), which in production is
+   *  balanced almost every time and so rarely showed anything actionable; these two counts are the
+   *  actual failure modes that put a batch in "needs attention." */
+  skippedTotal(details: BatchDetailsResponse): number {
+    return details.missingAttempts + details.transformationFailures;
+  }
+
   batchKey(batch: BatchQueueItem | null): string {
     return batch
       ? `${batch.reportGroupId}:${batch.batchId}:${batch.sequenceNumber}`
