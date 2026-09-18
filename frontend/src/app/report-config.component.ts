@@ -59,7 +59,6 @@ interface ReportConfigDetails {
     threeLetterCountryCode: string | null;
     regionCode: string | null;
     regionName: string | null;
-    reportCurrency: string | null;
     reportType: string | null;
     active: boolean;
   };

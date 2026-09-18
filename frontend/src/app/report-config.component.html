@@ -177,7 +177,7 @@
             <div><dt>Country</dt><dd>{{ details.identity.countryName }} ({{ details.identity.countryCode }})</dd></div>
             <div><dt>Region</dt><dd>{{ configuredValue(details.identity.regionName) }}</dd></div>
             <div><dt>Report type</dt><dd>{{ configuredValue(details.identity.reportType) }}</dd></div>
-            <div><dt>Currency</dt><dd>{{ configuredValue(details.identity.reportCurrency) }}</dd></div>
+            <div><dt>Created</dt><dd>{{ details.versioning.createdAt ? (details.versioning.createdAt | date:'MMM d, y, h:mm a') : 'Not available' }}</dd></div>
           </dl>
         </section>
 
