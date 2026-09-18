@@ -228,7 +228,26 @@ public class BatchEvidenceQueries {
           "TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_JOURNEY);
       case "TRANSFORMED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_SUCCESS));
       case "FAILED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_ERROR));
-      case VALUE_EXCLUDED -> evidenceSource.eq(SOURCE_EXCLUSION_AUDIT);
+      // Previously sourced from EXCLUSION_AUDIT alone, which only has a row for a transaction once
+      // something (typically a downstream rule/reporting check) explicitly audits the exclusion --
+      // confirmed against real production data that most FILTRATION/EXCLUDED journey rows never
+      // get one: for one batch, rule_hit_exclusion_audit had 33 rows while
+      // report_transformation_reconciliation.excluded_txn (and a matching count straight off
+      // record_transformation_journey) was 2,236, i.e. EXCLUSION_AUDIT was missing 2,203 of the
+      // batch's real exclusions -- the "Excluded" drill-through silently showed 33 rows for a tile
+      // that said 2,236. Journey is the correct, always-populated source: every FILTRATION-stage
+      // journey row has status EXCLUDED (confirmed with zero exceptions across every FILTRATION row
+      // in the dataset), so this mirrors SIMULATED/ALREADY_REPORTED/SOFT_DEDUP below exactly, just
+      // for whichever exclusion reason isn't one of theirs -- the same "generic" bucket
+      // report_transformation_reconciliation.excluded_txn itself represents.
+      case VALUE_EXCLUDED -> evidenceSource
+        .eq(SOURCE_JOURNEY)
+        .and(upperStage.eq(STAGE_FILTRATION))
+        .and(outcome.eq(VALUE_EXCLUDED))
+        .and(upperComments.notLike("EXCLUDED_BECAUSE_SML%"))
+        .and(upperComments.notLike("EXCLUDED_BECAUSE_ALREADY_REPORTED%"))
+        .and(upperComments.notLike("EXCLUDED_SOFT_DEDUP%"))
+        .and(upperComments.notLike("EXCLUDED_REAPPEARING_%"));
       case "SIMULATED" -> evidenceSource
         .eq(SOURCE_JOURNEY)
         .and(upperStage.eq(STAGE_FILTRATION))

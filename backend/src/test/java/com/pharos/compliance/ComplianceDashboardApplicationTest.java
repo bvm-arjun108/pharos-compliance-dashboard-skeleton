@@ -395,8 +395,16 @@ class ComplianceDashboardApplicationTest {
     }
   }
 
+  /**
+   * This batch's only real exclusions are journey rows commented "EXCLUDED_BECAUSE_ALREADY_REPORTED
+   * (PHAROS)" -- i.e. they belong to the ALREADY_REPORTED metric bucket, not the generic EXCLUDED
+   * one -- while its rule_hit_exclusion_audit rows are a separate, unrelated set of identifiers
+   * (fixture data predating the EXCLUDED-metric fix below). So EXCLUDED correctly has an aggregate
+   * count but zero matching record-level evidence for this specific batch, exactly the
+   * AGGREGATE_ONLY fallback the evidence-level system exists for.
+   */
   @Test
-  void returnsFullExclusionTransactionEvidenceForOneBatch() throws Exception {
+  void fallsBackToAggregateOnlyWhenExcludedHasNoMatchingJourneyEvidence() throws Exception {
     mockMvc
       .perform(get("/api/v1/transactions/report")
         .param("reportGroupId", "1000000007")
@@ -408,10 +416,34 @@ class ComplianceDashboardApplicationTest {
       .andExpect(header().exists("X-Span-Id"))
       .andExpect(jsonPath("$.metric").value("EXCLUDED"))
       .andExpect(jsonPath("$.aggregateCount").value(5))
-      .andExpect(jsonPath("$.availableRecordCount").value(5))
+      .andExpect(jsonPath("$.availableRecordCount").value(0))
+      .andExpect(jsonPath("$.evidenceLevel").value("AGGREGATE_ONLY"))
+      .andExpect(jsonPath("$.transactions.length()").value(0));
+  }
+
+  /**
+   * The same batch as {@link #fallsBackToAggregateOnlyWhenExcludedHasNoMatchingJourneyEvidence}:
+   * its 4 "EXCLUDED_BECAUSE_ALREADY_REPORTED(PHAROS)" journey rows are exactly what
+   * already_reported_count (4) counts, so ALREADY_REPORTED is this batch's real record-level
+   * evidence -- sourced from JOURNEY, not rule_hit_exclusion_audit.
+   */
+  @Test
+  void returnsFullAlreadyReportedTransactionEvidenceForOneBatch() throws Exception {
+    mockMvc
+      .perform(get("/api/v1/transactions/report")
+        .param("reportGroupId", "1000000007")
+        .param("batchId", "BIN10000000007260822100000")
+        .param("sequenceNumber", "1")
+        .param("metric", "ALREADY_REPORTED"))
+      .andExpect(status().isOk())
+      .andExpect(header().exists("X-Trace-Id"))
+      .andExpect(header().exists("X-Span-Id"))
+      .andExpect(jsonPath("$.metric").value("ALREADY_REPORTED"))
+      .andExpect(jsonPath("$.aggregateCount").value(4))
+      .andExpect(jsonPath("$.availableRecordCount").value(4))
       .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"))
-      .andExpect(jsonPath("$.transactions.length()").value(5))
-      .andExpect(jsonPath("$.transactions[0].source").value("EXCLUSION_AUDIT"))
+      .andExpect(jsonPath("$.transactions.length()").value(4))
+      .andExpect(jsonPath("$.transactions[0].source").value("JOURNEY"))
       .andExpect(jsonPath("$.transactions[0].outcome").value("EXCLUDED"));
 
     mockMvc
@@ -419,10 +451,10 @@ class ComplianceDashboardApplicationTest {
         .param("reportGroupId", "1000000007")
         .param("batchId", "BIN10000000007260822100000")
         .param("sequenceNumber", "1")
-        .param("metric", "EXCLUDED")
+        .param("metric", "ALREADY_REPORTED")
         .param("outcome", "ERROR"))
       .andExpect(status().isOk())
-      .andExpect(jsonPath("$.availableRecordCount").value(5))
+      .andExpect(jsonPath("$.availableRecordCount").value(4))
       .andExpect(jsonPath("$.matchingRecordCount").value(0))
       .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"));
   }
