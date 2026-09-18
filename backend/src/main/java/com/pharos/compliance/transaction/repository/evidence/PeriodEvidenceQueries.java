@@ -279,9 +279,6 @@ public class PeriodEvidenceQueries {
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
     var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
-    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
-    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
-    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
-    return count == null ? 0L : count;
+    return paginator.countDistinctIdentifiers(filtered);
   }
 }

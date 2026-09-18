@@ -223,6 +223,12 @@ public class BatchEvidenceQueries {
     Field<String> upperStage = DSL.upper(DSL.coalesce(stage, ""));
     Field<String> upperStatus = DSL.upper(DSL.coalesce(status, ""));
     Field<String> upperComments = DSL.upper(DSL.coalesce(comments, ""));
+
+    // Shared "journey row at stage X" scopes, factored out since several metrics below narrow one
+    // of these two stages by a further outcome/comment condition -- reused the same way
+    // missingAttemptCondition/failedCondition already were.
+    Condition journeyAtFiltration = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION));
+    Condition journeyAtTransformation = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION"));
     // Two conventions for "this transaction never got an attempt," each used exclusively by
     // different report groups -- see the MISSING case below, and FILTERED, which needs this same
     // condition since its own aggregate (TransactionReportServiceImpl#aggregateCount) explicitly
@@ -234,13 +240,13 @@ public class BatchEvidenceQueries {
         .and(upperStatus.eq("ATTEMPT_MISSING"))
         .or(upperStage.eq("TRANSACTION_JOIN").and(upperStatus.eq("ERROR")).and(upperComments.eq("ATTEMPT_NOT_RECEIVED"))));
     // Reused by SKIPPED below, which needs the same condition FAILED matches on its own.
-    Condition failedCondition = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_ERROR));
+    Condition failedCondition = journeyAtTransformation.and(outcome.eq(OUTCOME_ERROR));
 
     Condition metricCondition = switch (metric) {
       case "ALL" -> DSL.trueCondition();
       case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE",
           "TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_JOURNEY);
-      case "TRANSFORMED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_SUCCESS));
+      case "TRANSFORMED" -> journeyAtTransformation.and(outcome.eq(OUTCOME_SUCCESS));
       case "FAILED" -> failedCondition;
       // Previously sourced from EXCLUSION_AUDIT alone, which only has a row for a transaction once
       // something (typically a downstream rule/reporting check) explicitly audits the exclusion --
@@ -254,26 +260,15 @@ public class BatchEvidenceQueries {
       // in the dataset), so this mirrors SIMULATED/ALREADY_REPORTED/SOFT_DEDUP below exactly, just
       // for whichever exclusion reason isn't one of theirs -- the same "generic" bucket
       // report_transformation_reconciliation.excluded_txn itself represents.
-      case VALUE_EXCLUDED -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
+      case VALUE_EXCLUDED -> journeyAtFiltration
         .and(outcome.eq(VALUE_EXCLUDED))
         .and(upperComments.notLike("EXCLUDED_BECAUSE_SML%"))
         .and(upperComments.notLike("EXCLUDED_BECAUSE_ALREADY_REPORTED%"))
         .and(upperComments.notLike("EXCLUDED_SOFT_DEDUP%"))
         .and(upperComments.notLike("EXCLUDED_REAPPEARING_%"));
-      case "SIMULATED" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
-        .and(upperComments.eq("EXCLUDED_BECAUSE_SML"));
-      case "ALREADY_REPORTED" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
-        .and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
-      case "SOFT_DEDUP" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
-        .and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
+      case "SIMULATED" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_BECAUSE_SML"));
+      case "ALREADY_REPORTED" -> journeyAtFiltration.and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
+      case "SOFT_DEDUP" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
       case "ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_RULE_HIT);
       // Mirrors its own aggregate exactly (missingAttempts + excluded + simulated +
       // alreadyReported + softDedup): the FILTRATION-stage branch already catches every
@@ -281,10 +276,7 @@ public class BatchEvidenceQueries {
       // stage), so missingAttemptCondition is the only piece that was missing -- literally, before
       // this fix a batch with real missing-attempt journey evidence still showed a "Filtered"
       // aggregate bigger than the evidence returned for it.
-      case "FILTERED" -> evidenceSource
-        .eq(SOURCE_EXCLUSION_AUDIT)
-        .or(evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION)))
-        .or(missingAttemptCondition);
+      case "FILTERED" -> evidenceSource.eq(SOURCE_EXCLUSION_AUDIT).or(journeyAtFiltration).or(missingAttemptCondition);
       // The Skipped Status card's own total: the two ways a selected transaction never reaches a
       // reportable outcome outside of exclusion -- never attempted, or attempted and failed.
       // Mirrors its aggregate (missingAttempts + failed) exactly.
@@ -351,9 +343,6 @@ public class BatchEvidenceQueries {
     var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
-    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
-    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
-    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
-    return count == null ? 0L : count;
+    return paginator.countDistinctIdentifiers(filtered);
   }
 }

@@ -285,6 +285,18 @@ public class EvidencePaginator {
     return new EvidencePage(selectFinalPage(merged, ruleHitMatches, sortDirection), page.nextCursor());
   }
 
+  /**
+   * {@code COUNT(DISTINCT (evidence_batch_id, identifier))} over an already-filtered evidence
+   * table -- the "how many transactions match" companion to {@link #pageEvidence}, shared by all
+   * three pipelines' own count methods.
+   */
+  public long countDistinctIdentifiers(Table<?> filtered) {
+    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
+    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
+    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
+    return count == null ? 0L : count;
+  }
+
   private static List<OrderField<?>> evidenceOrder(String sortDirection, Field<OffsetDateTime> sortTs, Field<String> recordKey) {
     List<OrderField<?>> order = new ArrayList<>();
     order.add("ASC".equals(sortDirection) ? sortTs.asc().nullsLast() : sortTs.desc().nullsLast());
