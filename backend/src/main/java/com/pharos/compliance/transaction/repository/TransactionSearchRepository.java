@@ -114,8 +114,8 @@ public class TransactionSearchRepository {
     var ruleHitBranch = dsl
       .select(RULE_HIT.RPT_GRP_ID.as(REPORT_GROUP_ID), RULE_HIT.RPT_GRP_NAME.as(REPORT_GROUP_NAME), RULE_HIT.EFILE_BATCH_ID.as(BATCH_ID),
           DSL.inline("RULE_HIT").as(EVIDENCE_SOURCE), DSL.inline("RULE_HIT").as(STAGE),
-          DSL.when(RULE_HIT.IS_REPORTED, DSL.inline("REPORTED")).otherwise(DSL.inline("NOT_REPORTED")).as(STATUS), RULE_HIT.RULE_ID.as(
-              COMMENTS), RULE_HIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT), RULE_HIT.MTCN.as(MTCN_COLUMN))
+          DSL.when(RULE_HIT.IS_REPORTED, DSL.inline("REPORTED")).otherwise(DSL.inline("NOT_REPORTED")).as(STATUS),
+          RULE_HIT.RULE_ID.as(COMMENTS), RULE_HIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT), RULE_HIT.MTCN.as(MTCN_COLUMN))
       .from(RULE_HIT)
       .where(RULE_HIT.MTCN.eq(mtcn));
 
@@ -152,8 +152,8 @@ public class TransactionSearchRepository {
     var ruleHitBranch = dsl
       .select(RULE_HIT.RPT_GRP_ID.as(REPORT_GROUP_ID), RULE_HIT.RPT_GRP_NAME.as(REPORT_GROUP_NAME), RULE_HIT.EFILE_BATCH_ID.as(BATCH_ID),
           DSL.inline("RULE_HIT").as(EVIDENCE_SOURCE), DSL.inline("RULE_HIT").as(STAGE),
-          DSL.when(RULE_HIT.IS_REPORTED, DSL.inline("REPORTED")).otherwise(DSL.inline("NOT_REPORTED")).as(STATUS), RULE_HIT.RULE_ID.as(
-              COMMENTS), RULE_HIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT), RULE_HIT.MTCN.as(MTCN_COLUMN))
+          DSL.when(RULE_HIT.IS_REPORTED, DSL.inline("REPORTED")).otherwise(DSL.inline("NOT_REPORTED")).as(STATUS),
+          RULE_HIT.RULE_ID.as(COMMENTS), RULE_HIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(OCCURRED_AT), RULE_HIT.MTCN.as(MTCN_COLUMN))
       .from(RULE_HIT)
       .where(RULE_HIT.EXTERNAL_TXN_KEY.eq(externalTxnId));
 

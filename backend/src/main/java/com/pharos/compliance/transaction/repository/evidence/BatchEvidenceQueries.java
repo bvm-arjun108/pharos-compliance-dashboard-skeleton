@@ -223,14 +223,15 @@ public class BatchEvidenceQueries {
     Field<String> upperStage = DSL.upper(DSL.coalesce(stage, ""));
     Field<String> upperStatus = DSL.upper(DSL.coalesce(status, ""));
     Field<String> upperComments = DSL.upper(DSL.coalesce(comments, ""));
-
     // Two conventions for "this transaction never got an attempt," each used exclusively by
     // different report groups -- see the MISSING case below, and FILTERED, which needs this same
     // condition since its own aggregate (TransactionReportServiceImpl#aggregateCount) explicitly
     // adds missingAttempts into its total.
     Condition missingAttemptCondition = evidenceSource
       .eq(SOURCE_JOURNEY)
-      .and(upperStage.eq("SELECTION").and(upperStatus.eq("ATTEMPT_MISSING"))
+      .and(upperStage
+        .eq("SELECTION")
+        .and(upperStatus.eq("ATTEMPT_MISSING"))
         .or(upperStage.eq("TRANSACTION_JOIN").and(upperStatus.eq("ERROR")).and(upperComments.eq("ATTEMPT_NOT_RECEIVED"))));
     // Reused by SKIPPED below, which needs the same condition FAILED matches on its own.
     Condition failedCondition = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_ERROR));

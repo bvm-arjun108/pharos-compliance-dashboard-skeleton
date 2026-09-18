@@ -260,8 +260,9 @@ public class EvidencePaginator {
   @SqlQueryPurpose("Transaction list > Load complete evidence and enrichment for the selected page identifiers")
   private List<TransactionEvidenceProjection> selectFinalPage(Table<?> merged, Table<?> ruleHitMatches, String sortDirection) {
     return selectEvidenceProjection(merged, ruleHitMatches)
-      .orderBy(evidenceOrder(sortDirection, requiredField(merged, SORT_TIMESTAMP, OffsetDateTime.class),
-          requiredField(merged, RECORD_KEY, String.class)))
+      .orderBy(
+          evidenceOrder(sortDirection, requiredField(merged, SORT_TIMESTAMP, OffsetDateTime.class),
+              requiredField(merged, RECORD_KEY, String.class)))
       .fetch(EvidencePaginator::toEvidenceProjection);
   }
 

@@ -16,7 +16,6 @@ import com.pharos.compliance.transaction.repository.evidence.RuleHitMatcher;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -148,12 +147,10 @@ public class TransactionReportRepository {
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
       String reason, String sortDirection, int size, long offset, EvidenceCursor cursor) {
-    Table<?> scope =
-        periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
-            reportGroupId, "");
+    Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return overviewEvidenceQueries.findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset,
-          cursor);
+      return overviewEvidenceQueries.findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset, cursor);
     }
     return periodEvidenceQueries.findEvidenceRecords(scope, search, outcome, status, sortDirection, size, offset, cursor);
   }
@@ -162,9 +159,8 @@ public class TransactionReportRepository {
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
       String reason) {
-    Table<?> scope =
-        periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
-            reportGroupId, "");
+    Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
       return overviewEvidenceQueries.countOverviewEvidenceRecords(scope, status, reason, search, outcome);
     }

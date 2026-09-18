@@ -528,8 +528,8 @@ class ComplianceDashboardApplicationTest {
       .andExpect(jsonPath("$.availableRecordCount").value(3))
       .andExpect(jsonPath("$.evidenceLevel").value("RECORD_LEVEL"))
       .andExpect(jsonPath("$.transactions.length()").value(3))
-      .andExpect(jsonPath("$.transactions[*].stage").value(org.hamcrest.Matchers.containsInAnyOrder("TRANSFORMATION", "TRANSFORMATION",
-          "SELECTION")));
+      .andExpect(jsonPath("$.transactions[*].stage")
+        .value(org.hamcrest.Matchers.containsInAnyOrder("TRANSFORMATION", "TRANSFORMATION", "SELECTION")));
   }
 
   @Test

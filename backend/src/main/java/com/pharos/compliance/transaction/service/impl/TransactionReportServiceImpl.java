@@ -232,7 +232,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   @Override
   public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query) {
     return logOperation("Transaction search",
-        () -> LOGGER.debug("Transaction search scope resolved | field={} | queryLength={}", field, query.length()), () -> {
+        () -> LOGGER.debug("Transaction search scope resolved | field={} | queryLength={}", field, query.length()),
+        () -> {
           String trimmed = query.trim();
           if (trimmed.isEmpty()) {
             throw new InvalidRequestException("Search query must not be blank");

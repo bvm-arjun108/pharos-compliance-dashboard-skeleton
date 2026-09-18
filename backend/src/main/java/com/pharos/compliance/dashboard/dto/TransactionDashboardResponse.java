@@ -10,6 +10,6 @@ import java.util.List;
     + " fields Transactions Overview reads -- Batch View has its own narrower response, {@link BatchDashboardResponse},"
     + " from a separate endpoint.")
 public record TransactionDashboardResponse(TransactionOverviewResponse transactionOverview,
-    List<ExclusionReasonResponse> topExclusionReasons, List<NotReportedReasonResponse> notReportedReasons,
-    TrendGranularity trendGranularity, List<BatchHealthTrendResponse> batchHealthTrend, @Schema(example = "2026-08-01") LocalDate fromDate,
+    List<ExclusionReasonResponse> topExclusionReasons, List<NotReportedReasonResponse> notReportedReasons, TrendGranularity trendGranularity,
+    List<BatchHealthTrendResponse> batchHealthTrend, @Schema(example = "2026-08-01") LocalDate fromDate,
     @Schema(example = "2026-08-31") LocalDate toDate) {}

@@ -98,8 +98,7 @@ public class DashboardServiceImpl implements DashboardService {
   }
 
   @Override
-  public TransactionDashboardResponse getTransactionDashboard(LocalDate fromDate, LocalDate toDate, String country,
-      Integer reportGroupId) {
+  public TransactionDashboardResponse getTransactionDashboard(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
     RequestScope scope = resolveScope(fromDate, toDate, "", country, reportGroupId);
     long startedAt = System.nanoTime();
 
@@ -115,8 +114,9 @@ public class DashboardServiceImpl implements DashboardService {
       .toList();
 
     List<NotReportedReasonResponse> notReportedReasons = dashboardRepository
-      .getNotReportedReasons(scope.fromTimestamp(), scope.toTimestampExclusive(), scope.normalizedBatchId(), scope.countryFilter().enabled(),
-          scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(), scope.reportGroupIdFilter())
+      .getNotReportedReasons(scope.fromTimestamp(), scope.toTimestampExclusive(), scope.normalizedBatchId(), scope
+            .countryFilter()
+            .enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(), scope.reportGroupIdFilter())
       .stream()
       .map(this::toNotReportedReasonResponse)
       .toList();
@@ -129,9 +129,9 @@ public class DashboardServiceImpl implements DashboardService {
       .map(period -> toTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
       .toList();
 
-    TransactionDashboardResponse response = new TransactionDashboardResponse(
-        new TransactionOverviewResponse(transactionOverview.selected(), transactionOverview.expected(), transactionOverview.excluded(),
-            transactionOverview.notReported()), topExclusionReasons, notReportedReasons, scope.trendGranularity(), trend, fromDate, toDate);
+    TransactionDashboardResponse response = new TransactionDashboardResponse(new TransactionOverviewResponse(transactionOverview.selected(),
+            transactionOverview.expected(), transactionOverview.excluded(), transactionOverview.notReported()), topExclusionReasons,
+        notReportedReasons, scope.trendGranularity(), trend, fromDate, toDate);
 
     LOGGER.info("Transaction dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | txnSelected={} | txnExpected={}"
         + " | txnExcluded={} | txnNotReported={} | exclusionReasons={} | notReportedReasons={} | trendBuckets={} | duration={}ms", fromDate,
