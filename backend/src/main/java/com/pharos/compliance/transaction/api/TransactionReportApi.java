@@ -10,6 +10,7 @@ import com.pharos.compliance.transaction.dto.TransactionSearchResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
+import com.pharos.compliance.transaction.model.TransactionSearchField;
 import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
@@ -90,17 +91,20 @@ public interface TransactionReportApi {
       + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
       + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
 
-  @Operation(operationId = "searchTransactions", summary = "Find every evidence row for an identifier, MTCN, or external transaction key,"
-      + " across every report group", description = "No date range, report group, or country required -- for when the caller has a transaction "
-      + "identifier but doesn't know which country or report group it belongs to. Returns every matching row from "
+  @Operation(operationId = "searchTransactions", summary = "Find every evidence row matching one MTCN or external transaction key, across"
+      + " every report group", description = "No date range, report group, or country required -- for when the caller knows a transaction's "
+      + "MTCN or external transaction key but not which country or report group it belongs to. Returns every matching row from "
       + "journey, exclusion-audit, and rule_hit unmerged, since the same real transaction can be evaluated more than "
-      + "once (once per report group or rule side) with genuinely different outcomes in each.")
+      + "once (once per report group or rule side) with genuinely different outcomes in each. `field` picks the single "
+      + "column matched -- an external transaction key that doesn't parse as a number matches nothing rather than "
+      + "falling back to a different field.")
   @ApiResponses({@ApiResponse(responseCode = "200", description = "Search completed successfully (possibly with zero results)", headers = {@Header(name = "X"
       + "-Trace-Id", description = TRACE_ID_DESCRIPTION), @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)}, content = @Content(schema = @Schema(implementation = TransactionSearchResponse.class))),
       @ApiResponse(responseCode = "400", description = "Blank search query", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
       @ApiResponse(responseCode = "503", description = "Compliance database unavailable", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))})
   @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
   TransactionSearchResponse searchTransactions(
-      @Parameter(description = "Identifier, MTCN, or external transaction key to search for", required = true, example = "9000000000217510") @RequestParam("q"
+      @Parameter(description = "Which field to match query against", required = true, example = "MTCN") @RequestParam("field") TransactionSearchField field,
+      @Parameter(description = "MTCN or external transaction key to search for", required = true, example = "9000000000217510") @RequestParam("q"
       + "uery") @NotBlank String query);
 }

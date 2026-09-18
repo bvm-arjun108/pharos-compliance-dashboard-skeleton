@@ -30,12 +30,14 @@ interface ReportConfigExplorerResponse {
   configurations: ReportConfigListItem[];
 }
 
-// Only the field this page actually reads -- the search can match on identifier, mtcn, or
-// external transaction key, but the transaction report page's own search box only understands
-// identifier/mtcn, so every result's resolved mtcn is what gets carried into that redirect.
+// Only the field this page actually reads -- the transaction report page's own search box only
+// understands identifier/mtcn, so every result's resolved mtcn is what gets carried into that
+// redirect, regardless of whether the search matched on MTCN or external transaction key.
 interface TransactionSearchResult {
   mtcn: string | null;
 }
+
+type TransactionSearchField = 'MTCN' | 'EXTERNAL_TXN_ID';
 
 interface TransactionSearchResponse {
   query: string;
@@ -107,11 +109,15 @@ type ReportPeriod = DashboardReportPeriod;
              this form as an Apply-filters action. -->
         <label class="field field--search">
           <span>Find a transaction</span>
-          <div class="input-shell">
+          <div class="input-shell input-shell--search">
+            <select class="search-field-select" [value]="searchField()" (change)="setSearchField($event)" aria-label="Search by">
+              <option value="MTCN">MTCN</option>
+              <option value="EXTERNAL_TXN_ID">External Txn ID</option>
+            </select>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.15a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg>
             <input
               type="search"
-              placeholder="Identifier, MTCN, or external transaction key"
+              [placeholder]="searchPlaceholder()"
               autocomplete="off"
               [value]="searchQuery()"
               (input)="setSearchQuery($event)"
@@ -634,9 +640,15 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
   readonly reportGroupId = signal('ALL');
   readonly reportGroupOptions = signal<ReportGroupOption[]>([]);
 
+  readonly searchField = signal<TransactionSearchField>('MTCN');
   readonly searchQuery = signal('');
   readonly searchLoading = signal(false);
   readonly searchError = signal<string | null>(null);
+  // Mirrors the dropdown's own option label exactly rather than restating the field name in a
+  // longer phrase ("Enter external transaction key") -- that phrase doesn't fit the input's
+  // remaining width once the dropdown itself takes its share, so it got hard-clipped instead of
+  // wrapping or eliding.
+  readonly searchPlaceholder = computed(() => (this.searchField() === 'MTCN' ? 'MTCN' : 'External Txn ID'));
 
   /** Measured live from the card's own content box (see {@link ngAfterViewInit}) so the line
    *  chart's SVG can render at that exact pixel width -- a 1:1 viewBox-to-pixel mapping, with no
@@ -707,10 +719,15 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
     this.searchQuery.set((event.target as HTMLInputElement).value);
   }
 
+  setSearchField(event: Event): void {
+    this.searchField.set((event.target as HTMLSelectElement).value as TransactionSearchField);
+  }
+
   /** Deliberately unscoped -- no date range, country, or report group required, since the whole
    *  point is finding a transaction when none of those are known yet. Resolves via
-   *  TransactionSearchRepository (which understands identifier, mtcn, and external transaction
-   *  key), then redirects straight to the transaction report's own detailed view instead of
+   *  TransactionSearchRepository, scoped to exactly the field the dropdown picked (MTCN or
+   *  external transaction key -- no more guessing which field an ambiguous value was meant to
+   *  match), then redirects straight to the transaction report's own detailed view instead of
    *  rendering a second results table here -- redirecting on the resolved mtcn rather than the
    *  raw typed text, since that page's own search only matches identifier/mtcn and wouldn't find
    *  anything if the user had searched by external transaction key. Never logs the query value
@@ -732,7 +749,9 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
     this.searchLoading.set(true);
     this.searchError.set(null);
     this.http
-      .get<TransactionSearchResponse>('/api/v1/transactions/search', { params: new HttpParams().set('query', query) })
+      .get<TransactionSearchResponse>('/api/v1/transactions/search', {
+        params: new HttpParams().set('field', this.searchField()).set('query', query)
+      })
       .subscribe({
         next: response => {
           this.searchLoading.set(false);

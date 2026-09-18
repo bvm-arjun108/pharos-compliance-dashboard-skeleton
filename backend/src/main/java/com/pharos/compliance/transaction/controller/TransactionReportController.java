@@ -7,6 +7,7 @@ import com.pharos.compliance.transaction.dto.TransactionSearchResponse;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
+import com.pharos.compliance.transaction.model.TransactionSearchField;
 import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
@@ -41,7 +42,7 @@ public class TransactionReportController implements TransactionReportApi {
   }
 
   @Override
-  public TransactionSearchResponse searchTransactions(String query) {
-    return transactionReportService.searchTransactions(query);
+  public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query) {
+    return transactionReportService.searchTransactions(field, query);
   }
 }

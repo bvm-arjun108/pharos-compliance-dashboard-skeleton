@@ -18,6 +18,7 @@ import com.pharos.compliance.transaction.model.TransactionEvidenceLevel;
 import com.pharos.compliance.transaction.model.TransactionEvidenceSource;
 import com.pharos.compliance.transaction.model.TransactionMetric;
 import com.pharos.compliance.transaction.model.TransactionOutcome;
+import com.pharos.compliance.transaction.model.TransactionSearchField;
 import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
@@ -218,21 +219,23 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   }
 
   /**
-   * No date range, no report group, no country -- the answer to "I have this MTCN/identifier/
-   *  external transaction key, which country was it evaluated under?" Deliberately returns every
-   *  raw matching row unmerged rather than trying to collapse them into one answer: the same real
-   *  transaction can legitimately show up more than once (once per report group or rule side), and
-   *  showing all of them is the point, not a defect to hide.
+   * No date range, no report group, no country -- the answer to "I have this MTCN or external
+   *  transaction key, which country was it evaluated under?" {@code field} picks the single column
+   *  matched (see {@link TransactionSearchField}), removing the ambiguity of matching several
+   *  columns against one value at once. Deliberately returns every raw matching row unmerged rather
+   *  than trying to collapse them into one answer: the same real transaction can legitimately show
+   *  up more than once (once per report group or rule side), and showing all of them is the point,
+   *  not a defect to hide.
    */
   @Override
-  public TransactionSearchResponse searchTransactions(String query) {
-    return logOperation("Transaction search", () -> LOGGER.debug("Transaction search scope resolved | queryLength={}", query.length()),
-        () -> {
+  public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query) {
+    return logOperation("Transaction search",
+        () -> LOGGER.debug("Transaction search scope resolved | field={} | queryLength={}", field, query.length()), () -> {
           String trimmed = query.trim();
           if (trimmed.isEmpty()) {
             throw new InvalidRequestException("Search query must not be blank");
           }
-          List<TransactionSearchResultProjection> matches = transactionSearchRepository.search(trimmed);
+          List<TransactionSearchResultProjection> matches = transactionSearchRepository.search(field, trimmed);
           return new TransactionSearchResponse(trimmed,
               matches
                 .stream()

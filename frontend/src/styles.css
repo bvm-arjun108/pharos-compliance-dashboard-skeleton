@@ -365,8 +365,28 @@ main {
   stroke-width: 1.8;
 }
 
-.input-shell input { min-width: 0; background: transparent; border: 0; box-shadow: none; }
+.input-shell input { min-width: 0; background: transparent; border: 0; box-shadow: none; text-overflow: ellipsis; }
 .input-shell input:focus { background: transparent; box-shadow: none; }
+
+/* Field-type selector nested inside the search box (e.g. Transactions Overview's "Find a
+   transaction" -- MTCN vs External Txn ID) -- overrides the generic `.field select` sizing so it
+   reads as a prefix pill inside the search box's own border instead of a second full boxes. */
+.input-shell select.search-field-select {
+  width: auto;
+  height: 100%;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 26px 0 13px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid #c9c8c1;
+  border-radius: 7px 0 0 7px;
+  color: #343430;
+  font-size: 13px;
+  font-weight: 700;
+}
+.input-shell select.search-field-select:focus { background: #fff; box-shadow: none; }
+.input-shell--search svg { margin-left: 10px; }
 
 .primary-button {
   display: inline-flex;
