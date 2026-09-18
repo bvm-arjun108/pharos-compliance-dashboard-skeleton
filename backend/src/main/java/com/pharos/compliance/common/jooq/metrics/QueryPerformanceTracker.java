@@ -91,8 +91,11 @@ public class QueryPerformanceTracker {
   }
 
   private String resolveView(String endpoint) {
-    if ("/dashboardDetails".equals(endpoint)) {
-      return "DASHBOARD";
+    if (endpoint.endsWith("/dashboardDetails/batch-view")) {
+      return "DASHBOARD_BATCH_VIEW";
+    }
+    if (endpoint.endsWith("/dashboardDetails/transaction-view")) {
+      return "DASHBOARD_TRANSACTION_VIEW";
     }
     if (endpoint.startsWith("/api/v1/batches")) {
       return endpoint.endsWith("/filter-options")

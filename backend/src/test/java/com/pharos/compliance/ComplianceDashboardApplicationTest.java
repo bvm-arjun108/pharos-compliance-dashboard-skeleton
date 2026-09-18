@@ -22,7 +22,7 @@ import com.pharos.compliance.common.exception.InvalidDateRangeException;
 import com.pharos.compliance.common.jooq.logging.PrettySqlExecuteListener;
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.config.PostgresProperties;
-import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
+import com.pharos.compliance.dashboard.dto.BatchDashboardResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.service.DashboardService;
 import com.zaxxer.hikari.HikariDataSource;
@@ -95,7 +95,7 @@ class ComplianceDashboardApplicationTest {
     LocalDate fromDate = LocalDate.of(2026, 1, 1);
     LocalDate toDate = LocalDate.of(2026, 12, 31);
 
-    DashboardDetailsResponse response = dashboardService.getDashboardDetails(fromDate, toDate);
+    BatchDashboardResponse response = dashboardService.getBatchDashboard(fromDate, toDate);
 
     assertNotNull(response);
     assertTrue(response.batchesRan() > 0);
@@ -151,9 +151,9 @@ class ComplianceDashboardApplicationTest {
   void aggregatesAdaptiveTrendBucketsInPostgres() {
     LocalDate start = LocalDate.of(2026, 1, 1);
 
-    DashboardDetailsResponse daily = dashboardService.getDashboardDetails(start, start.plusDays(30));
-    DashboardDetailsResponse weekly = dashboardService.getDashboardDetails(start, start.plusDays(99));
-    DashboardDetailsResponse monthly = dashboardService.getDashboardDetails(start, start.plusDays(120));
+    BatchDashboardResponse daily = dashboardService.getBatchDashboard(start, start.plusDays(30));
+    BatchDashboardResponse weekly = dashboardService.getBatchDashboard(start, start.plusDays(99));
+    BatchDashboardResponse monthly = dashboardService.getBatchDashboard(start, start.plusDays(120));
 
     assertNotNull(daily);
     assertNotNull(weekly);
@@ -168,7 +168,7 @@ class ComplianceDashboardApplicationTest {
 
   @Test
   void rejectsAnInvertedDashboardPeriod() {
-    assertThrows(InvalidDateRangeException.class, () -> dashboardService.getDashboardDetails(LocalDate.of(2026, 8, 31),
+    assertThrows(InvalidDateRangeException.class, () -> dashboardService.getBatchDashboard(LocalDate.of(2026, 8, 31),
         LocalDate.of(2026, 8, 1)));
   }
 
@@ -202,7 +202,7 @@ class ComplianceDashboardApplicationTest {
 
   @Test
   void keepsHeadlineAndDailyTrendDateBoundariesConsistent() {
-    DashboardDetailsResponse response = dashboardService.getDashboardDetails(LocalDate.of(2026, 8, 16), LocalDate.of(2026, 8, 22));
+    BatchDashboardResponse response = dashboardService.getBatchDashboard(LocalDate.of(2026, 8, 16), LocalDate.of(2026, 8, 22));
 
     assertNotNull(response);
     assertEquals(TrendGranularity.DAILY, response.trendGranularity());
@@ -223,7 +223,7 @@ class ComplianceDashboardApplicationTest {
   @Test
   void exposesDashboardApiWithTraceHeaders() throws Exception {
     mockMvc
-      .perform(get("/dashboardDetails").param("fromDate", "2026-08-16").param("toDate", "2026-08-22"))
+      .perform(get("/dashboardDetails/batch-view").param("fromDate", "2026-08-16").param("toDate", "2026-08-22"))
       .andExpect(status().isOk())
       .andExpect(header().exists("X-Trace-Id"))
       .andExpect(header().exists("X-Span-Id"))
@@ -252,8 +252,8 @@ class ComplianceDashboardApplicationTest {
   void mapsOneCountryFilterToAllConfiguredReportGroups() {
     BatchExplorerResponse explorer = batchExplorerService.getBatches(LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), BatchStatus.ALL,
         BatchIssueType.ALL, "", "RO", null, BatchMetricFocus.DEFAULT, 0, 50);
-    DashboardDetailsResponse dashboard =
-        dashboardService.getDashboardDetails(LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), "", "RO", null);
+    BatchDashboardResponse dashboard =
+        dashboardService.getBatchDashboard(LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 22), "", "RO", null);
 
     assertNotNull(explorer);
     assertNotNull(dashboard);
@@ -446,7 +446,7 @@ class ComplianceDashboardApplicationTest {
   @Test
   void returnsStructuredTraceableErrors() throws Exception {
     mockMvc
-      .perform(get("/dashboardDetails").param("fromDate", "2026-08-31").param("toDate", "2026-08-01"))
+      .perform(get("/dashboardDetails/batch-view").param("fromDate", "2026-08-31").param("toDate", "2026-08-01"))
       .andExpect(status().isBadRequest())
       .andExpect(header().exists("X-Trace-Id"))
       .andExpect(jsonPath("$.code").value("INVALID_DATE_RANGE"))
@@ -460,7 +460,8 @@ class ComplianceDashboardApplicationTest {
       .perform(get("/v3/api-docs"))
       .andExpect(status().isOk())
       .andExpect(content().string(containsString("Pharos Compliance Operations API")))
-      .andExpect(content().string(containsString("getDashboardDetails")))
+      .andExpect(content().string(containsString("getBatchDashboard")))
+      .andExpect(content().string(containsString("getTransactionDashboard")))
       .andExpect(content().string(containsString("getBatchExplorer")))
       .andExpect(content().string(containsString("getBatchPreview")))
       .andExpect(content().string(containsString("getReportConfigs")))

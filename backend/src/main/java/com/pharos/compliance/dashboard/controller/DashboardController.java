@@ -1,7 +1,8 @@
 package com.pharos.compliance.dashboard.controller;
 
 import com.pharos.compliance.dashboard.api.DashboardApi;
-import com.pharos.compliance.dashboard.dto.DashboardDetailsResponse;
+import com.pharos.compliance.dashboard.dto.BatchDashboardResponse;
+import com.pharos.compliance.dashboard.dto.TransactionDashboardResponse;
 import com.pharos.compliance.dashboard.service.DashboardService;
 import java.time.LocalDate;
 import org.springframework.validation.annotation.Validated;
@@ -17,8 +18,13 @@ public class DashboardController implements DashboardApi {
   }
 
   @Override
-  public DashboardDetailsResponse getDashboardDetails(LocalDate fromDate, LocalDate toDate, String batchId, String country,
+  public BatchDashboardResponse getBatchDashboard(LocalDate fromDate, LocalDate toDate, String batchId, String country,
       Integer reportGroupId) {
-    return dashboardService.getDashboardDetails(fromDate, toDate, batchId, country, reportGroupId);
+    return dashboardService.getBatchDashboard(fromDate, toDate, batchId, country, reportGroupId);
+  }
+
+  @Override
+  public TransactionDashboardResponse getTransactionDashboard(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
+    return dashboardService.getTransactionDashboard(fromDate, toDate, country, reportGroupId);
   }
 }

@@ -26,8 +26,11 @@ final class SqlUiSectionResolver {
     if (path.contains("/transactions")) {
       return "Transactions > Transaction lookup";
     }
-    if (path.endsWith("/dashboardDetails")) {
-      return "Shared dashboard API (Batch View / Transactions); purpose identifies the section";
+    if (path.endsWith("/dashboardDetails/batch-view")) {
+      return "Batch View > Dashboard KPIs, trend, and attention list";
+    }
+    if (path.endsWith("/dashboardDetails/transaction-view")) {
+      return "Transactions Overview > Dashboard KPIs, reason breakdowns, and trend";
     }
     if (path.contains("/batches")) {
       return path.endsWith("/filter-options")

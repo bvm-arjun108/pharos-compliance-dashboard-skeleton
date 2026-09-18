@@ -30,7 +30,10 @@ interface ReportConfigExplorerResponse {
   configurations: ReportConfigListItem[];
 }
 
-interface DashboardDetailsResponse {
+// Batch View's own narrower response -- Transactions Overview reads a separate endpoint
+// (/dashboardDetails/transaction-view) with its own response shape, since the two pages don't
+// share a payload anymore.
+interface BatchDashboardResponse {
   batchesRan: number;
   successfulBatches: number;
   batchesNotYetReported: number;
@@ -44,19 +47,11 @@ interface DashboardDetailsResponse {
   softDedupBatches: number;
   totalReportedTransactions: number;
   totalExcludedTransactions: number;
-  transactionOverview: TransactionOverview;
   trendGranularity: TrendGranularity;
   batchHealthTrend: BatchHealthTrend[];
   reportGroupsRequiringAttention: ReportGroupAttention[];
   fromDate: string;
   toDate: string;
-}
-
-interface TransactionOverview {
-  selected: number;
-  expected: number;
-  excluded: number;
-  notReported: number;
 }
 
 type TrendGranularity = 'DAILY' | 'WEEKLY' | 'MONTHLY';
@@ -584,7 +579,7 @@ export class HomeComponent implements OnInit {
   readonly startDate = signal('');
   readonly endDate = signal('');
   readonly filtersApplied = signal(false);
-  readonly dashboardDetails = signal<DashboardDetailsResponse | null>(null);
+  readonly dashboardDetails = signal<BatchDashboardResponse | null>(null);
   readonly dashboardLoading = signal(false);
   readonly dashboardError = signal<string | null>(null);
   readonly countryOptions = signal<CountryOption[]>([]);
@@ -895,11 +890,11 @@ export class HomeComponent implements OnInit {
     });
   }
 
-  overallAttentionRate(details: DashboardDetailsResponse): number {
+  overallAttentionRate(details: BatchDashboardResponse): number {
     return details.batchesRan === 0 ? 0 : (details.batchesNeedingAttention * 100) / details.batchesRan;
   }
 
-  issueBreakdownSum(details: DashboardDetailsResponse): number {
+  issueBreakdownSum(details: BatchDashboardResponse): number {
     return (
       details.transformationFailureBatches +
       details.missingAttemptBatches +
@@ -907,7 +902,7 @@ export class HomeComponent implements OnInit {
     );
   }
 
-  notNeedingAttentionBreakdownSum(details: DashboardDetailsResponse): number {
+  notNeedingAttentionBreakdownSum(details: BatchDashboardResponse): number {
     return (
       details.duplicateTransactionBatches +
       details.exclusionBatches +
@@ -969,7 +964,7 @@ export class HomeComponent implements OnInit {
       params = params.set('reportGroupId', this.reportGroupId());
     }
 
-    this.http.get<DashboardDetailsResponse>('/dashboardDetails', { params }).subscribe({
+    this.http.get<BatchDashboardResponse>('/dashboardDetails/batch-view', { params }).subscribe({
       next: details => {
         this.attentionPage.set(0);
         this.dashboardDetails.set({

@@ -8,7 +8,7 @@ class QueryPerformanceTrackerTest {
   @Test
   void summarizesQueriesSlowestFirstAndPreservesExecutionOrder() {
     QueryPerformanceTracker tracker = new QueryPerformanceTracker(new QueryPerformanceProperties(true, Duration.ofMillis(100)));
-    tracker.beginRequest("GET", "/dashboardDetails", "trace-1", "span-1");
+    tracker.beginRequest("GET", "/dashboardDetails/batch-view", "trace-1", "span-1");
 
     tracker.recordQuery("Load dashboard totals", "READ", Duration.ofMillis(25).toNanos(), 1, false);
     tracker.recordQuery("Load transaction overview", "READ", Duration.ofMillis(150).toNanos(), 1, false);
@@ -16,7 +16,7 @@ class QueryPerformanceTrackerTest {
     QueryPerformanceSummary summary = tracker.completeRequest(200).orElseThrow();
 
     assertThat(summary.event()).isEqualTo("database_query_performance");
-    assertThat(summary.view()).isEqualTo("DASHBOARD");
+    assertThat(summary.view()).isEqualTo("DASHBOARD_BATCH_VIEW");
     assertThat(summary.queryCount()).isEqualTo(2);
     assertThat(summary.totalDatabaseTimeMs()).isEqualTo(175.0);
     assertThat(summary.slowQueryCount()).isEqualTo(1);
@@ -39,7 +39,7 @@ class QueryPerformanceTrackerTest {
   @Test
   void ignoresQueriesWhenPerformanceLoggingIsDisabled() {
     QueryPerformanceTracker tracker = new QueryPerformanceTracker(new QueryPerformanceProperties(false, Duration.ofMillis(100)));
-    tracker.beginRequest("GET", "/dashboardDetails", "trace-1", "span-1");
+    tracker.beginRequest("GET", "/dashboardDetails/batch-view", "trace-1", "span-1");
     tracker.recordQuery("Load dashboard totals", "READ", Duration.ofMillis(25).toNanos(), 1, false);
 
     assertThat(tracker.completeRequest(200)).isEmpty();

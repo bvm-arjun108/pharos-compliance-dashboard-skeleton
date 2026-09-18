@@ -68,10 +68,10 @@ interface BatchHealthTrend {
   totalExcludedTransactions: number;
 }
 
-// Only the fields this page actually reads -- /dashboardDetails returns a lot more (batch counts,
-// report-groups-requiring-attention, ...) that Batch View owns, but a narrower interface here is
-// fine since HttpClient's typed get<T>() doesn't validate the response shape, only casts it.
-interface DashboardDetailsResponse {
+// Transactions Overview's own endpoint (/dashboardDetails/transaction-view) -- Batch View reads
+// a separate endpoint with its own response shape, since the two pages don't share a payload
+// anymore.
+interface TransactionDashboardResponse {
   transactionOverview: TransactionOverview;
   topExclusionReasons: ExclusionReason[];
   notReportedReasons: NotReportedReason[];
@@ -627,7 +627,7 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
   readonly startDate = signal('');
   readonly endDate = signal('');
   readonly filtersApplied = signal(false);
-  readonly dashboardDetails = signal<DashboardDetailsResponse | null>(null);
+  readonly dashboardDetails = signal<TransactionDashboardResponse | null>(null);
   readonly dashboardLoading = signal(false);
   readonly dashboardError = signal<string | null>(null);
   readonly countryOptions = signal<CountryOption[]>([]);
@@ -1269,7 +1269,7 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
       params = params.set('reportGroupId', this.reportGroupId());
     }
 
-    this.http.get<DashboardDetailsResponse>('/dashboardDetails', { params }).subscribe({
+    this.http.get<TransactionDashboardResponse>('/dashboardDetails/transaction-view', { params }).subscribe({
       next: details => {
         this.dashboardDetails.set({
           ...details,
