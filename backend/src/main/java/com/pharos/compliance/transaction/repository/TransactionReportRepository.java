@@ -1,31 +1,26 @@
 package com.pharos.compliance.transaction.repository;
 
+import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
+import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.RECONCILIATION;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.REPORT_GROUP_NAME_ALIAS;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
+import com.pharos.compliance.transaction.repository.evidence.BatchEvidenceQueries;
+import com.pharos.compliance.transaction.repository.evidence.EvidencePaginator;
+import com.pharos.compliance.transaction.repository.evidence.OverviewEvidenceQueries;
+import com.pharos.compliance.transaction.repository.evidence.PeriodEvidenceQueries;
+import com.pharos.compliance.transaction.repository.evidence.RuleHitMatcher;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
-import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
-import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
-import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
-import static com.pharos.compliance.jooq.tables.RegReportableActivity.REG_REPORTABLE_ACTIVITY;
-import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
-import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
-import static com.pharos.compliance.jooq.tables.RuleHit.RULE_HIT;
-import static com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import org.jooq.Condition;
 import org.jooq.DSLContext;
-import org.jooq.Field;
-import org.jooq.OrderField;
-import org.jooq.Record;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.jooq.impl.SQLDataType;
@@ -33,736 +28,52 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Every "transaction evidence" row here is a merge across three possible sources for the same
- * underlying transaction: JOURNEY (record_transformation_journey), EXCLUSION_AUDIT
- * (rule_hit_exclusion_audit), and RULE_HIT (rule_hit, resolved to its journey identifier via an
- * external_txn_key/mtcn bridge). A transaction can appear in more than one source; {@link
- * #mergeForPageKeys} collapses those into one row per (batch, identifier), preferring
- * EXCLUSION_AUDIT, then RULE_HIT, then JOURNEY wherever sources disagree on a field -- computed
- * only for the identifiers a requested page actually needs (see {@link #pageEvidence}), not for
- * every identifier matching the current filter.
+ * Thin facade over the transaction-evidence query pipelines, kept as the single Spring bean and
+ * public contract this package exposes (unchanged by the split below -- {@link
+ * TransactionEvidenceCache} calls the exact same 6 methods it always has). Every "transaction
+ * evidence" row is a merge across three possible sources for the same underlying transaction:
+ * JOURNEY (record_transformation_journey), EXCLUSION_AUDIT (rule_hit_exclusion_audit), and
+ * RULE_HIT (rule_hit, resolved to its journey identifier via an external_txn_key/mtcn bridge). The
+ * actual query construction lives in {@code com.pharos.compliance.transaction.repository.evidence},
+ * split by pipeline so each is readable on its own instead of interleaved in one file:
+ *
+ * <ul>
+ *   <li>{@link EvidencePaginator} -- the shared two-pass pagination + 27-column priority merge
+ *       engine every pipeline below uses, entirely independent of where the evidence rows came
+ *       from.
+ *   <li>{@link RuleHitMatcher} -- the shared join-based rule_hit-to-journey-identifier resolution.
+ *   <li>{@link BatchEvidenceQueries} -- one reconciliation batch's evidence (Batch Explorer
+ *       drilldowns): {@link #findEvidenceRecords}/{@link #countEvidenceRecords}.
+ *   <li>{@link PeriodEvidenceQueries} -- every batch in a date range (Transactions Overview
+ *       drilldowns) for every status except EXCLUDED/NOT_REPORTED.
+ *   <li>{@link OverviewEvidenceQueries} -- EXCLUDED/NOT_REPORTED specifically, answered from a
+ *       transaction's whole journey history rather than one batch's evidence rows; {@link
+ *       #findPeriodEvidenceRecords}/{@link #countPeriodEvidenceRecords} route to this instead of
+ *       {@link PeriodEvidenceQueries} for those two statuses, exactly as before the split.
+ * </ul>
  */
 @Repository
 @Transactional(readOnly = true)
 public class TransactionReportRepository {
-  private static final String ACTIVITY_TYPE = "activity_type";
-  private static final String ATTEMPT_ID_ALIAS = "attemptId";
-  private static final String ATTEMPT_ID_COLUMN = "attempt_id";
-  private static final String BATCH_GENERATED_COLUMN = "batch_generated";
-  private static final String BATCH_ID_ALIAS = "batchId";
-  private static final String BATCH_ID_COLUMN = "batch_id";
-  private static final String BUCKET_ID_ALIAS = "bucketId";
-  private static final String BUCKET_ID_COLUMN = "bucket_id";
-  private static final String COMMENTS = "comments";
-  private static final String CURRENCY_AMOUNT = "currency_amount";
-  private static final String CURRENCY_CODE = "currency_code";
-  private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
-  private static final String EVER_REPORTED_COLUMN = "ever_reported";
-  private static final String REASON_COLUMN = "reason";
-  private static final String NOT_REPORTED_REASON_COLUMN = "not_reported_reason";
-  private static final String UNSPECIFIED_REASON = "Unspecified";
-  // Same "top N, then Other" cutoff as DashboardRepository#topReasonsThenOther -- kept as literal
-  // duplicates (not shared constants) for the same reason the whole roll/target pipeline is
-  // duplicated here: this repository answers "give me the rows," DashboardRepository answers "give
-  // me the count," and they need to agree on the bucketing without depending on each other.
-  private static final String OTHER_REASON = "Other";
-  private static final int TOP_REASON_LIMIT = 3;
-  private static final String EVIDENCE_BATCH_ID = "evidence_batch_id";
-  private static final String EVIDENCE_SOURCE = "evidence_source";
-  private static final String EXCLUSION_REASON = "exclusion_reason";
-  private static final String EXCLUSION_STRATEGY = "exclusion_strategy";
-  private static final String GALACTIC_ID = "galactic_id";
-  private static final String IDENTIFIER = "identifier";
-  private static final String IDENTIFIER_BIGINT = "identifier_bigint";
-  private static final String IS_REPORTED = "is_reported";
-  private static final String MATCHED_IDENTIFIER = "matched_identifier";
-  private static final String MODIFIED_AT = "modified_at";
-  private static final String OUTCOME = "outcome";
-  private static final String OUTCOME_ERROR = "ERROR";
-  private static final String OUTCOME_PENDING = "PENDING";
-  private static final String OUTCOME_SUCCESS = "SUCCESS";
-  private static final String PROCESSING_COMPLETE = "processing_complete";
-  private static final String RECORD_KEY = "record_key";
-  private static final String REPORTED_BATCH_ID = "reported_batch_id";
-  private static final String REPORT_GENERATION_COMPLETED = "Report Generation Completed";
-  private static final String REPORT_GROUP_ID_COLUMN = "rpt_grp_id";
-  private static final String REPORT_GROUP_NAME_ALIAS = "reportGroupName";
-  private static final String REPORTING_TIMESTAMP_COLUMN = "reporting_timestamp";
-  private static final String RRA_KEY = "rra_key";
-  private static final String RULE_HIT_MATCHES = "rule_hit_matches";
-  private static final String RULE_ID_ALIAS = "ruleId";
-  private static final String RULE_ID_COLUMN = "rule_id";
-  private static final String SEND_DATE = "send_date";
-  private static final String SKIP_REASON = "skip_reason";
-  private static final String SORT_TIMESTAMP = "sort_ts";
-  private static final String SOURCE_EXCLUSION_AUDIT = "EXCLUSION_AUDIT";
-  private static final String SOURCE_JOURNEY = "JOURNEY";
-  private static final String SOURCE_RANK = "source_rank";
-  // Distinct from SOURCE_RANK (latestJourneyForTarget's own ROW_NUMBER() rank column, an unrelated
-  // concept for the overview path) -- rankedEvidence()'s priority column is added on top of
-  // whatever filteredEvidence already carries, and the overview path's `filtered` does carry
-  // SOURCE_RANK through as leftover baggage from latestJourneyForTarget. Reusing the same name
-  // there produced two same-named output columns and a genuine "column reference is ambiguous"
-  // error from Postgres once pageEvidence unified the overview path through rankedEvidence.
-  private static final String MERGE_SOURCE_RANK = "merge_source_rank";
-  private static final String SOURCE_RULE_HIT = "RULE_HIT";
-  private static final String STAGE = "stage";
-  private static final String STAGE_FILTRATION = "FILTRATION";
-  private static final String STATUS = "status";
-  private static final String TRANSACTION_DATE = "transaction_date";
-  private static final String TRANSACTION_SIDE = "transaction_side";
-  private static final String TRANSACTION_SOURCE = "txn_source";
-  private static final String VALUE_EXCLUDED = "EXCLUDED";
-  private static final String VALUE_NOT_REPORTED = "NOT_REPORTED";
-  private static final String VALUE_REPORTED = "REPORTED";
-  private static final com.pharos.compliance.jooq.tables.ReportTransformationReconciliation RECONCILIATION =
-      REPORT_TRANSFORMATION_RECONCILIATION;
-  private static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
-  private static final com.pharos.compliance.jooq.tables.RuleHit RULE_HIT_TABLE = RULE_HIT;
-  private static final com.pharos.compliance.jooq.tables.RuleHitExclusionAudit EXCLUSION_AUDIT = RULE_HIT_EXCLUSION_AUDIT;
-  private static final com.pharos.compliance.jooq.tables.RegReportableActivity RRA = REG_REPORTABLE_ACTIVITY;
-  private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
-  private static final String REPORTING_TIMESTAMP = "reportingTimestamp";
-  /**
-   * Column list shared by the merged CTE and the outer projection -- 27 fields, in the exact order
-   * the original SQL's MERGED_CTE listed them, so the two stay easy to compare side by side.
-   */
-  private static final List<String> MERGE_COLUMNS = List.of(RECORD_KEY, "mtcn", EVIDENCE_SOURCE, STAGE, STATUS, OUTCOME, COMMENTS,
-      SKIP_REASON, RULE_ID_COLUMN, EXCLUSION_REASON, EXCLUSION_STRATEGY, REPORTED_BATCH_ID, REPORTING_TIMESTAMP_COLUMN, MODIFIED_AT,
-      SORT_TIMESTAMP, PROCESSING_COMPLETE, CURRENCY_AMOUNT, CURRENCY_CODE, TRANSACTION_DATE, TRANSACTION_SIDE, TRANSACTION_SOURCE,
-      ACTIVITY_TYPE, SEND_DATE, GALACTIC_ID, BUCKET_ID_COLUMN, ATTEMPT_ID_COLUMN, RRA_KEY);
   private final DSLContext dsl;
+  private final BatchEvidenceQueries batchEvidenceQueries;
+  private final PeriodEvidenceQueries periodEvidenceQueries;
+  private final OverviewEvidenceQueries overviewEvidenceQueries;
 
   public TransactionReportRepository(DSLContext dsl) {
     this.dsl = dsl;
-  }
-
-  private static Condition matchesDigitsOnly(Field<String> field) {
-    return DSL.condition("{0} ~ '^[0-9]+$'", field);
-  }
-
-  private static Condition searchScope(String search, Field<String> identifier, Field<String> mtcn) {
-    if (search.isEmpty()) {
-      return DSL.trueCondition();
-    }
-    String pattern = "%" + search.toLowerCase(java.util.Locale.ROOT) + "%";
-    return DSL.lower(identifier).like(pattern).or(DSL.lower(DSL.coalesce(mtcn, "")).like(pattern));
-  }
-
-  /**
-   * {@code (ARRAY_AGG(value ORDER BY rank, key) FILTER (WHERE value IS NOT NULL))[1]} -- picks the
-   * value from the highest-priority (lowest source_rank) row that actually has a non-null value for
-   * this column, among every row merged into one (batch, identifier) group. No jOOQ DSL builds an
-   * array-index expression, so the aggregate is built with the real fluent API
-   * (arrayAgg/orderBy/filterWhere) and only the trailing {@code [1]} is a raw template.
-   */
-  private static <T> Field<T> firstNonNullByRank(Field<T> value, Field<Integer> sourceRank, Field<String> recordKey, Class<T> type) {
-    Field<T[]> aggregated = DSL.arrayAgg(value).orderBy(sourceRank.asc(), recordKey.asc()).filterWhere(value.isNotNull());
-    Class<T[]> arrayType = aggregated.getType();
-    return DSL.field("({0})[1]", type, DSL.field("{0}", arrayType, aggregated));
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Batch-scoped evidence (findEvidenceRecords / countEvidenceRecords)
-  // ---------------------------------------------------------------------------------------------
-  /**
-   * Deliberately independent of {@code metric}: {@code metricScoped}'s own {@code evidenceSource}
-   * filter already keeps a RULE_HIT-sourced row out of the merged evidence for every metric except
-   * ALL/ACTUAL_REPORTABLE/TRANSFORMER_OUTPUT/ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT, so this method
-   * running (or not) never changes which rows the merge itself produces. But this same match also
-   * feeds {@code rollupRuleHits} -- the "Rule Hit Details" enrichment shown per row, independent of
-   * that row's own evidence source (see the class Javadoc). An earlier version of this method also
-   * skipped based on metric, on the theory that a metric which can't keep a RULE_HIT row has no use
-   * for the match at all -- true for the merge, but it silently starved that enrichment for every
-   * one of those metrics too: viewing the exact same transaction under EXCLUDED or FILTERED showed
-   * "no rule hits matched" for a transaction that, viewed under ALL, correctly showed a real match.
-   * Scoping to this batch specifically (not just the report group) is what keeps this affordable
-   * without the metric check -- see {@link #ruleHitMatches} for why a report-group-wide scope was
-   * expensive before that method was rewritten as a join, and {@link #ruleHitMatchesForPeriod} for
-   * the equivalent already-metric-independent period-scoped version this mirrors.
-   */
-  private Table<?> ruleHitMatchesForBatch(int reportGroupId, String batchId, String status) {
-    if (!("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
-      // rule_hit evidence's status can only ever be REPORTED/NOT_REPORTED, so any other requested
-      // status matches zero rule_hit rows -- skip the identifier-lookup join entirely rather than
-      // run it for no reason.
-      return dsl
-        .select(RULE_HIT_TABLE.fields())
-        .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
-        .from(RULE_HIT_TABLE)
-        .where(DSL.falseCondition())
-        .asTable(RULE_HIT_MATCHES);
-    }
-
-    Table<?> journeyScoped = dsl
-      .select(JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
-          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(IDENTIFIER_BIGINT))
-      .from(JOURNEY)
-      .where(JOURNEY.RPT_GRP_ID.eq(reportGroupId))
-      .and(JOURNEY.BATCH_ID.eq(batchId))
-      .asTable("journey_scoped");
-    // efile_batch_id, not rule_hit's own unrelated integer batch_id column -- the same field the
-    // merge's own RULE_HIT branch already uses as that row's evidence_batch_id. Matching an
-    // identifier/mtcn alone (as this used to) could surface a rule_hit belonging to a *different*
-    // batch that happens to share it -- e.g. a resubmitted transaction -- as if it were this
-    // batch's own evidence, which is exactly the mixing this scope prevents; it also bounds the
-    // scan to one batch's rule_hit rows instead of the whole report group's.
-    return ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.eq(reportGroupId).and(RULE_HIT_TABLE.EFILE_BATCH_ID.eq(batchId)), journeyScoped);
-  }
-
-  /**
-   * Resolves each {@code rule_hit} row in {@code ruleHitScope} back to the journey identifier it
-   * belongs to, joining against {@code journeyScoped} -- the (already small: one batch, or one
-   * period's batches) set of journey rows the caller actually cares about -- instead of running
-   * {@code byIdentifier}/{@code byMtcn} as correlated scalar subqueries evaluated once per
-   * {@code rule_hit} row across the whole report group. That correlated form measured 100-600x
-   * slower than every other metric on the exact same batch (1.2-1.4s vs 2-17ms locally, against a
-   * report group with only 3,591 rule_hit rows -- a real production report group's rule_hit table
-   * is likely orders of magnitude larger). Joining lets Postgres use a real join algorithm
-   * (hash/merge) against a tiny lookup table instead of an O(rule_hit rows in the report group)
-   * nested loop.
-   *
-   * <p>{@code GROUP BY} in the two lookup tables guarantees at most one row per join key, matching
-   * the original correlated subqueries' implicit "arbitrary pick" (neither had an {@code ORDER BY}
-   * before their {@code LIMIT 1}) with a deterministic {@code MIN()} tie-break instead. Confirmed
-   * against real mock data that journey identifiers are unique within a batch (0 duplicates across
-   * 3,069 batches) -- so the identifier-match path is always exact -- and that duplicate mtcns
-   * within one batch are exceedingly rare (2 of 3,069 batches), so this only changes which
-   * otherwise-arbitrary row wins in an already-rare edge case, never whether a match is found.
-   */
-  private Table<?> ruleHitMatches(Condition ruleHitScope, Table<?> journeyScoped) {
-    Field<String> jIdentifier = requiredField(journeyScoped, IDENTIFIER, String.class);
-    Field<String> jMtcn = requiredField(journeyScoped, "mtcn", String.class);
-    Field<Long> jIdentifierBigint = requiredField(journeyScoped, IDENTIFIER_BIGINT, Long.class);
-
-    var byIdentifierLookup = dsl
-      .select(jIdentifierBigint, DSL.min(jIdentifier).as(IDENTIFIER))
-      .from(journeyScoped)
-      .where(jIdentifierBigint.isNotNull())
-      .groupBy(jIdentifierBigint)
-      .asTable("by_identifier_lookup");
-    var byMtcnLookup = dsl
-      .select(jMtcn, DSL.min(jIdentifier).as(IDENTIFIER))
-      .from(journeyScoped)
-      .where(jMtcn.isNotNull())
-      .groupBy(jMtcn)
-      .asTable("by_mtcn_lookup");
-
-    Field<Long> lIdentifierBigint = requiredField(byIdentifierLookup, IDENTIFIER_BIGINT, Long.class);
-    Field<String> lByIdentifier = requiredField(byIdentifierLookup, IDENTIFIER, String.class);
-    Field<String> lMtcn = requiredField(byMtcnLookup, "mtcn", String.class);
-    Field<String> lByMtcn = requiredField(byMtcnLookup, IDENTIFIER, String.class);
-
-    return dsl
-      .select(RULE_HIT_TABLE.fields())
-      .select(DSL.coalesce(lByIdentifier, lByMtcn).as(MATCHED_IDENTIFIER))
-      .from(RULE_HIT_TABLE)
-      .leftJoin(byIdentifierLookup)
-      .on(lIdentifierBigint.eq(RULE_HIT_TABLE.EXTERNAL_TXN_KEY))
-      .leftJoin(byMtcnLookup)
-      .on(lMtcn.eq(RULE_HIT_TABLE.MTCN))
-      .where(ruleHitScope)
-      .asTable(RULE_HIT_MATCHES);
-  }
-
-  private Table<?> evidenceForBatch(int reportGroupId, String batchId, Table<?> ruleHitMatches) {
-    var journeyBranch = dsl
-      .select(DSL.concat(DSL.inline("JOURNEY:"), JOURNEY.IDENTIFIER).as(RECORD_KEY), JOURNEY.IDENTIFIER.as(IDENTIFIER),
-          JOURNEY.MTCN.as("mtcn"), JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE),
-          JOURNEY.STAGE.as(STAGE), JOURNEY.STATUS.as(STATUS), journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS),
-          JOURNEY.SKIP_REASON.as(SKIP_REASON), DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN),
-          DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
-          DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
-          JOURNEY.REPORTING_TIMESTAMP_LATEST.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT), JOURNEY.MODIFIED_TIMESTAMP.as(SORT_TIMESTAMP),
-          JOURNEY.PROCESSING_COMPLETE.as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          DSL.cast(null, SQLDataType.CLOB).as(CURRENCY_CODE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SIDE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SOURCE),
-          DSL.cast(null, SQLDataType.CLOB).as(ACTIVITY_TYPE), DSL.cast(null, SQLDataType.CLOB).as(SEND_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(GALACTIC_ID), DSL.cast(null, SQLDataType.INTEGER).as(BUCKET_ID_COLUMN),
-          DSL.cast(null, SQLDataType.BIGINT).as(ATTEMPT_ID_COLUMN),
-          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(RRA_KEY))
-      .from(JOURNEY)
-      .where(JOURNEY.RPT_GRP_ID.eq(reportGroupId))
-      .and(JOURNEY.BATCH_ID.eq(batchId));
-
-    var exclusionBranch = dsl
-      .select(DSL
-            .concat(DSL.inline("EXCLUSION:"), EXCLUSION_AUDIT.BUCKET_ID, DSL.inline(":"), EXCLUSION_AUDIT.RULE_ID, DSL.inline(":"),
-                EXCLUSION_AUDIT.ATTEMPT_ID)
-            .as(RECORD_KEY),
-          DSL.coalesce(EXCLUSION_AUDIT.EXTERNAL_TXN_KEY.cast(SQLDataType.CLOB), EXCLUSION_AUDIT.ATTEMPT_ID.cast(SQLDataType.CLOB)).as(
-              IDENTIFIER), EXCLUSION_AUDIT.MTCN.as("mtcn"), EXCLUSION_AUDIT.PROCESSING_BATCH_ID.as(EVIDENCE_BATCH_ID),
-          DSL.inline(SOURCE_EXCLUSION_AUDIT).as(EVIDENCE_SOURCE), DSL.inline("EXCLUSION").as(STAGE), DSL.inline(VALUE_EXCLUDED).as(STATUS),
-          DSL.inline(VALUE_EXCLUDED).as(OUTCOME), DSL.cast(null, SQLDataType.CLOB).as(COMMENTS),
-          DSL.cast(null, SQLDataType.CLOB).as(SKIP_REASON), EXCLUSION_AUDIT.RULE_ID.as(RULE_ID_COLUMN),
-          EXCLUSION_AUDIT.EXCLUSION_REASON_ID.as(EXCLUSION_REASON), EXCLUSION_AUDIT.EXCLUSION_STRATEGY.as(EXCLUSION_STRATEGY),
-          EXCLUSION_AUDIT.REPORTED_BATCH_ID.as(REPORTED_BATCH_ID),
-          EXCLUSION_AUDIT.REPORTING_TIMESTAMP.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          EXCLUSION_AUDIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT),
-          DSL.field("{0} at time zone 'UTC'", SQLDataType.TIMESTAMPWITHTIMEZONE, EXCLUSION_AUDIT.MODIFIED_TIMESTAMP).as(SORT_TIMESTAMP),
-          DSL.inline(true).as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          DSL.cast(null, SQLDataType.CLOB).as(CURRENCY_CODE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SIDE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SOURCE),
-          DSL.cast(null, SQLDataType.CLOB).as(ACTIVITY_TYPE), DSL.cast(null, SQLDataType.CLOB).as(SEND_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(GALACTIC_ID), EXCLUSION_AUDIT.BUCKET_ID.as(BUCKET_ID_COLUMN),
-          EXCLUSION_AUDIT.ATTEMPT_ID.as(ATTEMPT_ID_COLUMN), EXCLUSION_AUDIT.EXTERNAL_TXN_KEY.as(RRA_KEY))
-      .from(EXCLUSION_AUDIT)
-      .where(EXCLUSION_AUDIT.RPT_GRP_ID.eq(reportGroupId))
-      .and(EXCLUSION_AUDIT.PROCESSING_BATCH_ID.eq(batchId));
-
-    Field<Integer> rhmBucketId = requiredField(ruleHitMatches, BUCKET_ID_COLUMN, Integer.class);
-    Field<String> rhmRuleId = requiredField(ruleHitMatches, RULE_ID_COLUMN, String.class);
-    Field<Long> rhmAttemptId = requiredField(ruleHitMatches, ATTEMPT_ID_COLUMN, Long.class);
-    Field<String> rhmMatchedIdentifier = requiredField(ruleHitMatches, MATCHED_IDENTIFIER, String.class);
-    Field<String> rhmMtcn = requiredField(ruleHitMatches, "mtcn", String.class);
-    Field<String> rhmEfileBatchId = requiredField(ruleHitMatches, "efile_batch_id", String.class);
-    Field<Boolean> rhmIsReported = requiredField(ruleHitMatches, IS_REPORTED, Boolean.class);
-    Field<String> rhmExclusionReasonId = requiredField(ruleHitMatches, "exclusion_reason_id", String.class);
-    Field<String> rhmReportedBatchId = requiredField(ruleHitMatches, REPORTED_BATCH_ID, String.class);
-    Field<LocalDateTime> rhmReportingTimestamp = requiredField(ruleHitMatches, REPORTING_TIMESTAMP_COLUMN, LocalDateTime.class);
-    Field<java.time.OffsetDateTime> rhmModifiedTimestamp =
-        requiredField(ruleHitMatches, "modified_timestamp", java.time.OffsetDateTime.class);
-    Field<BigDecimal> rhmCurrencyAmount = requiredField(ruleHitMatches, "rule_currency_amount", BigDecimal.class);
-    Field<String> rhmCurrencyCode = requiredField(ruleHitMatches, "rule_iso_currency_code", String.class);
-    Field<LocalDateTime> rhmTransactionDate = requiredField(ruleHitMatches, TRANSACTION_DATE, LocalDateTime.class);
-    Field<String> rhmTransactionSide = requiredField(ruleHitMatches, TRANSACTION_SIDE, String.class);
-    Field<String> rhmSource = requiredField(ruleHitMatches, "source", String.class);
-    Field<String> rhmActivityType = requiredField(ruleHitMatches, ACTIVITY_TYPE, String.class);
-    Field<java.time.LocalDate> rhmSendDate = requiredField(ruleHitMatches, SEND_DATE, java.time.LocalDate.class);
-    Field<String> rhmGalacticId = requiredField(ruleHitMatches, GALACTIC_ID, String.class);
-    Field<Long> rhmExternalTxnKey = requiredField(ruleHitMatches, "external_txn_key", Long.class);
-
-    var ruleHitBranch = dsl
-      .select(DSL.concat(DSL.inline("RULE_HIT:"), rhmBucketId, DSL.inline(":"), rhmRuleId, DSL.inline(":"), rhmAttemptId).as(RECORD_KEY),
-          rhmMatchedIdentifier.as(IDENTIFIER), rhmMtcn.as("mtcn"), rhmEfileBatchId.as(EVIDENCE_BATCH_ID),
-          DSL.inline(SOURCE_RULE_HIT).as(EVIDENCE_SOURCE), DSL.inline(SOURCE_RULE_HIT).as(STAGE),
-          DSL.when(rhmIsReported, DSL.inline(VALUE_REPORTED)).otherwise(DSL.inline(VALUE_NOT_REPORTED)).as(STATUS),
-          DSL.when(rhmIsReported, DSL.inline(OUTCOME_SUCCESS)).otherwise(DSL.inline(OUTCOME_PENDING)).as(OUTCOME),
-          DSL.cast(null, SQLDataType.CLOB).as(COMMENTS), DSL.cast(null, SQLDataType.CLOB).as(SKIP_REASON), rhmRuleId.as(RULE_ID_COLUMN),
-          rhmExclusionReasonId.as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
-          rhmReportedBatchId.as(REPORTED_BATCH_ID), rhmReportingTimestamp.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          rhmModifiedTimestamp.cast(SQLDataType.CLOB).as(MODIFIED_AT), rhmModifiedTimestamp.as(SORT_TIMESTAMP),
-          DSL.inline(true).as(PROCESSING_COMPLETE), rhmCurrencyAmount.cast(SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          rhmCurrencyCode.as(CURRENCY_CODE), rhmTransactionDate.cast(SQLDataType.CLOB).as(TRANSACTION_DATE),
-          rhmTransactionSide.as(TRANSACTION_SIDE), rhmSource.as(TRANSACTION_SOURCE), rhmActivityType.as(ACTIVITY_TYPE),
-          rhmSendDate.cast(SQLDataType.CLOB).as(SEND_DATE), rhmGalacticId.as(GALACTIC_ID), rhmBucketId.as(BUCKET_ID_COLUMN),
-          rhmAttemptId.as(ATTEMPT_ID_COLUMN), rhmExternalTxnKey.as(RRA_KEY))
-      .from(ruleHitMatches)
-      .where(rhmMatchedIdentifier.isNotNull());
-
-    return journeyBranch.unionAll(exclusionBranch).unionAll(ruleHitBranch).asTable("evidence");
-  }
-
-  private static Field<String> journeyOutcome(Field<String> status) {
-    Field<String> upperStatus = DSL.upper(DSL.coalesce(status, ""));
-    return DSL
-      .when(upperStatus.in(OUTCOME_ERROR, "FAILED", "FAILURE"), DSL.inline(OUTCOME_ERROR))
-      .when(upperStatus.in(OUTCOME_SUCCESS, "COMPLETED", "TRANSFORMED", VALUE_REPORTED), DSL.inline(OUTCOME_SUCCESS))
-      .when(upperStatus.eq(VALUE_EXCLUDED), DSL.inline(VALUE_EXCLUDED))
-      .otherwise(DSL.inline(OUTCOME_PENDING));
-  }
-
-  private Table<?> metricScoped(Table<?> evidence, String metric, String source) {
-    Field<String> evidenceSource = requiredField(evidence, EVIDENCE_SOURCE, String.class);
-    Field<String> stage = requiredField(evidence, STAGE, String.class);
-    Field<String> outcome = requiredField(evidence, OUTCOME, String.class);
-    Field<String> comments = requiredField(evidence, COMMENTS, String.class);
-
-    Field<String> upperStage = DSL.upper(DSL.coalesce(stage, ""));
-    Field<String> upperComments = DSL.upper(DSL.coalesce(comments, ""));
-
-    Condition metricCondition = switch (metric) {
-      case "ALL" -> DSL.trueCondition();
-      case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE",
-          "TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_JOURNEY);
-      case "TRANSFORMED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_SUCCESS));
-      case "FAILED" -> evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).and(outcome.eq(OUTCOME_ERROR));
-      case VALUE_EXCLUDED -> evidenceSource.eq(SOURCE_EXCLUSION_AUDIT);
-      case "SIMULATED" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
-        .and(upperComments.eq("EXCLUDED_BECAUSE_SML"));
-      case "ALREADY_REPORTED" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
-        .and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
-      case "SOFT_DEDUP" -> evidenceSource
-        .eq(SOURCE_JOURNEY)
-        .and(upperStage.eq(STAGE_FILTRATION))
-        .and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
-      case "ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_RULE_HIT);
-      case "FILTERED" -> evidenceSource
-        .eq(SOURCE_EXCLUSION_AUDIT)
-        .or(evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq(STAGE_FILTRATION)));
-      // MISSING/FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method -- see
-      // TransactionReportServiceImpl.isAggregateOnlyMetric. This default remains a defensive
-      // fallback for a metric this switch hasn't been taught yet, not a deliberate route for
-      // those three -- "match everything" was never a real condition for them, only an
-      // unfiltered dump of the batch's evidence mislabeled as if it answered the metric.
-      default -> DSL.trueCondition();
-    };
-    // ACTUAL_REPORTABLE and TRANSFORMER_OUTPUT share the RULE_HIT-only condition in the original
-    // SQL's single OR-branch; re-expressed as two separate cases mapping to the same condition.
-    if ("ACTUAL_REPORTABLE".equals(metric) || "TRANSFORMER_OUTPUT".equals(metric)) {
-      metricCondition = metricCondition.or(evidenceSource.eq(SOURCE_RULE_HIT));
-    }
-
-    return dsl
-      .select(evidence.fields())
-      .from(evidence)
-      .where("ALL".equals(source) ? DSL.trueCondition() : evidenceSource.eq(source))
-      .and(metricCondition)
-      .asTable("metric_scoped");
-  }
-
-  private Table<?> filteredEvidenceForBatch(Table<?> evidence, String metric, String search, String source, String stage, String outcome,
-      String status) {
-    var scoped = metricScoped(evidence, metric, source);
-    Field<String> identifier = requiredField(scoped, IDENTIFIER, String.class);
-    Field<String> mtcn = requiredField(scoped, "mtcn", String.class);
-    Field<String> stageField = requiredField(scoped, STAGE, String.class);
-    Field<String> outcomeField = requiredField(scoped, OUTCOME, String.class);
-    Field<String> statusField = requiredField(scoped, STATUS, String.class);
-
-    return dsl
-      .select(scoped.fields())
-      .from(scoped)
-      .where("ALL".equals(stage) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(stageField, "")).eq(stage))
-      .and(searchScope(search, identifier, mtcn))
-      .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
-      .and("ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status))
-      .asTable("filtered_evidence");
-  }
-
-  /**
-   * Collapses filtered evidence to one row per (evidence_batch_id, identifier), preferring
-   * EXCLUSION_AUDIT, then RULE_HIT, then JOURNEY wherever sources disagree on a field.
-   */
-  /**
-   * Attaches the EXCLUSION_AUDIT &gt; RULE_HIT &gt; JOURNEY priority rank used everywhere a
-   * transaction's evidence needs to be collapsed to one row -- shared foundation for both {@link
-   * #identifierSortKeys} (a cheap 2-column-per-identifier pass used to paginate) and {@link
-   * #mergeForKeys} (the full per-column merge, run only for the identifiers a page actually
-   * needs), so both agree on exactly the same "which row wins" priority.
-   */
-  private Table<?> rankedEvidence(Table<?> filteredEvidence) {
-    Field<String> evidenceSource = requiredField(filteredEvidence, EVIDENCE_SOURCE, String.class);
-    Field<Integer> sourceRank =
-        DSL
-      .when(evidenceSource.eq(SOURCE_EXCLUSION_AUDIT), 1)
-      .when(evidenceSource.eq(SOURCE_RULE_HIT), 2)
-      .otherwise(3)
-      .as(MERGE_SOURCE_RANK);
-    return dsl.select(filteredEvidence.fields()).select(sourceRank).from(filteredEvidence).asTable("ranked");
-  }
-
-  /**
-   * Pass 1 of paginating merged evidence: one row per (evidence_batch_id, identifier), but with
-   * only the two columns pagination actually needs -- the winning row's sort_ts and record_key,
-   * by the same source-rank priority the full merge uses. Computing only these two columns here
-   * means the page window (offset or cursor, see {@link #fetchPageKeys}) applies *before* the
-   * expensive 27-column {@code ARRAY_AGG(...).filterWhere(...)} merge runs, not after -- so {@link
-   * #mergeForPageKeys} only ever does that work for the identifiers actually on the requested page,
-   * not for every identifier matching the current filter. Previously the single-pass
-   * {@code mergedEvidence()} ran that full merge for the whole filtered result before any
-   * LIMIT/OFFSET applied, so page 1 and page 400 cost exactly the same -- the dominant reason a
-   * big batch or wide date range "took forever" regardless of which page was requested.
-   */
-  private Table<?> identifierSortKeys(Table<?> ranked) {
-    Field<String> rEvidenceBatchId = requiredField(ranked, EVIDENCE_BATCH_ID, String.class);
-    Field<String> rIdentifier = requiredField(ranked, IDENTIFIER, String.class);
-    Field<Integer> rSourceRank = requiredField(ranked, MERGE_SOURCE_RANK, Integer.class);
-    Field<String> rRecordKey = requiredField(ranked, RECORD_KEY, String.class);
-
-    Field<java.time.OffsetDateTime> sortTs =
-        firstNonNullByRank(ranked, SORT_TIMESTAMP, java.time.OffsetDateTime.class, rSourceRank, rRecordKey);
-    Field<String> recordKey = firstNonNullByRank(ranked, RECORD_KEY, String.class, rSourceRank, rRecordKey);
-
-    return dsl
-      .select(rEvidenceBatchId, rIdentifier, sortTs, recordKey)
-      .from(ranked)
-      .groupBy(rEvidenceBatchId, rIdentifier)
-      .asTable("identifier_sort_keys");
-  }
-
-  /**
-   * One (evidence_batch_id, identifier)'s winning sort key, as fetched by {@link #fetchPageKeys}.
-   */
-  private record PageKey(String evidenceBatchId, String identifier, java.time.OffsetDateTime sortTs, String recordKey) {}
-
-  /**
-   * Applies the requested page window to {@code sortKeys} (see {@link #identifierSortKeys}) and
-   * materializes exactly the winning keys as a Java list -- needed up front (rather than staying
-   * in SQL) so {@link #nextCursorAfter} can compute the next page's cursor from the last key
-   * actually returned, and so {@link #mergeForPageKeys} has a concrete key list to restrict Pass 2
-   * to.
-   *
-   * <p>Offset mode (default, {@code cursor == null}) is for the page-number paginator's arbitrary
-   * page-jump UI; cursor mode (opaque {@code (sortTs, recordKey)} keyset) is for cheap sequential
-   * "next page" access that never pays an O(offset) skip cost, at the price of not being able to
-   * jump to an arbitrary page number -- exactly the hybrid the two access patterns each need.
-   *
-   * <p>Fetches one extra "peek" row beyond {@code size} in both modes, purely to know whether a
-   * next page exists -- the standard fetch-N+1 technique, since neither mode can otherwise answer
-   * that without a second query (cursor mode deliberately has no count query to fall back on).
-   */
-  @SqlQueryPurpose("Transaction list > Select page identifiers and one look-ahead row for next-page availability")
-  private List<PageKey> fetchPageKeys(Table<?> sortKeys, String sortDirection, int size, long offset, EvidenceCursor cursor) {
-    Field<String> skEvidenceBatchId = requiredField(sortKeys, EVIDENCE_BATCH_ID, String.class);
-    Field<String> skIdentifier = requiredField(sortKeys, IDENTIFIER, String.class);
-    Field<java.time.OffsetDateTime> skSortTs = requiredField(sortKeys, SORT_TIMESTAMP, java.time.OffsetDateTime.class);
-    Field<String> skRecordKey = requiredField(sortKeys, RECORD_KEY, String.class);
-    Condition condition = cursorCondition(cursor, sortDirection, skSortTs, skRecordKey);
-    List<OrderField<?>> order = evidenceOrder(sortDirection, skSortTs, skRecordKey);
-
-    var result = cursor != null
-        ? dsl
-      .select(skEvidenceBatchId, skIdentifier, skSortTs, skRecordKey)
-      .from(sortKeys)
-      .where(condition)
-      .orderBy(order)
-      .limit(size + 1)
-      .fetch()
-        : dsl
-      .select(skEvidenceBatchId, skIdentifier, skSortTs, skRecordKey)
-      .from(sortKeys)
-      .where(condition)
-      .orderBy(order)
-      .limit(size + 1)
-      .offset(offset)
-      .fetch();
-
-    return result.map(r -> new PageKey(r.get(skEvidenceBatchId), r.get(skIdentifier), r.get(skSortTs), r.get(skRecordKey)));
-  }
-
-  /**
-   * Splits a {@link #fetchPageKeys} result (up to {@code size + 1} rows) into the page actually
-   * returned to the caller plus the cursor for the next one, {@code null} once exhausted.
-   */
-  private EvidencePageKeys splitPage(List<PageKey> keysWithPeek, int size) {
-    if (keysWithPeek.size() <= size) {
-      return new EvidencePageKeys(keysWithPeek, null);
-    }
-    PageKey lastOnPage = keysWithPeek.get(size - 1);
-    return new EvidencePageKeys(keysWithPeek.subList(0, size), EvidenceCursor.encode(lastOnPage.sortTs(), lastOnPage.recordKey()));
-  }
-
-  private record EvidencePageKeys(List<PageKey> keys, String nextCursor) {}
-
-  /**
-   * Pass 2: restricts {@code ranked} to exactly the (evidence_batch_id, identifier) pairs in
-   * {@code pageKeys} -- {@code size} rows at most, never the whole filtered result -- then runs
-   * the identical 27-column merge the old single-pass {@code mergedEvidence()} ran over
-   * everything. Returns an empty, correctly-shaped-but-never-queried result for an empty page
-   * rather than emitting {@code WHERE ... IN ()}, which is either invalid or trivially-false SQL
-   * depending on dialect.
-   */
-  private Table<?> mergeForPageKeys(Table<?> ranked, List<PageKey> pageKeys) {
-    Field<String> rEvidenceBatchId = requiredField(ranked, EVIDENCE_BATCH_ID, String.class);
-    Field<String> rIdentifier = requiredField(ranked, IDENTIFIER, String.class);
-    Field<Integer> rSourceRank = requiredField(ranked, MERGE_SOURCE_RANK, Integer.class);
-    Field<String> rRecordKey = requiredField(ranked, RECORD_KEY, String.class);
-
-    List<Field<?>> selectList = new ArrayList<>();
-    selectList.add(rEvidenceBatchId);
-    selectList.add(rIdentifier);
-    for (String column : MERGE_COLUMNS) {
-      Class<?> type = mergeColumnType(column);
-      selectList.add(firstNonNullByRank(ranked, column, type, rSourceRank, rRecordKey));
-    }
-    selectList.add(DSL.min(rSourceRank).as(MERGE_SOURCE_RANK));
-
-    Condition keyCondition = pageKeys.isEmpty()
-        ? DSL.falseCondition()
-        : DSL
-      .row(rEvidenceBatchId, rIdentifier)
-      .in(pageKeys
-        .stream()
-        .map(key -> DSL.row(key.evidenceBatchId(), key.identifier()))
-        .toList());
-
-    return dsl.select(selectList).from(ranked).where(keyCondition).groupBy(rEvidenceBatchId, rIdentifier).asTable("merged");
-  }
-
-  /**
-   * Keyset predicate mirroring {@link #evidenceOrder}'s own tiebreak exactly: strictly past the
-   * cursor row in whichever direction results are sorted. {@code sort_ts} is populated straight
-   * from {@code modified_timestamp} on every one of the three evidence branches (see the class
-   * Javadoc) and is never null in practice; a null would simply be excluded going forward rather
-   * than corrupt ordering, since SQL's three-valued logic makes a NULL comparison here false
-   * either way.
-   *
-   * <p>{@code evidenceOrder} sorts by {@code sort_ts} in the requested direction but {@code
-   * record_key} *always* ascending, as a pure tiebreak -- e.g. DESC order is {@code sort_ts DESC,
-   * record_key ASC}. A single row-value comparison ({@code ROW(sortTs, recordKey) < ROW(...)})
-   * applies the *same* direction to both columns, which is only correct when both are ascending;
-   * for DESC it silently drops every row tied with the cursor on {@code sort_ts} but sorted after
-   * it by the ascending tiebreak. Decomposing into an explicit OR handles the mixed directions
-   * correctly in both cases.
-   */
-  private Condition cursorCondition(EvidenceCursor cursor, String sortDirection, Field<java.time.OffsetDateTime> sortTs,
-      Field<String> recordKey) {
-    if (cursor == null) {
-      return DSL.trueCondition();
-    }
-    var cursorSortTs = DSL.val(cursor.sortTs());
-    var cursorRecordKey = DSL.val(cursor.recordKey());
-    Condition tieBreak = sortTs.eq(cursorSortTs).and(recordKey.gt(cursorRecordKey));
-    return "ASC".equals(sortDirection) ? sortTs.gt(cursorSortTs).or(tieBreak) : sortTs.lt(cursorSortTs).or(tieBreak);
-  }
-
-  private static <T> Field<T> firstNonNullByRank(Table<?> ranked, String column, Class<T> type, Field<Integer> sourceRank,
-      Field<String> recordKey) {
-    Field<T> value = requiredField(ranked, column, type);
-    return firstNonNullByRank(value, sourceRank, recordKey, type).as(column);
-  }
-
-  private static Class<?> mergeColumnType(String column) {
-    return switch (column) {
-      case PROCESSING_COMPLETE -> Boolean.class;
-      case CURRENCY_AMOUNT -> Double.class;
-      case BUCKET_ID_COLUMN -> Integer.class;
-      case ATTEMPT_ID_COLUMN, RRA_KEY -> Long.class;
-      case SORT_TIMESTAMP -> java.time.OffsetDateTime.class;
-      default -> String.class;
-    };
-  }
-
-  /**
-   * Finishes a two-pass page (see {@link #fetchPageKeys}/{@link #mergeForPageKeys}): {@code
-   * merged} is already exactly the page's rows (at most {@code size}, restricted by key up front),
-   * so this only re-applies the sort order -- a join followed by {@code GROUP BY} doesn't guarantee
-   * row order -- and runs the LATERAL rule_hit rollup + {@code reg_reportable_activity} join,
-   * unchanged from the original single-pass design and already scoped to just this page.
-   */
-  @SqlQueryPurpose("Transaction list > Load complete evidence and enrichment for the selected page identifiers")
-  private List<TransactionEvidenceProjection> selectFinalPage(Table<?> merged, Table<?> ruleHitMatches, String sortDirection) {
-    return selectEvidenceProjection(merged, ruleHitMatches)
-      .orderBy(
-          evidenceOrder(sortDirection, requiredField(merged, SORT_TIMESTAMP, java.time.OffsetDateTime.class),
-              requiredField(merged, RECORD_KEY, String.class)))
-      .fetch(TransactionReportRepository::toEvidenceProjection);
-  }
-
-  /**
-   * The full two-pass pagination flow shared by the batch-scoped and period-scoped evidence
-   * queries: cheap Pass 1 to pick the page's identifiers (paying the page window's cost, not the
-   * whole result's), then Pass 2's full merge bounded to just those identifiers, then the existing
-   * per-page rule_hit rollup.
-   */
-  private EvidencePage pageEvidence(Table<?> filtered, Table<?> ruleHitMatches, String sortDirection, int size, long offset,
-      EvidenceCursor cursor) {
-    var ranked = rankedEvidence(filtered);
-    var sortKeys = identifierSortKeys(ranked);
-    var keysWithPeek = fetchPageKeys(sortKeys, sortDirection, size, offset, cursor);
-    var page = splitPage(keysWithPeek, size);
-    if (page.keys().isEmpty()) {
-      return new EvidencePage(List.of(), null);
-    }
-    var merged = mergeForPageKeys(ranked, page.keys());
-    return new EvidencePage(selectFinalPage(merged, ruleHitMatches, sortDirection), page.nextCursor());
-  }
-
-  private static List<OrderField<?>> evidenceOrder(String sortDirection, Field<java.time.OffsetDateTime> sortTs, Field<String> recordKey) {
-    List<OrderField<?>> order = new ArrayList<>();
-    order.add("ASC".equals(sortDirection) ? sortTs.asc().nullsLast() : sortTs.desc().nullsLast());
-    order.add(recordKey.asc());
-    return order;
-  }
-
-  private org.jooq.SelectConditionStep<Record> selectEvidenceProjection(Table<?> page, Table<?> ruleHitMatches) {
-    Field<String> pIdentifier = requiredField(page, IDENTIFIER, String.class);
-    Field<String> pEvidenceSource = requiredField(page, EVIDENCE_SOURCE, String.class);
-    Field<Long> pRraKey = requiredField(page, RRA_KEY, Long.class);
-    Field<Double> pCurrencyAmount = requiredField(page, CURRENCY_AMOUNT, Double.class);
-    Field<String> pCurrencyCode = requiredField(page, CURRENCY_CODE, String.class);
-    Field<String> pTransactionDate = requiredField(page, TRANSACTION_DATE, String.class);
-    Field<String> pSendDate = requiredField(page, SEND_DATE, String.class);
-
-    Field<Double> currencyAmountOut = DSL
-      .when(pEvidenceSource.eq(SOURCE_JOURNEY), DSL.coalesce(RRA.S_LOCAL_PRINCIPAL, RRA.R_LOCAL_PRINCIPAL))
-      .otherwise(pCurrencyAmount)
-      .as("currencyAmount");
-    Field<String> currencyCodeOut =
-        DSL
-      .when(pEvidenceSource.eq(SOURCE_JOURNEY), DSL.coalesce(RRA.S_CURRENCY, RRA.R_CURRENCY))
-      .otherwise(pCurrencyCode)
-      .as("currencyCode");
-    Field<String> transactionDateOut =
-        DSL
-      .when(pEvidenceSource.eq(SOURCE_JOURNEY), DSL.coalesce(RRA.S_DATE, RRA.R_DATE))
-      .otherwise(pTransactionDate)
-      .as("transactionDate");
-    Field<String> sendDateOut = DSL.when(pEvidenceSource.eq(SOURCE_JOURNEY), RRA.GROUP_SEND_DATE).otherwise(pSendDate).as("sendDate");
-
-    var rollupRuleHits = rollupRuleHits(ruleHitMatches, pIdentifier);
-
-    return dsl
-      .select(requiredField(page, RECORD_KEY, String.class).as("recordKey"), pIdentifier.as(IDENTIFIER),
-          requiredField(page, "mtcn", String.class).as("mtcn"), requiredField(page, EVIDENCE_BATCH_ID, String.class).as(BATCH_ID_ALIAS),
-          pEvidenceSource.as("evidenceSource"), requiredField(page, STAGE, String.class).as(STAGE),
-          requiredField(page, STATUS, String.class).as(STATUS), requiredField(page, OUTCOME, String.class).as(OUTCOME),
-          requiredField(page, COMMENTS, String.class).as(COMMENTS), requiredField(page, SKIP_REASON, String.class).as("skipReason"),
-          requiredField(page, RULE_ID_COLUMN, String.class).as(RULE_ID_ALIAS),
-          requiredField(page, EXCLUSION_REASON, String.class).as("exclusionReason"),
-          requiredField(page, EXCLUSION_STRATEGY, String.class).as("exclusionStrategy"),
-          requiredField(page, REPORTED_BATCH_ID, String.class).as("reportedBatchId"),
-          requiredField(page, REPORTING_TIMESTAMP_COLUMN, String.class).as(REPORTING_TIMESTAMP),
-          requiredField(page, MODIFIED_AT, String.class).as("modifiedAt"),
-          requiredField(page, PROCESSING_COMPLETE, Boolean.class).as("processingComplete"), currencyAmountOut, currencyCodeOut,
-          transactionDateOut, requiredField(page, TRANSACTION_SIDE, String.class).as("transactionSide"),
-          requiredField(page, TRANSACTION_SOURCE, String.class).as("txnSource"),
-          requiredField(page, ACTIVITY_TYPE, String.class).as("activityType"), sendDateOut,
-          requiredField(page, GALACTIC_ID, String.class).as("galacticId"),
-          requiredField(page, BUCKET_ID_COLUMN, Integer.class).as(BUCKET_ID_ALIAS),
-          requiredField(page, ATTEMPT_ID_COLUMN, Long.class).as(ATTEMPT_ID_ALIAS), RRA.S_PARTY_NAME.as("senderName"),
-          RRA.R_PARTY_NAME.as("receiverName"), RRA.S_PARTY_CITY.as("senderCity"), RRA.S_PARTY_COUNTRY_OF_RESIDENCE.as("senderCountry"),
-          RRA.S_PARTY_PHONE_NUMBER.as("senderPhone"), RRA.S_PARTY_DATE_OF_BIRTH.as("senderDateOfBirth"),
-          RRA.S_PARTY_ID_TYPE.as("senderIdType"), RRA.S_PARTY_ID_NUMBER.as("senderIdNumber"), RRA.R_PARTY_CITY.as("receiverCity"),
-          RRA.R_PARTY_COUNTRY_OF_RESIDENCE.as("receiverCountry"), RRA.R_PARTY_PHONE_NUMBER.as("receiverPhone"),
-          RRA.R_PARTY_DATE_OF_BIRTH.as("receiverDateOfBirth"), RRA.R_PARTY_ID_TYPE.as("receiverIdType"),
-          RRA.R_PARTY_ID_NUMBER.as("receiverIdNumber"), RRA.TXN_STATUS.as("transactionStatus"), RRA.SUB_STATUS.as("transactionSubStatus"),
-          DSL.coalesce(rollupRuleHits, DSL.inline("[]")).as("ruleHitsJson"))
-      .from(page)
-      .leftJoin(RRA)
-      .on(RRA.TXN_SUR_KEY.eq(pRraKey))
-      .where(DSL.trueCondition());
-  }
-
-  /**
-   * {@code LEFT JOIN LATERAL (SELECT json_agg(json_build_object(...)) ...) rollup ON TRUE}.
-   */
-  private Field<String> rollupRuleHits(Table<?> ruleHitMatches, Field<String> identifier) {
-    Field<String> rhmMatchedIdentifier = requiredField(ruleHitMatches, MATCHED_IDENTIFIER, String.class);
-    Field<String> rhmRuleId = requiredField(ruleHitMatches, RULE_ID_COLUMN, String.class);
-    Field<Boolean> rhmIsReported = requiredField(ruleHitMatches, IS_REPORTED, Boolean.class);
-    Field<LocalDateTime> rhmReportingTimestamp = requiredField(ruleHitMatches, REPORTING_TIMESTAMP_COLUMN, LocalDateTime.class);
-    Field<Integer> rhmBucketId = requiredField(ruleHitMatches, BUCKET_ID_COLUMN, Integer.class);
-    Field<Long> rhmAttemptId = requiredField(ruleHitMatches, ATTEMPT_ID_COLUMN, Long.class);
-
-    var rollup = DSL
-      .lateral(dsl
-        .select(DSL
-          .jsonArrayAgg(DSL.jsonObject(DSL.jsonEntry(RULE_ID_ALIAS, rhmRuleId), DSL.jsonEntry("isReported", rhmIsReported),
-              DSL.jsonEntry(REPORTING_TIMESTAMP, rhmReportingTimestamp.cast(SQLDataType.CLOB)), DSL.jsonEntry(BUCKET_ID_ALIAS, rhmBucketId),
-              DSL.jsonEntry(ATTEMPT_ID_ALIAS, rhmAttemptId)))
-          .orderBy(rhmRuleId)
-          .cast(SQLDataType.CLOB)
-          .as("rule_hits_json"))
-        .from(ruleHitMatches)
-        .where(rhmMatchedIdentifier.isNotNull())
-        .and(rhmMatchedIdentifier.eq(identifier)))
-      .asTable("rollup");
-
-    return DSL.field(dsl.select(requiredField(rollup, "rule_hits_json", String.class)).from(rollup));
+    EvidencePaginator paginator = new EvidencePaginator(dsl);
+    RuleHitMatcher ruleHitMatcher = new RuleHitMatcher(dsl);
+    this.batchEvidenceQueries = new BatchEvidenceQueries(dsl, ruleHitMatcher, paginator);
+    this.periodEvidenceQueries = new PeriodEvidenceQueries(dsl, ruleHitMatcher, paginator);
+    this.overviewEvidenceQueries = new OverviewEvidenceQueries(dsl, paginator, periodEvidenceQueries);
   }
 
   @SqlQueryPurpose("Load transaction reconciliation context for one batch")
   public Optional<TransactionReportContextProjection> findReportContext(int reportGroupId, String batchId, int sequenceNumber) {
     return dsl
       .select(RECONCILIATION.RPT_GRP_ID.as("reportGroupId"), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
-          RECONCILIATION.BATCH_ID.as(BATCH_ID_ALIAS), RECONCILIATION.SEQ_NO.as("sequenceNumber"),
+          RECONCILIATION.BATCH_ID.as("batchId"), RECONCILIATION.SEQ_NO.as("sequenceNumber"),
           RECONCILIATION.RPT_FROM_DATE.as("reportingPeriodFrom"), RECONCILIATION.RPT_TO_DATE.as("reportingPeriodTo"),
           DSL.coalesce(RECONCILIATION.TXN_SELECTED, 0).cast(SQLDataType.BIGINT).as("selectedTransactions"),
           DSL
@@ -798,7 +109,7 @@ public class TransactionReportRepository {
       .and(RECONCILIATION.BATCH_ID.eq(batchId))
       .and(RECONCILIATION.SEQ_NO.eq(sequenceNumber))
       .fetchOptional(r -> new TransactionReportContextProjection(requiredInt(r, "reportGroupId"),
-          r.get(REPORT_GROUP_NAME_ALIAS, String.class), r.get(BATCH_ID_ALIAS, String.class), requiredInt(r, "sequenceNumber"),
+          r.get(REPORT_GROUP_NAME_ALIAS, String.class), r.get("batchId", String.class), requiredInt(r, "sequenceNumber"),
           r.get("reportingPeriodFrom", String.class), r.get("reportingPeriodTo", String.class), requiredLong(r, "selectedTransactions"),
           requiredLong(r, "attemptsFound"), requiredLong(r, "missingAttempts"), requiredLong(r, "expectedEligible"),
           requiredLong(r, "actualEligible"), requiredLong(r, "transformed"), requiredLong(r, "failed"),
@@ -810,452 +121,53 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
   public EvidencePage findEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
       String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor) {
-    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
-    var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
-    var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
-    return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+    return batchEvidenceQueries.findEvidenceRecords(reportGroupId, batchId, metric, search, source, stage, outcome, status, sortDirection,
+        size, offset, cursor);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records for one batch")
   public long countEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
       String outcome, String status) {
-    var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
-    var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
-    var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
-    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
-    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
-    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
-    return count == null ? 0L : count;
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Period-scoped evidence (findPeriodEvidenceRecords / countPeriodEvidenceRecords /
-  // findPeriodAggregate)
-  // ---------------------------------------------------------------------------------------------
-  private Table<?> batchScope(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
-      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId) {
-    return dsl
-      .select(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.RPT_GRP_NAME, RECONCILIATION.EXCLUDED_TXN)
-      .from(RECONCILIATION)
-      .where(RECONCILIATION.CREATED_TIMESTAMP.ge(fromTimestamp))
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(filterByCountry ? RECONCILIATION.RPT_GRP_ID.in(reportGroupIds) : DSL.trueCondition())
-      .and(filterByReportGroup ? RECONCILIATION.RPT_GRP_ID.eq(reportGroupId) : DSL.trueCondition())
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .asTable("batch_scope");
+    return batchEvidenceQueries.countEvidenceRecords(reportGroupId, batchId, metric, search, source, stage, outcome, status);
   }
 
   @SqlQueryPurpose("Summarize transaction evidence across the selected reporting period")
   public PeriodAggregateProjection findPeriodAggregate(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
-    Field<Integer> bsRptGrpId = requiredField(scope, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> bsBatchId = requiredField(scope, BATCH_ID_COLUMN, String.class);
-    Field<String> bsRptGrpName = requiredField(scope, "rpt_grp_name", String.class);
-    Field<Integer> bsExcludedTxn = requiredField(scope, "excluded_txn", Integer.class);
-
-    return dsl
-      .select(DSL.countDistinct(DSL.row(bsRptGrpId, bsBatchId)).as("batchCount"),
-          DSL.coalesce(DSL.sum(bsExcludedTxn), DSL.inline(BigDecimal.ZERO)).as("totalExcluded"),
-          DSL.max(bsRptGrpName).as(REPORT_GROUP_NAME_ALIAS))
-      .from(scope)
-      .fetchOptional(r -> new PeriodAggregateProjection(requiredLong(r, "batchCount"), requiredLong(r, "totalExcluded"),
-          r.get(REPORT_GROUP_NAME_ALIAS, String.class)))
-      .orElseThrow(() -> new IllegalStateException("Period aggregate returned no row"));
-  }
-
-  private Table<?> ruleHitMatchesForPeriod(Table<?> batchScope, String status) {
-    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
-    // Unlike the batch-scoped version, NOT_REPORTED is deliberately excluded from this
-    // short-circuit exemption: that status no longer reads rule_hit.is_reported at all (see
-    // periodStatusCondition -- it's answered from the journey-history ever_reported/ever_excluded
-    // roll-up instead), so running these correlated identifier-matching subqueries for it would
-    // only add cost without affecting the result -- and could double-count a transaction whose
-    // journey row and rule_hit row disagree on evidence_batch_id vs efile_batch_id.
-    if (!("ALL".equals(status) || VALUE_REPORTED.equals(status))) {
-      return dsl
-        .select(RULE_HIT_TABLE.fields())
-        .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
-        .from(RULE_HIT_TABLE)
-        .where(DSL.falseCondition())
-        .asTable(RULE_HIT_MATCHES);
-    }
-
-    Table<?> journeyScoped = dsl
-      .select(JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
-          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(IDENTIFIER_BIGINT))
-      .from(JOURNEY)
-      .join(batchScope)
-      .on(bsRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(bsBatchId.eq(JOURNEY.BATCH_ID))
-      .asTable("journey_scoped");
-
-    return ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.in(dsl.selectDistinct(bsRptGrpId).from(batchScope)), journeyScoped);
-  }
-
-  private Table<?> evidenceForPeriod(Table<?> batchScope, Table<?> ruleHitMatches) {
-    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
-
-    var journeyBranch = dsl
-      .select(DSL
-            .concat(DSL.inline("JOURNEY:"), JOURNEY.RPT_GRP_ID, DSL.inline(":"), JOURNEY.BATCH_ID, DSL.inline(":"), JOURNEY.IDENTIFIER)
-            .as(RECORD_KEY), JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
-          JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE), JOURNEY.STAGE.as(STAGE),
-          JOURNEY.STATUS.as(STATUS), journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS),
-          JOURNEY.SKIP_REASON.as(SKIP_REASON), DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN),
-          DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
-          DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
-          JOURNEY.REPORTING_TIMESTAMP_LATEST.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT), JOURNEY.MODIFIED_TIMESTAMP.as(SORT_TIMESTAMP),
-          JOURNEY.PROCESSING_COMPLETE.as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          DSL.cast(null, SQLDataType.CLOB).as(CURRENCY_CODE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SIDE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SOURCE),
-          DSL.cast(null, SQLDataType.CLOB).as(ACTIVITY_TYPE), DSL.cast(null, SQLDataType.CLOB).as(SEND_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(GALACTIC_ID), DSL.cast(null, SQLDataType.INTEGER).as(BUCKET_ID_COLUMN),
-          DSL.cast(null, SQLDataType.BIGINT).as(ATTEMPT_ID_COLUMN),
-          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(RRA_KEY))
-      .from(JOURNEY)
-      .join(batchScope)
-      .on(bsRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(bsBatchId.eq(JOURNEY.BATCH_ID));
-
-    var exclusionBranch = dsl
-      .select(DSL
-            .concat(DSL.inline("EXCLUSION:"), EXCLUSION_AUDIT.BUCKET_ID, DSL.inline(":"), EXCLUSION_AUDIT.RULE_ID, DSL.inline(":"),
-                EXCLUSION_AUDIT.ATTEMPT_ID)
-            .as(RECORD_KEY), EXCLUSION_AUDIT.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN),
-          DSL.coalesce(EXCLUSION_AUDIT.EXTERNAL_TXN_KEY.cast(SQLDataType.CLOB), EXCLUSION_AUDIT.ATTEMPT_ID.cast(SQLDataType.CLOB)).as(
-              IDENTIFIER), EXCLUSION_AUDIT.MTCN.as("mtcn"), EXCLUSION_AUDIT.PROCESSING_BATCH_ID.as(EVIDENCE_BATCH_ID),
-          DSL.inline(SOURCE_EXCLUSION_AUDIT).as(EVIDENCE_SOURCE), DSL.inline("EXCLUSION").as(STAGE), DSL.inline(VALUE_EXCLUDED).as(STATUS),
-          DSL.inline(VALUE_EXCLUDED).as(OUTCOME), DSL.cast(null, SQLDataType.CLOB).as(COMMENTS),
-          DSL.cast(null, SQLDataType.CLOB).as(SKIP_REASON), EXCLUSION_AUDIT.RULE_ID.as(RULE_ID_COLUMN),
-          EXCLUSION_AUDIT.EXCLUSION_REASON_ID.as(EXCLUSION_REASON), EXCLUSION_AUDIT.EXCLUSION_STRATEGY.as(EXCLUSION_STRATEGY),
-          EXCLUSION_AUDIT.REPORTED_BATCH_ID.as(REPORTED_BATCH_ID),
-          EXCLUSION_AUDIT.REPORTING_TIMESTAMP.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          EXCLUSION_AUDIT.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT),
-          DSL.field("{0} at time zone 'UTC'", SQLDataType.TIMESTAMPWITHTIMEZONE, EXCLUSION_AUDIT.MODIFIED_TIMESTAMP).as(SORT_TIMESTAMP),
-          DSL.inline(true).as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          DSL.cast(null, SQLDataType.CLOB).as(CURRENCY_CODE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SIDE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SOURCE),
-          DSL.cast(null, SQLDataType.CLOB).as(ACTIVITY_TYPE), DSL.cast(null, SQLDataType.CLOB).as(SEND_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(GALACTIC_ID), EXCLUSION_AUDIT.BUCKET_ID.as(BUCKET_ID_COLUMN),
-          EXCLUSION_AUDIT.ATTEMPT_ID.as(ATTEMPT_ID_COLUMN), EXCLUSION_AUDIT.EXTERNAL_TXN_KEY.as(RRA_KEY))
-      .from(EXCLUSION_AUDIT)
-      .join(batchScope)
-      .on(bsRptGrpId.eq(EXCLUSION_AUDIT.RPT_GRP_ID))
-      .and(bsBatchId.eq(EXCLUSION_AUDIT.PROCESSING_BATCH_ID));
-
-    Field<Integer> rhmRptGrpId = requiredField(ruleHitMatches, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<Integer> rhmBucketId = requiredField(ruleHitMatches, BUCKET_ID_COLUMN, Integer.class);
-    Field<String> rhmRuleId = requiredField(ruleHitMatches, RULE_ID_COLUMN, String.class);
-    Field<Long> rhmAttemptId = requiredField(ruleHitMatches, ATTEMPT_ID_COLUMN, Long.class);
-    Field<String> rhmMatchedIdentifier = requiredField(ruleHitMatches, MATCHED_IDENTIFIER, String.class);
-    Field<String> rhmMtcn = requiredField(ruleHitMatches, "mtcn", String.class);
-    Field<String> rhmEfileBatchId = requiredField(ruleHitMatches, "efile_batch_id", String.class);
-    Field<Boolean> rhmIsReported = requiredField(ruleHitMatches, IS_REPORTED, Boolean.class);
-    Field<String> rhmExclusionReasonId = requiredField(ruleHitMatches, "exclusion_reason_id", String.class);
-    Field<String> rhmReportedBatchId = requiredField(ruleHitMatches, REPORTED_BATCH_ID, String.class);
-    Field<LocalDateTime> rhmReportingTimestamp = requiredField(ruleHitMatches, REPORTING_TIMESTAMP_COLUMN, LocalDateTime.class);
-    Field<java.time.OffsetDateTime> rhmModifiedTimestamp =
-        requiredField(ruleHitMatches, "modified_timestamp", java.time.OffsetDateTime.class);
-    Field<BigDecimal> rhmCurrencyAmount = requiredField(ruleHitMatches, "rule_currency_amount", BigDecimal.class);
-    Field<String> rhmCurrencyCode = requiredField(ruleHitMatches, "rule_iso_currency_code", String.class);
-    Field<LocalDateTime> rhmTransactionDate = requiredField(ruleHitMatches, TRANSACTION_DATE, LocalDateTime.class);
-    Field<String> rhmTransactionSide = requiredField(ruleHitMatches, TRANSACTION_SIDE, String.class);
-    Field<String> rhmSource = requiredField(ruleHitMatches, "source", String.class);
-    Field<String> rhmActivityType = requiredField(ruleHitMatches, ACTIVITY_TYPE, String.class);
-    Field<java.time.LocalDate> rhmSendDate = requiredField(ruleHitMatches, SEND_DATE, java.time.LocalDate.class);
-    Field<String> rhmGalacticId = requiredField(ruleHitMatches, GALACTIC_ID, String.class);
-    Field<Long> rhmExternalTxnKey = requiredField(ruleHitMatches, "external_txn_key", Long.class);
-
-    var ruleHitBranch = dsl
-      .select(DSL.concat(DSL.inline("RULE_HIT:"), rhmBucketId, DSL.inline(":"), rhmRuleId, DSL.inline(":"), rhmAttemptId).as(RECORD_KEY),
-          rhmRptGrpId.as(REPORT_GROUP_ID_COLUMN), rhmMatchedIdentifier.as(IDENTIFIER), rhmMtcn.as("mtcn"),
-          rhmEfileBatchId.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_RULE_HIT).as(EVIDENCE_SOURCE), DSL.inline(SOURCE_RULE_HIT).as(STAGE),
-          DSL.when(rhmIsReported, DSL.inline(VALUE_REPORTED)).otherwise(DSL.inline(VALUE_NOT_REPORTED)).as(STATUS),
-          DSL.when(rhmIsReported, DSL.inline(OUTCOME_SUCCESS)).otherwise(DSL.inline(OUTCOME_PENDING)).as(OUTCOME),
-          DSL.cast(null, SQLDataType.CLOB).as(COMMENTS), DSL.cast(null, SQLDataType.CLOB).as(SKIP_REASON), rhmRuleId.as(RULE_ID_COLUMN),
-          rhmExclusionReasonId.as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
-          rhmReportedBatchId.as(REPORTED_BATCH_ID), rhmReportingTimestamp.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          rhmModifiedTimestamp.cast(SQLDataType.CLOB).as(MODIFIED_AT), rhmModifiedTimestamp.as(SORT_TIMESTAMP),
-          DSL.inline(true).as(PROCESSING_COMPLETE), rhmCurrencyAmount.cast(SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          rhmCurrencyCode.as(CURRENCY_CODE), rhmTransactionDate.cast(SQLDataType.CLOB).as(TRANSACTION_DATE),
-          rhmTransactionSide.as(TRANSACTION_SIDE), rhmSource.as(TRANSACTION_SOURCE), rhmActivityType.as(ACTIVITY_TYPE),
-          rhmSendDate.cast(SQLDataType.CLOB).as(SEND_DATE), rhmGalacticId.as(GALACTIC_ID), rhmBucketId.as(BUCKET_ID_COLUMN),
-          rhmAttemptId.as(ATTEMPT_ID_COLUMN), rhmExternalTxnKey.as(RRA_KEY))
-      .from(ruleHitMatches)
-      .where(rhmMatchedIdentifier.isNotNull());
-
-    return journeyBranch.unionAll(exclusionBranch).unionAll(ruleHitBranch).asTable("evidence");
+    return periodEvidenceQueries.findPeriodAggregate(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
   }
 
   /**
-   * Rolls up every journey event (not just the latest-state row) per {@code (rpt_grp_id,
-   * identifier)} in scope into {@code ever_excluded}/{@code ever_reported} booleans -- identical
-   * logic and bucket definitions to {@code DashboardRepository#getTransactionOverview}, ported here
-   * so the period-wide transaction list's Excluded/Not Reported filters match what the dashboard
-   * tile they're clicked from actually counted, instead of the per-row latest-state definitions
-   * {@link #filteredEvidenceForPeriod} otherwise uses for every other status value.
+   * Routes EXCLUDED/NOT_REPORTED to {@link OverviewEvidenceQueries} (a transaction's whole journey
+   * history, matching the dashboard tile's own definition) and every other status to {@link
+   * PeriodEvidenceQueries} (this period's batch evidence rows) -- see {@link
+   * OverviewEvidenceQueries}'s class Javadoc for why the two are deliberately not shared.
    */
-  private Table<?> reportingRoll(Table<?> batchScope) {
-    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
-
-    var batchEvidence = dsl
-      .select(bsRptGrpId, bsBatchId,
-          DSL
-            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
-            .as(BATCH_GENERATED_COLUMN))
-      .from(batchScope)
-      .leftJoin(BATCH_INFO)
-      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
-      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
-      .asTable("reporting_batch_evidence");
-
-    Field<Integer> beRptGrpId = requiredField(batchEvidence, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> beBatchId = requiredField(batchEvidence, BATCH_ID_COLUMN, String.class);
-    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
-
-    Field<String> upperJourneyStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
-    Condition everExcludedCondition = upperJourneyStatus.in(VALUE_EXCLUDED, "EXCLUDED_SOFT_DEDUP");
-    Condition everReportedCondition = JOURNEY.STAGE
-      .eq("REPORT_GENERATION")
-      .and(upperJourneyStatus.eq("GENERATED"))
-      .or(JOURNEY.STAGE.eq("TRANSFORMATION").and(upperJourneyStatus.eq(OUTCOME_SUCCESS)).and(batchGenerated.isTrue()));
-    // comments leads (falling back to skip_reason) because skip_reason is frequently a verbose,
-    // per-record exception payload that embeds a record-specific index/path -- see
-    // DashboardRepository#getTopExclusionReasons for why that defeats grouping; comments is
-    // consistently a short, low-cardinality value instead.
-    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
-    // Same comments/skip_reason fallback as the exclusion reason column above, just taken across an
-    // identifier's entire journey instead of only its EXCLUDED rows -- see
-    // DashboardRepository#getNotReportedReasons for why (a not-reported identifier is never
-    // excluded, so there's no status to condition this on).
-    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
-
-    return dsl
-      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL
-            .boolOr(everExcludedCondition)
-            .as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
-          DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN),
-          DSL.max(notReportedReasonColumn).as(NOT_REPORTED_REASON_COLUMN))
-      .from(JOURNEY)
-      .join(batchEvidence)
-      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(beBatchId.eq(JOURNEY.BATCH_ID))
-      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
-      .asTable("reporting_roll");
-  }
-
-  private Table<?> filteredEvidenceForPeriod(Table<?> evidence, String search, String outcome, String status) {
-    Field<String> identifier = requiredField(evidence, IDENTIFIER, String.class);
-    Field<String> mtcn = requiredField(evidence, "mtcn", String.class);
-    Field<String> outcomeField = requiredField(evidence, OUTCOME, String.class);
-    Field<String> statusField = requiredField(evidence, STATUS, String.class);
-
-    return dsl
-      .select(evidence.fields())
-      .from(evidence)
-      .where(searchScope(search, identifier, mtcn))
-      .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
-      .and("ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status))
-      .asTable("filtered_evidence");
-  }
-
-  /**
-   * The identifiers belonging to one {@link #reportingRoll} bucket -- already one row per {@code
-   * (rpt_grp_id, identifier)} by construction (the roll itself is grouped that way), so this table's
-   * own row count already answers "how many transactions are in this bucket" with no further
-   * dedup needed. {@code reason} narrows further to the exact slice a dashboard breakdown legend row
-   * represents -- a skip_reason/comments value for either status (see {@link #reportingRoll}'s
-   * {@code REASON_COLUMN}/{@code NOT_REPORTED_REASON_COLUMN}), or the literal {@code "Other"} for
-   * that card's catch-all row, matched via {@link #otherReasonCondition} against the same top-3
-   * cutoff {@code DashboardRepository#topReasonsThenOther} used to build the card. Empty/null means
-   * "no further narrowing," matching every other optional filter in this class.
-   */
-  private Table<?> reportingTarget(Table<?> roll, String status, String reason) {
-    Field<Integer> rollRptGrpId = requiredField(roll, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> rollIdentifier = requiredField(roll, IDENTIFIER, String.class);
-    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
-    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-    Condition bucketCondition =
-        VALUE_EXCLUDED.equals(status)
-        ? everExcluded.isTrue().and(everReported.isFalse())
-        : everReported.isFalse().and(everExcluded.isFalse());
-    if (reason != null && !reason.isEmpty() && (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
-      String reasonColumnName = VALUE_EXCLUDED.equals(status) ? REASON_COLUMN : NOT_REPORTED_REASON_COLUMN;
-      Field<String> rollReason = DSL.coalesce(requiredField(roll, reasonColumnName, String.class), DSL.inline(UNSPECIFIED_REASON));
-      bucketCondition = bucketCondition.and(
-          OTHER_REASON.equals(reason) ? otherReasonCondition(roll, rollReason, bucketCondition) : rollReason.eq(reason));
-    }
-
-    return dsl.select(rollRptGrpId, rollIdentifier).from(roll).where(bucketCondition).asTable("reporting_target");
-  }
-
-  /**
-   * "Other" isn't one reason value -- it's every reason DashboardRepository#topReasonsThenOther
-   *  didn't rank in its own top {@code TOP_REASON_LIMIT}. Reproducing that same ranking here (over
-   *  the identical {@code roll}, scoped to the same {@code baseCondition} the caller already
-   *  narrowed to EXCLUDED/NOT_REPORTED) keeps this "Other" click limited to exactly the rows the
-   *  dashboard card's own "Other" count summed, without the two repositories sharing code.
-   */
-  private Condition otherReasonCondition(Table<?> roll, Field<String> rollReason, Condition baseCondition) {
-    var topReasons = dsl
-      .select(rollReason)
-      .from(roll)
-      .where(baseCondition)
-      .groupBy(rollReason)
-      .orderBy(DSL.count().desc(), rollReason)
-      .limit(TOP_REASON_LIMIT);
-    return rollReason.notIn(topReasons);
-  }
-
-  /**
-   * One journey row per identifier in {@code target} -- its single most-recently-modified row,
-   * regardless of which of that identifier's (possibly several) batches it came from. This is the
-   * deliberate fix for the bug the per-batch merge pipeline has for these two statuses: {@code
-   * ever_excluded}/{@code ever_reported} is computed across a transaction's *entire* batch history,
-   * but the per-batch merge groups by {@code (evidence_batch_id, identifier)} -- so a
-   * transaction that was reprocessed across N batches (exactly what a stuck "Not Reported"
-   * transaction tends to do) would surface as N separate rows there, none of them collapsing,
-   * wildly inflating the count relative to what the dashboard tile (correctly) counted once. Ranking
-   * by identifier alone and taking the top row sidesteps the per-batch grain entirely -- there is
-   * structurally only one output row per transaction, matching the tile's own definition exactly.
-   */
-  private Table<?> latestJourneyForTarget(Table<?> batchScope, Table<?> target) {
-    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
-    Field<Integer> targetRptGrpId = requiredField(target, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> targetIdentifier = requiredField(target, IDENTIFIER, String.class);
-
-    Field<Integer> journeyRank = DSL
-      .rowNumber()
-      .over(DSL.partitionBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER).orderBy(JOURNEY.MODIFIED_TIMESTAMP.desc().nullsLast()))
-      .as(SOURCE_RANK);
-
-    var ranked = dsl
-      .select(DSL
-            .concat(DSL.inline("JOURNEY:"), JOURNEY.RPT_GRP_ID, DSL.inline(":"), JOURNEY.BATCH_ID, DSL.inline(":"), JOURNEY.IDENTIFIER)
-            .as(RECORD_KEY), JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
-          JOURNEY.BATCH_ID.as(EVIDENCE_BATCH_ID), DSL.inline(SOURCE_JOURNEY).as(EVIDENCE_SOURCE), JOURNEY.STAGE.as(STAGE),
-          JOURNEY.STATUS.as(STATUS), journeyOutcome(JOURNEY.STATUS).as(OUTCOME), JOURNEY.COMMENTS.as(COMMENTS),
-          JOURNEY.SKIP_REASON.as(SKIP_REASON), DSL.cast(null, SQLDataType.CLOB).as(RULE_ID_COLUMN),
-          DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_REASON), DSL.cast(null, SQLDataType.CLOB).as(EXCLUSION_STRATEGY),
-          DSL.cast(null, SQLDataType.CLOB).as(REPORTED_BATCH_ID),
-          JOURNEY.REPORTING_TIMESTAMP_LATEST.cast(SQLDataType.CLOB).as(REPORTING_TIMESTAMP_COLUMN),
-          JOURNEY.MODIFIED_TIMESTAMP.cast(SQLDataType.CLOB).as(MODIFIED_AT), JOURNEY.MODIFIED_TIMESTAMP.as(SORT_TIMESTAMP),
-          JOURNEY.PROCESSING_COMPLETE.as(PROCESSING_COMPLETE), DSL.cast(null, SQLDataType.DOUBLE).as(CURRENCY_AMOUNT),
-          DSL.cast(null, SQLDataType.CLOB).as(CURRENCY_CODE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SIDE), DSL.cast(null, SQLDataType.CLOB).as(TRANSACTION_SOURCE),
-          DSL.cast(null, SQLDataType.CLOB).as(ACTIVITY_TYPE), DSL.cast(null, SQLDataType.CLOB).as(SEND_DATE),
-          DSL.cast(null, SQLDataType.CLOB).as(GALACTIC_ID), DSL.cast(null, SQLDataType.INTEGER).as(BUCKET_ID_COLUMN),
-          DSL.cast(null, SQLDataType.BIGINT).as(ATTEMPT_ID_COLUMN),
-          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(RRA_KEY), journeyRank)
-      .from(JOURNEY)
-      .join(batchScope)
-      .on(bsRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(bsBatchId.eq(JOURNEY.BATCH_ID))
-      .join(target)
-      .on(targetRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(targetIdentifier.eq(JOURNEY.IDENTIFIER))
-      .asTable("ranked_journey");
-
-    Field<Integer> rank = requiredField(ranked, SOURCE_RANK, Integer.class);
-    return dsl.select(ranked.fields()).from(ranked).where(rank.eq(1)).asTable("latest_journey");
-  }
-
-  /**
-   * Excluded/Not Reported, reached from the Transactions Overview dashboard tiles, are answered
-   * from {@link #reportingRoll} -- the same "ever excluded"/"ever reported across full journey
-   * history" definition the tile itself counted -- via {@link #reportingTarget} and {@link
-   * #latestJourneyForTarget}, entirely independent of the per-batch evidence/merge pipeline every
-   * other status still uses ({@link #evidenceForPeriod}/{@link #filteredEvidenceForPeriod}). The
-   * two pipelines are deliberately not shared: they answer genuinely different questions ("this
-   * batch's evidence rows" vs. "this transaction's whole history"), and an earlier attempt to fold
-   * the roll-up into the per-batch pipeline as an extra filter condition shipped a real bug -- a
-   * transaction reprocessed across several batches surfaced once per batch instead of once, since
-   * the merge step groups by (batch, identifier) while the roll-up is inherently per-identifier
-   * only.
-   *
-   * <p>{@code filtered} here is already effectively one row per identifier ({@code
-   * latestJourneyForTarget} already ranked to exactly one), so {@link #pageEvidence}'s Pass 2 merge
-   * is a no-op in substance (nothing to collapse) -- but reusing it rather than a separate
-   * single-pass helper is what gives this path real cursor-pagination support for free, instead of
-   * a client's cursor being silently ignored whenever the requested status happens to route here.
-   */
-  private EvidencePage findOverviewEvidenceRecords(Table<?> batchScope, String status, String reason, String search, String outcome,
-      String sortDirection, int size, long offset, EvidenceCursor cursor) {
-    var roll = reportingRoll(batchScope);
-    var target = reportingTarget(roll, status, reason);
-    var latest = latestJourneyForTarget(batchScope, target);
-    var filtered = filteredEvidenceForPeriod(latest, search, outcome, "ALL");
-    var ruleHitMatches = ruleHitMatchesForPeriod(batchScope, status);
-    return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
-  }
-
-  private long countOverviewEvidenceRecords(Table<?> batchScope, String status, String reason, String search, String outcome) {
-    var roll = reportingRoll(batchScope);
-    var target = reportingTarget(roll, status, reason);
-    if (search.isEmpty() && "ALL".equals(outcome)) {
-      return dsl.selectCount().from(target).fetchOne(0, Long.class);
-    }
-    var latest = latestJourneyForTarget(batchScope, target);
-    var filtered = filteredEvidenceForPeriod(latest, search, outcome, "ALL");
-    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
-    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
-    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
-    return count == null ? 0L : count;
-  }
-
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
       String reason, String sortDirection, int size, long offset, EvidenceCursor cursor) {
-    var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
+    Table<?> scope =
+        periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+            reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset, cursor);
+      return overviewEvidenceQueries.findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset,
+          cursor);
     }
-    var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
-    var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
-    return pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+    return periodEvidenceQueries.findEvidenceRecords(scope, search, outcome, status, sortDirection, size, offset, cursor);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records across the selected reporting period")
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
       String reason) {
-    var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
+    Table<?> scope =
+        periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+            reportGroupId, "");
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return countOverviewEvidenceRecords(scope, status, reason, search, outcome);
+      return overviewEvidenceQueries.countOverviewEvidenceRecords(scope, status, reason, search, outcome);
     }
-    var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
-    var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
-    Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
-    Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);
-    Long count = dsl.select(DSL.countDistinct(DSL.row(evidenceBatchId, identifier))).from(filtered).fetchOne(0, Long.class);
-    return count == null ? 0L : count;
-  }
-
-  private static TransactionEvidenceProjection toEvidenceProjection(Record r) {
-    Double currencyAmount = r.get("currencyAmount", Double.class);
-    return new TransactionEvidenceProjection(r.get("recordKey", String.class), r.get(IDENTIFIER, String.class), r.get("mtcn", String.class),
-        r.get(BATCH_ID_ALIAS, String.class), r.get("evidenceSource", String.class), r.get(STAGE, String.class), r.get(STATUS, String.class),
-        r.get(OUTCOME, String.class), r.get(COMMENTS, String.class), r.get("skipReason", String.class), r.get(RULE_ID_ALIAS, String.class),
-        r.get("exclusionReason", String.class), r.get("exclusionStrategy", String.class), r.get("reportedBatchId", String.class),
-        r.get(REPORTING_TIMESTAMP, String.class), r.get("modifiedAt", String.class), r.get("processingComplete", Boolean.class),
-        currencyAmount == null ? null : BigDecimal.valueOf(currencyAmount), r.get("currencyCode", String.class),
-        r.get("transactionDate", String.class), r.get("transactionSide", String.class), r.get("txnSource", String.class),
-        r.get("activityType", String.class), r.get("sendDate", String.class), r.get("galacticId", String.class),
-        r.get(BUCKET_ID_ALIAS, Integer.class), r.get(ATTEMPT_ID_ALIAS, Long.class), r.get("senderName", String.class),
-        r.get("receiverName", String.class), r.get("senderCity", String.class), r.get("senderCountry", String.class),
-        r.get("senderPhone", String.class), r.get("senderDateOfBirth", String.class), r.get("senderIdType", String.class),
-        r.get("senderIdNumber", String.class), r.get("receiverCity", String.class), r.get("receiverCountry", String.class),
-        r.get("receiverPhone", String.class), r.get("receiverDateOfBirth", String.class), r.get("receiverIdType", String.class),
-        r.get("receiverIdNumber", String.class), r.get("transactionStatus", String.class), r.get("transactionSubStatus", String.class),
-        r.get("ruleHitsJson", String.class));
+    return periodEvidenceQueries.countEvidenceRecords(scope, search, outcome, status);
   }
 }
