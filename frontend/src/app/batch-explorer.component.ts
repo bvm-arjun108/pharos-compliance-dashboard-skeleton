@@ -135,6 +135,10 @@ interface BatchDetailsResponse {
   exclusionsAvailable: boolean;
   discoveredTransactions: number;
   stalledTransactions: number;
+  // The report_group_config version this batch actually ran under (from its own report_batch_info
+  // row) -- null for NOT_YET_REPORTED batches, which have no report_batch_info row yet.
+  reportSelectionVersionId: number | null;
+  transformerVersionId: string | null;
 }
 
 interface ReportConfigSummary {
@@ -152,6 +156,16 @@ interface ReportConfigSummary {
 
 interface ReportConfigExplorerResponse {
   configurations: ReportConfigSummary[];
+}
+
+// Only the fields this page reads from GET /api/v1/report-configs/{reportGroupId}/
+// {reportSelectionVersionId}/{transformerVersionId} -- the full response also carries
+// processingBehavior/rules/strategies, which this summary panel doesn't show.
+interface ReportConfigDetailsResponse {
+  identity: { reportGroupId: number; reportGroupName: string | null; countryCode: string; countryName: string; reportType: string | null;
+    active: boolean };
+  versioning: { reportSelectionVersionId: number; transformerVersionId: string; modifiedAt: string | null };
+  mapping: { serviceName: string | null };
 }
 
 @Component({
@@ -520,6 +534,7 @@ export class BatchExplorerComponent implements OnInit {
     this.detailLoading.set(true);
     this.detailError.set(null);
     this.selectedDetails.set(null);
+    this.reportConfigSummary.set(null);
     const batchId = encodeURIComponent(batch.batchId);
     const url = `/api/v1/batches/${batch.reportGroupId}/${batchId}/${batch.sequenceNumber}`;
     this.http.get<BatchDetailsResponse>(url).subscribe({
@@ -527,6 +542,11 @@ export class BatchExplorerComponent implements OnInit {
         if (this.batchKey(this.selectedBatch()) === this.batchKey(batch)) {
           this.selectedDetails.set(details);
           this.detailLoading.set(false);
+          // Uses this batch's own report_group_config version (from its report_batch_info row),
+          // not whatever the report group's current/latest version happens to be -- a config
+          // change since this batch ran would otherwise show the wrong report type, mapping
+          // service, or active status for what actually processed it.
+          this.loadReportConfigSummary(batch.reportGroupId, details.reportSelectionVersionId, details.transformerVersionId);
         }
       },
       error: () => {
@@ -534,17 +554,33 @@ export class BatchExplorerComponent implements OnInit {
         this.detailError.set('The selected batch preview could not be loaded.');
       }
     });
-    this.loadReportConfigSummary(batch.reportGroupId);
   }
 
-  private loadReportConfigSummary(reportGroupId: number): void {
+  private loadReportConfigSummary(reportGroupId: number, reportSelectionVersionId: number | null, transformerVersionId: string | null): void {
+    if (reportSelectionVersionId === null || transformerVersionId === null) {
+      // No report_batch_info row for this batch (e.g. NOT_YET_REPORTED) -- there's no version to
+      // look up yet, so fall straight to the "no record found" empty state rather than guessing.
+      this.reportConfigSummary.set(null);
+      return;
+    }
     this.reportConfigLoading.set(true);
     this.reportConfigSummary.set(null);
-    const params = new HttpParams().set('reportGroupId', reportGroupId).set('status', 'ALL');
-    this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs', { params }).subscribe({
+    const path = `/api/v1/report-configs/${reportGroupId}/${reportSelectionVersionId}/${encodeURIComponent(transformerVersionId)}`;
+    this.http.get<ReportConfigDetailsResponse>(path).subscribe({
       next: response => {
         if (this.selectedBatch()?.reportGroupId === reportGroupId) {
-          this.reportConfigSummary.set(response.configurations[0] ?? null);
+          this.reportConfigSummary.set({
+            reportGroupId: response.identity.reportGroupId,
+            reportGroupName: response.identity.reportGroupName,
+            reportSelectionVersionId: response.versioning.reportSelectionVersionId,
+            transformerVersionId: response.versioning.transformerVersionId,
+            countryCode: response.identity.countryCode,
+            countryName: response.identity.countryName,
+            reportType: response.identity.reportType,
+            active: response.identity.active,
+            mappingServiceName: response.mapping.serviceName,
+            modifiedAt: response.versioning.modifiedAt
+          });
           this.reportConfigLoading.set(false);
         }
       },

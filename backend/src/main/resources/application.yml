@@ -56,8 +56,8 @@ logging:
   include-application-name: false
   level:
     com.pharos.compliance: INFO
-    # The listener emits SQL only at DEBUG. Set JOOQ_SQL_LOG_LEVEL=OFF in environments where
-    # query text and inlined bind values must not be written to logs.
+    # DEBUG includes SQL, inlined bind values, and complete fetched database rows as pretty JSON.
+    # These may contain sensitive transaction data. Set JOOQ_SQL_LOG_LEVEL=OFF outside controlled debugging.
     com.pharos.compliance.common.jooq.logging.PrettySqlExecuteListener: ${JOOQ_SQL_LOG_LEVEL:DEBUG}
     com.zaxxer.hikari: WARN
     org.apache.catalina: WARN

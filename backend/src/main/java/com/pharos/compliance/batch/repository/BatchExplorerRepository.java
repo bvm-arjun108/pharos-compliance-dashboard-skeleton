@@ -12,6 +12,7 @@ import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
 import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
+import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
 import static com.pharos.compliance.jooq.tables.ReportGroupConfig.REPORT_GROUP_CONFIG;
 import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
 import java.time.LocalDateTime;
@@ -71,6 +72,9 @@ public class BatchExplorerRepository {
       REPORT_TRANSFORMATION_RECONCILIATION;
   private static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
   private static final com.pharos.compliance.jooq.tables.ReportGroupConfig CONFIG = REPORT_GROUP_CONFIG;
+  private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
+  private static final String REPORT_SELECTION_VERSION_ID_ALIAS = "reportSelectionVersionId";
+  private static final String TRANSFORMER_VERSION_ID_ALIAS = "transformerVersionId";
   private final DSLContext dsl;
 
   public BatchExplorerRepository(DSLContext dsl) {
@@ -371,7 +375,7 @@ public class BatchExplorerRepository {
     return value == null ? null : value.toLocalDateTime();
   }
 
-  @SqlQueryPurpose("Load reconciliation and issue evidence for one reported batch")
+  @SqlQueryPurpose("Selected batch > Data Selection, Data Transformation and Reconciliation cards > Load aggregate counters and evidence availability")
   public Optional<BatchDetailsProjection> getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
     return dsl
       .select(RECONCILIATION.RPT_GRP_ID.as(REPORT_GROUP_ID_ALIAS), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
@@ -427,8 +431,17 @@ public class BatchExplorerRepository {
                   RECONCILIATION.RPT_GRP_ID))
               .and(com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT.PROCESSING_BATCH_ID.eq(
                   RECONCILIATION.BATCH_ID)))
-            .as(EXCLUSIONS_AVAILABLE_ALIAS))
+            .as(EXCLUSIONS_AVAILABLE_ALIAS),
+          BATCH_INFO.SELECTION_VERSION.as(REPORT_SELECTION_VERSION_ID_ALIAS),
+          BATCH_INFO.TRANSFORMER_MAPPING_VERSION.as(TRANSFORMER_VERSION_ID_ALIAS))
       .from(RECONCILIATION)
+      // LEFT (not inner): a reconciliation row missing its report_batch_info counterpart should
+      // still return the rest of this batch's details -- it just can't identify which exact
+      // report_group_config version processed it (see the projection's own null-handling note).
+      .leftJoin(BATCH_INFO)
+      .on(BATCH_INFO.RPT_GRP_ID.eq(RECONCILIATION.RPT_GRP_ID))
+      .and(BATCH_INFO.BATCH_ID.eq(RECONCILIATION.BATCH_ID))
+      .and(BATCH_INFO.SEQ_NO.eq(RECONCILIATION.SEQ_NO))
       .where(RECONCILIATION.RPT_GRP_ID.eq(reportGroupId))
       .and(RECONCILIATION.BATCH_ID.eq(batchId))
       .and(RECONCILIATION.SEQ_NO.eq(sequenceNumber))
@@ -444,7 +457,8 @@ public class BatchExplorerRepository {
           requiredLong(r, TRANSFORMER_OUTPUT_ALIAS), requiredLong(r, EXCLUDED_TRANSACTIONS_ALIAS),
           requiredLong(r, SIMULATED_TRANSACTIONS_ALIAS), requiredLong(r, "alreadyReportedTransactions"),
           requiredLong(r, SOFT_DEDUP_TRANSACTIONS_ALIAS), requiredBoolean(r, JOURNEY_AVAILABLE_ALIAS),
-          requiredBoolean(r, EXCLUSIONS_AVAILABLE_ALIAS)));
+          requiredBoolean(r, EXCLUSIONS_AVAILABLE_ALIAS), r.get(REPORT_SELECTION_VERSION_ID_ALIAS, Integer.class),
+          r.get(TRANSFORMER_VERSION_ID_ALIAS, String.class)));
   }
 
   @SqlQueryPurpose("Load latest-state journey evidence for one not-yet-reported batch")

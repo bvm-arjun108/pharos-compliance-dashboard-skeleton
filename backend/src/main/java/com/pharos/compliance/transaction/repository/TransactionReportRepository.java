@@ -512,6 +512,7 @@ public class TransactionReportRepository {
    * next page exists -- the standard fetch-N+1 technique, since neither mode can otherwise answer
    * that without a second query (cursor mode deliberately has no count query to fall back on).
    */
+  @SqlQueryPurpose("Transaction list > Select page identifiers and one look-ahead row for next-page availability")
   private List<PageKey> fetchPageKeys(Table<?> sortKeys, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     Field<String> skEvidenceBatchId = requiredField(sortKeys, EVIDENCE_BATCH_ID, String.class);
     Field<String> skIdentifier = requiredField(sortKeys, IDENTIFIER, String.class);
@@ -640,6 +641,7 @@ public class TransactionReportRepository {
    * row order -- and runs the LATERAL rule_hit rollup + {@code reg_reportable_activity} join,
    * unchanged from the original single-pass design and already scoped to just this page.
    */
+  @SqlQueryPurpose("Transaction list > Load complete evidence and enrichment for the selected page identifiers")
   private List<TransactionEvidenceProjection> selectFinalPage(Table<?> merged, Table<?> ruleHitMatches, String sortDirection) {
     return selectEvidenceProjection(merged, ruleHitMatches)
       .orderBy(
@@ -1039,8 +1041,9 @@ public class TransactionReportRepository {
     Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
 
     return dsl
-      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER,
-          DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
+      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_COLUMN), JOURNEY.IDENTIFIER, DSL
+            .boolOr(everExcludedCondition)
+            .as(EVER_EXCLUDED_COLUMN), DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
           DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN),
           DSL.max(notReportedReasonColumn).as(NOT_REPORTED_REASON_COLUMN))
       .from(JOURNEY)
@@ -1096,11 +1099,13 @@ public class TransactionReportRepository {
     return dsl.select(rollRptGrpId, rollIdentifier).from(roll).where(bucketCondition).asTable("reporting_target");
   }
 
-  /** "Other" isn't one reason value -- it's every reason DashboardRepository#topReasonsThenOther
+  /**
+   * "Other" isn't one reason value -- it's every reason DashboardRepository#topReasonsThenOther
    *  didn't rank in its own top {@code TOP_REASON_LIMIT}. Reproducing that same ranking here (over
    *  the identical {@code roll}, scoped to the same {@code baseCondition} the caller already
    *  narrowed to EXCLUDED/NOT_REPORTED) keeps this "Other" click limited to exactly the rows the
-   *  dashboard card's own "Other" count summed, without the two repositories sharing code. */
+   *  dashboard card's own "Other" count summed, without the two repositories sharing code.
+   */
   private Condition otherReasonCondition(Table<?> roll, Field<String> rollReason, Condition baseCondition) {
     var topReasons = dsl
       .select(rollReason)

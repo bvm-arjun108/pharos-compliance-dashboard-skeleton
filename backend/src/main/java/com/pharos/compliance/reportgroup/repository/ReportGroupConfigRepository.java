@@ -39,7 +39,7 @@ public class ReportGroupConfigRepository {
   private static final String COUNTRY_CODE_ALIAS = "countryCode";
   private static final String COUNTRY_NAME_ALIAS = "countryName";
   private static final String DATABASE_LOOKUP_ENABLED_ALIAS = "databaseLookupEnabled";
-  private static final String GROUP_ACTIVE_FLAG_COLUMN = "group_active_flag";
+  private static final String CONFIG_ACTIVE_FLAG_COLUMN = "config_active_flag";
   private static final String MAPPING_SERVICE_NAME_ALIAS = "mappingServiceName";
   private static final String MODIFIED_AT_ALIAS = "modifiedAt";
   private static final String PARTIAL_REPORT_ALIAS = "partialReport";
@@ -122,24 +122,29 @@ public class ReportGroupConfigRepository {
 
   /**
    * Shared by {@link #getSummary} and {@link #findReportConfigs}: the latest configuration per
-   * report group, with the group's overall active/inactive status computed as {@code BOOL_AND(...)}
-   * across every version that group has ever had (not just the latest one), then narrowed by the
-   * caller's country/status/reportType/reportGroupId filters.
+   * report group, with active/inactive status taken from that specific version's own {@code
+   * rpt_config_active_flag} -- narrowed by the caller's country/status/reportType/reportGroupId
+   * filters.
+   *
+   * <p>Previously this computed {@code BOOL_AND(rpt_config_active_flag)} across every version the
+   * report group has ever had, not just the one being shown. That meant a report group could be
+   * live today, on a config version that's flagged active, and still show "Inactive" forever
+   * simply because some earlier, since-superseded version had been deactivated when it was
+   * replaced -- an expected, normal event in that version's own history, not a sign anything is
+   * currently wrong with the group. Scoping the flag to the row actually being displayed avoids
+   * that.
    */
   private Table<Record> filteredLatestConfigs(String country, String status, String reportType, Integer reportGroupId) {
-    Field<Boolean> groupActiveFlag = DSL
-      .boolAnd(DSL.coalesce(CONFIG.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false)))
-      .over(DSL.partitionBy(CONFIG.RPT_GRP_ID))
-      .as(GROUP_ACTIVE_FLAG_COLUMN);
+    Field<Boolean> configActiveFlag = DSL.coalesce(CONFIG.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false)).as(CONFIG_ACTIVE_FLAG_COLUMN);
 
     Table<Record> rankedConfigs =
-        dsl.select(CONFIG.asterisk(), latestConfigRank(), groupActiveFlag).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
+        dsl.select(CONFIG.asterisk(), latestConfigRank(), configActiveFlag).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
 
     Field<String> countryCode = requiredField(rankedConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
     Field<String> reportTypeField = requiredField(rankedConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
     Field<Integer> reportGroupIdField = requiredField(rankedConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
     Field<Integer> configRank = requiredField(rankedConfigs, CONFIG_RANK_COLUMN, Integer.class);
-    Field<Boolean> groupActiveFlagField = requiredField(rankedConfigs, GROUP_ACTIVE_FLAG_COLUMN, Boolean.class);
+    Field<Boolean> configActiveFlagField = requiredField(rankedConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
 
     return dsl
       .select(rankedConfigs.fields())
@@ -149,10 +154,10 @@ public class ReportGroupConfigRepository {
       .and(
           switch (status) {
             case "ALL" -> DSL.trueCondition();
-            case "ACTIVE" -> groupActiveFlagField.isTrue();
+            case "ACTIVE" -> configActiveFlagField.isTrue();
             // Field<Boolean> has no isNotTrue(); DSL.not(x.isTrue()) is the exact equivalent of
             // "IS NOT TRUE" for all three truth values, including NULL.
-            case "INACTIVE" -> DSL.not(groupActiveFlagField.isTrue());
+            case "INACTIVE" -> DSL.not(configActiveFlagField.isTrue());
             default -> DSL.falseCondition();
           })
       .and(
@@ -167,12 +172,12 @@ public class ReportGroupConfigRepository {
   public ReportConfigSummaryProjection getSummary(String country, String status, String reportType, Integer reportGroupId) {
     Table<Record> filteredConfigs = filteredLatestConfigs(country, status, reportType, reportGroupId);
 
-    Field<Boolean> groupActiveFlag = requiredField(filteredConfigs, GROUP_ACTIVE_FLAG_COLUMN, Boolean.class);
+    Field<Boolean> configActiveFlag = requiredField(filteredConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
     Field<String> countryCode = requiredField(filteredConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
     Field<String> reportTypeField = requiredField(filteredConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
 
     return dsl
-      .select(DSL.count().as("totalConfigurations"), DSL.count().filterWhere(groupActiveFlag.isTrue()).as("activeConfigurations"),
+      .select(DSL.count().as("totalConfigurations"), DSL.count().filterWhere(configActiveFlag.isTrue()).as("activeConfigurations"),
           DSL
             .countDistinct(DSL.upper(DSL.trim(countryCode)))
             .filterWhere(countryCode.isNotNull().and(DSL.trim(countryCode).ne("")))
@@ -196,7 +201,7 @@ public class ReportGroupConfigRepository {
     Field<String> countryName = requiredField(filteredConfigs, CONFIG.COUNTRY_NAME.getName(), String.class);
     Field<String> regionName = requiredField(filteredConfigs, CONFIG.REGION_NAME.getName(), String.class);
     Field<String> reportTypeField = requiredField(filteredConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
-    Field<Boolean> groupActiveFlag = requiredField(filteredConfigs, GROUP_ACTIVE_FLAG_COLUMN, Boolean.class);
+    Field<Boolean> configActiveFlag = requiredField(filteredConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
     Field<Boolean> isPartialReport = requiredField(filteredConfigs, CONFIG.IS_PARTIAL_REPORT.getName(), Boolean.class);
     Field<Boolean> dbLookupEnabled = requiredField(filteredConfigs, CONFIG.DB_LOOKUP_ENABLED.getName(), Boolean.class);
     Field<String> mappingServiceName = requiredField(filteredConfigs, CONFIG.MAPPING_SERVICE_NAME.getName(), String.class);
@@ -208,13 +213,13 @@ public class ReportGroupConfigRepository {
         DSL.coalesce(DSL.nullif(DSL.trim(countryName), DSL.inline("")), DSL.upper(DSL.trim(countryCode))).as(COUNTRY_NAME_ALIAS);
     var reportGroupNameOut = reportGroupName.as(REPORT_GROUP_NAME_ALIAS);
 
-    SortField<?> activeFirst = DSL.when(groupActiveFlag.isTrue(), 0).otherwise(1).asc();
+    SortField<?> activeFirst = DSL.when(configActiveFlag.isTrue(), 0).otherwise(1).asc();
 
     return dsl
       .select(reportGroupIdField.as(REPORT_GROUP_ID_ALIAS), reportGroupNameOut,
           reportSelectionVersionId.as(REPORT_SELECTION_VERSION_ID_ALIAS), transformerVersionId.as(TRANSFORMER_VERSION_ID_ALIAS),
           countryCodeOut, countryNameOut, regionName.as(REGION_NAME_ALIAS), reportTypeField.as(REPORT_TYPE_ALIAS),
-          DSL.coalesce(groupActiveFlag, DSL.inline(false)).as(ACTIVE_ALIAS),
+          DSL.coalesce(configActiveFlag, DSL.inline(false)).as(ACTIVE_ALIAS),
           DSL.coalesce(isPartialReport, DSL.inline(false)).as(PARTIAL_REPORT_ALIAS),
           DSL.coalesce(dbLookupEnabled, DSL.inline(false)).as(DATABASE_LOOKUP_ENABLED_ALIAS),
           mappingServiceName.as(MAPPING_SERVICE_NAME_ALIAS), modifiedAt.as(MODIFIED_AT_ALIAS))
@@ -231,14 +236,11 @@ public class ReportGroupConfigRepository {
   @SqlQueryPurpose("Load one report-group configuration version and its strategy metadata")
   public Optional<ReportConfigDetailsProjection> findReportConfigDetails(int reportGroupId, int reportSelectionVersionId,
       String transformerVersionId) {
-    com.pharos.compliance.jooq.tables.ReportGroupConfig sibling = CONFIG.as("sibling");
-
-    Field<Boolean> active = DSL
-      .coalesce(DSL.field(dsl
-            .select(DSL.boolAnd(DSL.coalesce(sibling.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false))))
-            .from(sibling)
-            .where(sibling.RPT_GRP_ID.eq(CONFIG.RPT_GRP_ID))), DSL.inline(false))
-      .as(ACTIVE_ALIAS);
+    // This exact version's own flag -- not BOOL_AND across every version the report group has ever
+    // had (see filteredLatestConfigs' doc comment for why that group-wide aggregate is wrong: a
+    // long-since-superseded old version being deactivated when it was replaced is normal, and
+    // shouldn't make a currently-active version report itself as "Inactive").
+    Field<Boolean> active = DSL.coalesce(CONFIG.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false)).as(ACTIVE_ALIAS);
 
     var countryCodeOut = DSL.upper(DSL.trim(CONFIG.COUNTRY_CODE)).as(COUNTRY_CODE_ALIAS);
     var countryNameOut = DSL

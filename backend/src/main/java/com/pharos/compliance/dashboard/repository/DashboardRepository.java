@@ -84,7 +84,7 @@ public class DashboardRepository {
     return condition;
   }
 
-  @SqlQueryPurpose("Load dashboard headline batch, issue, and transaction totals")
+  @SqlQueryPurpose("Batch View > Headline KPI cards > Load batch totals and issue counts")
   public DashboardCountsProjection getDashboardCounts(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     Condition scope = RECONCILIATION.CREATED_TIMESTAMP
@@ -192,7 +192,7 @@ public class DashboardRepository {
    * that scope specifically to see its full batch health, attention-needing or not, so this returns
    * every group in scope unfiltered instead of possibly hiding the one row they came here for.
    */
-  @SqlQueryPurpose("Load report groups requiring attention, ordered by operational priority")
+  @SqlQueryPurpose("Batch View > Report Groups Requiring Attention table > Load prioritized group metrics")
   public List<ReportGroupMetricsProjection> getReportGroupsRequiringAttention(LocalDateTime fromTimestamp,
       LocalDateTime toTimestampExclusive, String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup,
       int reportGroupId) {
@@ -235,7 +235,6 @@ public class DashboardRepository {
     Field<Long> activityMissingBatches = requiredField(reportGroupMetrics, ACTIVITY_MISSING_BATCHES_COLUMN, Long.class);
     Field<Long> totalReported = requiredField(reportGroupMetrics, TOTAL_REPORTED_TRANSACTIONS_COLUMN, Long.class);
     Field<Long> totalExcluded = requiredField(reportGroupMetrics, TOTAL_EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
-
     // A specific report group or country is exactly what the caller wants full detail on -- don't
     // additionally hide rows within that already-narrow scope for having nothing to flag.
     Condition attentionScope = filterByReportGroup || filterByCountry ? DSL.trueCondition() : batchesNeedingAttention.gt(0L);
@@ -257,7 +256,7 @@ public class DashboardRepository {
           requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)));
   }
 
-  @SqlQueryPurpose("Load successful and failed batch counts for the adaptive health trend")
+  @SqlQueryPurpose("Batch View > Adaptive Batch Health chart > Load successful and failed batch counts")
   public List<BatchHealthTrendProjection> getBatchHealthTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
       boolean filterByReportGroup, int reportGroupId) {
@@ -371,7 +370,7 @@ public class DashboardRepository {
    * independently -- the {@code batch_generated} condition, the exact stage/status literals, and the
    * bucket definitions below are intentionally unchanged from that source.
    */
-  @SqlQueryPurpose("Summarize expected, selected, excluded, and not-reported transactions from full journey history")
+  @SqlQueryPurpose("Transactions Overview > Selected / Expected / Excluded / Not Reported KPI cards > Aggregate transaction evidence")
   public TransactionOverviewProjection getTransactionOverview(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     Condition scope = RECONCILIATION.CREATED_TIMESTAMP
@@ -447,9 +446,9 @@ public class DashboardRepository {
    * a longer flat list -- deliberately the actual free-text reason values (not a synthesized
    * category), same as {@link #getNotReportedReasons}.
    */
-  @SqlQueryPurpose("Summarize excluded transactions by reason, from full journey history")
-  public List<ExclusionReasonProjection> getTopExclusionReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+  @SqlQueryPurpose("Transactions Overview > Top Exclusion Reasons chart > Aggregate excluded transactions by reason")
+  public List<ExclusionReasonProjection> getTopExclusionReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     Condition scope = RECONCILIATION.CREATED_TIMESTAMP
       .ge(fromTimestamp)
       .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
@@ -515,8 +514,12 @@ public class DashboardRepository {
    * for "top"), which can otherwise outrank the 3rd-place reason on a long tail of distinct values.
    */
   private List<ReasonCount> topReasonsThenOther(Table<?> roll, Condition filter, Field<String> reasonField) {
-    var reasonCounts =
-        dsl.select(reasonField.as(REASON_COLUMN), DSL.count().as("count")).from(roll).where(filter).groupBy(reasonField).asTable("reason_counts");
+    var reasonCounts = dsl
+      .select(reasonField.as(REASON_COLUMN), DSL.count().as("count"))
+      .from(roll)
+      .where(filter)
+      .groupBy(reasonField)
+      .asTable("reason_counts");
 
     Field<String> countsReason = requiredField(reasonCounts, REASON_COLUMN, String.class);
     Field<Integer> countsCount = requiredField(reasonCounts, "count", Integer.class);
@@ -528,7 +531,6 @@ public class DashboardRepository {
     Field<Integer> rankedCount = requiredField(ranked, "count", Integer.class);
     Field<Integer> rankedRank = requiredField(ranked, "rn", Integer.class);
     Field<String> bucketed = DSL.when(rankedRank.le(TOP_REASON_LIMIT), rankedReason).otherwise(DSL.inline(OTHER_REASON));
-
     // Materialized as its own table (rather than grouping/ordering by the `bucketed` CASE
     // expression directly) so the outer aggregate below groups and orders by a plain output column
     // -- Postgres rejects an ORDER BY expression that re-embeds `rn` (via `bucketed`) once the query
@@ -559,7 +561,7 @@ public class DashboardRepository {
    * recorded reason text plus a top-3-then-"Other" cutoff avoids that redefinition cycle entirely,
    * matching the exclusion reasons card's own shape.
    */
-  @SqlQueryPurpose("Summarize not-reported transactions by reason, from full journey history")
+  @SqlQueryPurpose("Transactions Overview > Not Reported Breakdown chart > Aggregate transactions by reason")
   public List<NotReportedReasonProjection> getNotReportedReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     Condition scope = RECONCILIATION.CREATED_TIMESTAMP

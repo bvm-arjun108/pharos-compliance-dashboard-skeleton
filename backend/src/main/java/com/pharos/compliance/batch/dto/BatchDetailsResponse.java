@@ -16,4 +16,8 @@ public record BatchDetailsResponse(int reportGroupId, String reportGroupName, St
     boolean exclusionsAvailable,
     @Schema(description = "For NOT_YET_REPORTED batches only: distinct transactions seen in journey evidence so far", example = "0") long discoveredTransactions,
     @Schema(description = "For NOT_YET_REPORTED batches only: of the discovered transactions, how many have permanently stalled (an "
-    + "error state the pipeline will not retry, e.g. attempt never received) rather than simply still being in progress", example = "0") long stalledTransactions) {}
+    + "error state the pipeline will not retry, e.g. attempt never received) rather than simply still being in progress", example = "0") long stalledTransactions,
+    @Schema(description = "The report_group_config version this batch actually ran under (from its own report_batch_info row), for "
+    + "looking up that exact configuration instead of whatever the report group's current/latest version happens to be. Null for "
+    + "NOT_YET_REPORTED batches, which have no report_batch_info row yet", example = "104") Integer reportSelectionVersionId,
+    @Schema(description = "Paired with reportSelectionVersionId to form the report_group_config composite key", example = "load-4.0") String transformerVersionId) {}

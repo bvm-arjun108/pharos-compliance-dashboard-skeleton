@@ -164,15 +164,17 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         batch.actualReportableTransactions(), batch.expectedTransformationAttempts(), batch.actualTransformationAttempts(),
         batch.transformedActivities(), transformationBalanced, batch.transformerOutput(), null, batch.excludedTransactions(),
         batch.simulatedTransactions(), batch.alreadyReportedTransactions(), batch.softDedupTransactions(), batch.journeyAvailable(), false,
-        batch.exclusionsAvailable(), 0, 0);
+        batch.exclusionsAvailable(), 0, 0, batch.reportSelectionVersionId(), batch.transformerVersionId());
   }
 
   private BatchDetailsResponse toDetailsResponseNotYetReported(NotYetReportedBatchDetailsProjection batch, CountryCatalogSnapshot catalog) {
     CountryDefinition country = catalog.getForReportGroup(batch.reportGroupId());
+    // No report_batch_info row exists yet for a batch that hasn't been reconciled -- there is no
+    // "version this batch ran under" to report, unlike the reconciled case above.
     return new BatchDetailsResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), 0, country.code(), country.name(), null,
         null, batch.startedAt(), null, 0, "IN_PROGRESS", BatchStatus.NOT_YET_REPORTED, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, 0,
         null, 0, 0, 0, 0, batch.journeyAvailable(), false, batch.exclusionsAvailable(), batch.discoveredTransactions(),
-        batch.stalledTransactions());
+        batch.stalledTransactions(), null, null);
   }
 
   private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {
