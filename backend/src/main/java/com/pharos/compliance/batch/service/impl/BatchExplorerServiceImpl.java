@@ -13,7 +13,6 @@ import com.pharos.compliance.batch.repository.BatchExplorerRepository;
 import com.pharos.compliance.batch.repository.projection.BatchDetailsProjection;
 import com.pharos.compliance.batch.repository.projection.BatchQueueProjection;
 import com.pharos.compliance.batch.repository.projection.BatchSummaryProjection;
-import com.pharos.compliance.batch.repository.projection.NotYetReportedBatchDetailsProjection;
 import com.pharos.compliance.batch.service.BatchExplorerService;
 import com.pharos.compliance.common.exception.InvalidDateRangeException;
 import com.pharos.compliance.common.exception.InvalidRequestException;
@@ -82,10 +81,10 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         countryFilter.countryCode(), reportGroupId, metricFocus, page, size);
 
     LOGGER.info("Batch queue ready | period={}..{} | country={} | reportGroupId={} | status={} | issueType={} | metricFocus={}"
-        + " | all={} | successful={} | attention={} | notYetReported={} | matched={} | returned={} | page={} | size={} | duration={}ms",
-        fromDate, toDate, countryFilter.countryCode(), reportGroupId == null ? "ALL" : reportGroupId, status, issueType, metricFocus,
-        summary.allBatches(), summary.successfulBatches(), summary.attentionBatches(), summary.notYetReportedBatches(),
-        response.matchingBatches(), response.batches().size(), page, size, (System.nanoTime() - startedAt) / 1_000_000);
+        + " | all={} | successful={} | attention={} | matched={} | returned={} | page={} | size={} | duration={}ms", fromDate, toDate,
+        countryFilter.countryCode(), reportGroupId == null ? "ALL" : reportGroupId, status, issueType, metricFocus, summary.allBatches(),
+        summary.successfulBatches(), summary.attentionBatches(), response.matchingBatches(), response.batches().size(), page, size,
+        (System.nanoTime() - startedAt) / 1_000_000);
     return response;
   }
 
@@ -94,9 +93,11 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     long startedAt = System.nanoTime();
     LOGGER.debug("Batch details requested | reportGroupId={} | batchId={} | sequence={}", reportGroupId, batchId, sequenceNumber);
 
-    BatchDetailsResponse response = sequenceNumber == 0
-        ? getNotYetReportedBatchDetails(reportGroupId, batchId)
-        : getReconciledBatchDetails(reportGroupId, batchId, sequenceNumber);
+    BatchDetailsProjection details = batchExplorerRepository
+      .getBatchDetails(reportGroupId, batchId, sequenceNumber)
+      .orElseThrow(() -> new ResourceNotFoundException("Batch was not found for the supplied report group and sequence"));
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    BatchDetailsResponse response = toDetailsResponse(details, catalog);
 
     LOGGER.info("Batch details ready | reportGroupId={} | reportGroupName={} | batchId={} | sequence={} | status={} | operationalStatus={}"
         + " | issues={} | selectedTransactions={} | transformerOutput={} | excludedTransactions={} | duration={}ms", reportGroupId,
@@ -104,22 +105,6 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         response.selectedTransactions(), response.transformerOutput(), response.excludedTransactions(),
         (System.nanoTime() - startedAt) / 1_000_000);
     return response;
-  }
-
-  private BatchDetailsResponse getReconciledBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
-    BatchDetailsProjection details = batchExplorerRepository
-      .getBatchDetails(reportGroupId, batchId, sequenceNumber)
-      .orElseThrow(() -> new ResourceNotFoundException("Batch was not found for the supplied report group and sequence"));
-    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-    return toDetailsResponse(details, catalog);
-  }
-
-  private BatchDetailsResponse getNotYetReportedBatchDetails(int reportGroupId, String batchId) {
-    NotYetReportedBatchDetailsProjection details = batchExplorerRepository
-      .getNotYetReportedBatchDetails(reportGroupId, batchId)
-      .orElseThrow(() -> new ResourceNotFoundException("Batch was not found for the supplied report group and batch id"));
-    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-    return toDetailsResponseNotYetReported(details, catalog);
   }
 
   private BatchExplorerResponse toExplorerResponse(BatchSummaryProjection summary, List<BatchQueueProjection> queue,
@@ -130,9 +115,10 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
       .map(batch -> toQueueItem(batch, catalog))
       .toList();
     long matchingBatches = queue.isEmpty() ? 0 : queue.getFirst().matchingCount();
-    return new BatchExplorerResponse(new BatchExplorerSummaryResponse(summary.allBatches(), summary.successfulBatches(),
-            summary.attentionBatches(), summary.notYetReportedBatches()), batches, matchingBatches, page, size, fromDate, toDate, status,
-        issueType, batchId, country, reportGroupId, reportGroupId == null ? null : summary.reportGroupName(), metricFocus);
+    return new BatchExplorerResponse(
+        new BatchExplorerSummaryResponse(summary.allBatches(), summary.successfulBatches(), summary.attentionBatches()), batches,
+        matchingBatches, page, size, fromDate, toDate, status, issueType, batchId, country, reportGroupId,
+        reportGroupId == null ? null : summary.reportGroupName(), metricFocus);
   }
 
   private BatchQueueItemResponse toQueueItem(BatchQueueProjection batch, CountryCatalogSnapshot catalog) {
@@ -141,13 +127,10 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         country.code(), country.name(), batch.reportingPeriodFrom(), batch.reportingPeriodTo(), batch.startedAt(), batch.completedAt(),
         queueItemStatus(batch), batch.transformationFailures(), batch.missingAttempts(), batch.activityMissing(), batch.filtrationErrors(),
         batch.reconciliationImbalance(), batch.transformerOutput(), batch.excludedTransactions(), batch.duplicateTransactions(),
-        batch.simulatedTransactions(), batch.softDedupTransactions(), batch.totalIssues(), batch.discoveredTransactions());
+        batch.simulatedTransactions(), batch.softDedupTransactions(), batch.totalIssues());
   }
 
   private BatchStatus queueItemStatus(BatchQueueProjection batch) {
-    if ("NOT_YET_REPORTED".equals(batch.statusBucket())) {
-      return BatchStatus.NOT_YET_REPORTED;
-    }
     return batch.totalIssues() == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION;
   }
 
@@ -164,17 +147,7 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         batch.actualReportableTransactions(), batch.expectedTransformationAttempts(), batch.actualTransformationAttempts(),
         batch.transformedActivities(), transformationBalanced, batch.transformerOutput(), null, batch.excludedTransactions(),
         batch.simulatedTransactions(), batch.alreadyReportedTransactions(), batch.softDedupTransactions(), batch.journeyAvailable(), false,
-        batch.exclusionsAvailable(), 0, 0, batch.reportSelectionVersionId(), batch.transformerVersionId());
-  }
-
-  private BatchDetailsResponse toDetailsResponseNotYetReported(NotYetReportedBatchDetailsProjection batch, CountryCatalogSnapshot catalog) {
-    CountryDefinition country = catalog.getForReportGroup(batch.reportGroupId());
-    // No report_batch_info row exists yet for a batch that hasn't been reconciled -- there is no
-    // "version this batch ran under" to report, unlike the reconciled case above.
-    return new BatchDetailsResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), 0, country.code(), country.name(), null,
-        null, batch.startedAt(), null, 0, "IN_PROGRESS", BatchStatus.NOT_YET_REPORTED, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, 0,
-        null, 0, 0, 0, 0, batch.journeyAvailable(), false, batch.exclusionsAvailable(), batch.discoveredTransactions(),
-        batch.stalledTransactions(), null, null);
+        batch.exclusionsAvailable(), batch.reportSelectionVersionId(), batch.transformerVersionId());
   }
 
   private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {

@@ -87,16 +87,15 @@ public class DashboardServiceImpl implements DashboardService {
       .toList();
 
     BatchDashboardResponse response = new BatchDashboardResponse(counts.batchesRan(),
-        counts.batchesRan() - counts.batchesNeedingAttention() - counts.batchesNotYetReported(), counts.batchesNotYetReported(),
-        counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
-        counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
+        counts.batchesRan() - counts.batchesNeedingAttention(), counts.batchesNeedingAttention(), counts.transformationFailureBatches(),
+        counts.missingAttemptBatches(), counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), scope.trendGranularity(), trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Batch dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={}"
-        + " | attention={} | notYetReported={} | issueReportGroups={} | trendBuckets={} | duration={}ms", fromDate, toDate,
-        scope.normalizedCountryCode(), reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(), response.successfulBatches(),
-        response.batchesNeedingAttention(), response.batchesNotYetReported(), response.reportGroupsRequiringAttention().size(),
-        response.batchHealthTrend().size(), (System.nanoTime() - startedAt) / 1_000_000);
+        + " | attention={} | issueReportGroups={} | trendBuckets={} | duration={}ms", fromDate, toDate, scope.normalizedCountryCode(),
+        reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(), response.successfulBatches(),
+        response.batchesNeedingAttention(), response.reportGroupsRequiringAttention().size(), response.batchHealthTrend().size(),
+        (System.nanoTime() - startedAt) / 1_000_000);
     return response;
   }
 

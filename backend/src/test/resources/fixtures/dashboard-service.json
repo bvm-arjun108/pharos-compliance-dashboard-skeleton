@@ -12,8 +12,7 @@
     }
   ],
   "counts": {
-    "batchesRan": 12,
-    "batchesNotYetReported": 2,
+    "batchesRan": 10,
     "batchesNeedingAttention": 3,
     "transformationFailureBatches": 2,
     "missingAttemptBatches": 1,

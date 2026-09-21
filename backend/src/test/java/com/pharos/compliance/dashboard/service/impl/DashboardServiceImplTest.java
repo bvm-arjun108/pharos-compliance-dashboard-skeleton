@@ -71,10 +71,9 @@ class DashboardServiceImplTest {
 
     BatchDashboardResponse response = dashboardService.getBatchDashboard(FROM_DATE, TO_DATE, " BIN ", "pt", null);
 
-    assertEquals(12, response.batchesRan());
+    assertEquals(10, response.batchesRan());
     assertEquals(7, response.successfulBatches());
     assertEquals(3, response.batchesNeedingAttention());
-    assertEquals(2, response.batchesNotYetReported());
     assertEquals(TrendGranularity.DAILY, response.trendGranularity());
     assertEquals(2, response.batchHealthTrend().size());
     assertEquals(5, response.batchHealthTrend().getFirst().batchesRan());

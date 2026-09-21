@@ -64,9 +64,8 @@ public interface BatchExplorerApi {
       @RequestParam(value = "size", defaultValue = "50") @Min(1) @Max(200) int size);
 
   @Operation(operationId = "getBatchPreview", summary = "Get the diagnostic preview for one batch", description = "Uses the report-group,"
-      + " batch, and sequence composite identity. A sequenceNumber of 0 is a sentinel for batches with journey evidence but no "
-      + "reconciliation record yet (NOT_YET_REPORTED); real sequence numbers start at 1. Journey and exclusion evidence are "
-      + "reported conditionally; downstream final-reported count remains unavailable until its authoritative source is integrated.")
+      + " batch, and sequence composite identity. Journey and exclusion evidence are reported conditionally; downstream "
+      + "final-reported count remains unavailable until its authoritative source is integrated.")
   @ApiResponses({@ApiResponse(responseCode = "200", description = "Batch preview returned successfully", headers = {@Header(name = TRACE_ID_HEADER, description = TRACE_ID_DESCRIPTION),
       @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)}, content = @Content(schema = @Schema(implementation = BatchDetailsResponse.class))),
       @ApiResponse(responseCode = "404", description = "No batch exists for the supplied composite identity", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
@@ -74,6 +73,5 @@ public interface BatchExplorerApi {
   @GetMapping(value = "/{reportGroupId}/{batchId}/{sequenceNumber}", produces = MediaType.APPLICATION_JSON_VALUE)
   BatchDetailsResponse getBatchDetails(@PathVariable("reportGroupId") @Min(1) int reportGroupId,
       @PathVariable("batchId") @NotBlank String batchId,
-      @Parameter(description = "Reconciliation sequence number, or 0 for a NOT_YET_REPORTED batch with no reconciliation record yet") @PathVariable("s"
-      + "equenceNumber") @Min(0) int sequenceNumber);
+      @Parameter(description = "Reconciliation sequence number") @PathVariable("sequenceNumber") @Min(1) int sequenceNumber);
 }

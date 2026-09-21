@@ -10,7 +10,6 @@ import com.pharos.compliance.dashboard.repository.projection.TransactionOverview
 import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
 import static com.pharos.compliance.common.jooq.JooqConditions.countDistinctTupleFiltered;
-import static com.pharos.compliance.common.jooq.JooqConditions.zonelessTimestampBetween;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
@@ -136,19 +135,6 @@ public class DashboardRepository {
       .from(rtrScope)
       .asTable("rtr_aggregates");
 
-    var notYetReported = dsl
-      .select(countDistinctTupleFiltered(DSL.trueCondition(), JOURNEY.RPT_GRP_ID, JOURNEY.BATCH_ID).as("batches_not_yet_reported"))
-      .from(JOURNEY)
-      .where(zonelessTimestampBetween(JOURNEY.CREATED_TIMESTAMP, fromTimestamp, toTimestampExclusive))
-      .and(containsIgnoreCase(JOURNEY.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, JOURNEY.RPT_GRP_ID))
-      .and(DSL.notExists(dsl
-        .selectOne()
-        .from(RECONCILIATION)
-        .where(RECONCILIATION.RPT_GRP_ID.eq(JOURNEY.RPT_GRP_ID))
-        .and(RECONCILIATION.BATCH_ID.eq(JOURNEY.BATCH_ID))))
-      .asTable("not_yet_reported");
-
     Field<Long> batchesRanA = requiredField(rtrAggregates, BATCHES_RAN_COLUMN, Long.class);
     Field<Long> batchesNeedingAttentionA = requiredField(rtrAggregates, BATCHES_NEEDING_ATTENTION_COLUMN, Long.class);
     Field<Long> transformationFailureBatchesA = requiredField(rtrAggregates, TRANSFORMATION_FAILURE_BATCHES_COLUMN, Long.class);
@@ -158,22 +144,18 @@ public class DashboardRepository {
     Field<Long> exclusionBatchesA = requiredField(rtrAggregates, "exclusion_batches", Long.class);
     Field<Long> simulatedTransactionBatchesA = requiredField(rtrAggregates, "simulated_transaction_batches", Long.class);
     Field<Long> softDedupBatchesA = requiredField(rtrAggregates, "soft_dedup_batches", Long.class);
-    Field<Long> batchesNotYetReportedN = requiredField(notYetReported, "batches_not_yet_reported", Long.class);
 
     return dsl
-      .select(batchesRanA.add(batchesNotYetReportedN).as(BATCHES_RAN_ALIAS), batchesNotYetReportedN.as("batchesNotYetReported"),
-          batchesNeedingAttentionA.as(BATCHES_NEEDING_ATTENTION_ALIAS),
+      .select(batchesRanA.as(BATCHES_RAN_ALIAS), batchesNeedingAttentionA.as(BATCHES_NEEDING_ATTENTION_ALIAS),
           transformationFailureBatchesA.as(TRANSFORMATION_FAILURE_BATCHES_ALIAS), missingAttemptBatchesA.as(MISSING_ATTEMPT_BATCHES_ALIAS),
           activityMissingBatchesA.as(ACTIVITY_MISSING_BATCHES_ALIAS), duplicateTransactionBatchesA.as("duplicateTransactionBatches"),
           exclusionBatchesA.as("exclusionBatches"), simulatedTransactionBatchesA.as("simulatedTransactionBatches"),
           softDedupBatchesA.as("softDedupBatches"))
       .from(rtrAggregates)
-      .crossJoin(notYetReported)
-      .fetchOptional(r -> new DashboardCountsProjection(requiredLong(r, BATCHES_RAN_ALIAS), requiredLong(r, "batchesNotYetReported"),
-          requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS), requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS),
-          requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS), requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS),
-          requiredLong(r, "duplicateTransactionBatches"), requiredLong(r, "exclusionBatches"),
-          requiredLong(r, "simulatedTransactionBatches"), requiredLong(r, "softDedupBatches")))
+      .fetchOptional(r -> new DashboardCountsProjection(requiredLong(r, BATCHES_RAN_ALIAS), requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS),
+          requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS), requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS),
+          requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS), requiredLong(r, "duplicateTransactionBatches"),
+          requiredLong(r, "exclusionBatches"), requiredLong(r, "simulatedTransactionBatches"), requiredLong(r, "softDedupBatches")))
       .orElseThrow(() -> new IllegalStateException("Dashboard count aggregate returned no row"));
   }
 

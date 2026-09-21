@@ -4,5 +4,4 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "Batch counts for the current date, country, and search context")
 public record BatchExplorerSummaryResponse(@Schema(example = "10") long allBatches, @Schema(example = "2") long successfulBatches,
-    @Schema(example = "8") long attentionBatches,
-    @Schema(description = "Batches with journey evidence but no reconciliation record yet", example = "1") long notYetReportedBatches) {}
+    @Schema(example = "8") long attentionBatches) {}

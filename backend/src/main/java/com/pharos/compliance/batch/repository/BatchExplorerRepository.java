@@ -4,16 +4,13 @@ import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.batch.repository.projection.BatchSummaryProjection;
 import com.pharos.compliance.batch.repository.projection.BatchQueueProjection;
 import com.pharos.compliance.batch.repository.projection.BatchDetailsProjection;
-import com.pharos.compliance.batch.repository.projection.NotYetReportedBatchDetailsProjection;
 import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
-import static com.pharos.compliance.common.jooq.JooqConditions.zonelessTimestampBetween;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
 import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
 import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
-import static com.pharos.compliance.jooq.tables.ReportGroupConfig.REPORT_GROUP_CONFIG;
 import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,9 +30,6 @@ public class BatchExplorerRepository {
   private static final String ACTIVITY_MISSING_COLUMN = "activity_missing";
   private static final String BATCH_ID_ALIAS = "batchId";
   private static final String COMPLETED_AT_ALIAS = "completedAt";
-  private static final String COMPLETED_AT_COLUMN = "completed_at";
-  private static final String DISCOVERED_TRANSACTIONS_ALIAS = "discoveredTransactions";
-  private static final String DISCOVERED_TRANSACTIONS_COLUMN = "discovered_transactions";
   private static final String DUPLICATE_TRANSACTIONS_ALIAS = "duplicateTransactions";
   private static final String DUPLICATE_TRANSACTIONS_COLUMN = "duplicate_transactions";
   private static final String EXCLUDED_TRANSACTIONS_ALIAS = "excludedTransactions";
@@ -59,10 +53,6 @@ public class BatchExplorerRepository {
   private static final String SOFT_DEDUP_TRANSACTIONS_ALIAS = "softDedupTransactions";
   private static final String SOFT_DEDUP_TRANSACTIONS_COLUMN = "soft_dedup_transactions";
   private static final String STARTED_AT_ALIAS = "startedAt";
-  private static final String STARTED_AT_COLUMN = "started_at";
-  private static final String STATUS_BUCKET_COLUMN = "status_bucket";
-  private static final String STATUS_NOT_YET_REPORTED = "NOT_YET_REPORTED";
-  private static final String STATUS_RECONCILED = "RECONCILED";
   private static final String TOTAL_ISSUES_COLUMN = "total_issues";
   private static final String TRANSFORMATION_FAILURES_ALIAS = "transformationFailures";
   private static final String TRANSFORMATION_FAILURES_COLUMN = "transformation_failures";
@@ -71,7 +61,6 @@ public class BatchExplorerRepository {
   private static final com.pharos.compliance.jooq.tables.ReportTransformationReconciliation RECONCILIATION =
       REPORT_TRANSFORMATION_RECONCILIATION;
   private static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
-  private static final com.pharos.compliance.jooq.tables.ReportGroupConfig CONFIG = REPORT_GROUP_CONFIG;
   private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
   private static final String REPORT_SELECTION_VERSION_ID_ALIAS = "reportSelectionVersionId";
   private static final String TRANSFORMER_VERSION_ID_ALIAS = "transformerVersionId";
@@ -91,8 +80,7 @@ public class BatchExplorerRepository {
    * reference, not a constant, so a literal placeholder isn't even a safe way to do this.
    */
   private static List<org.jooq.OrderField<?>> batchQueueSortKeys(String metricFocus, Field<Long> transformerOutput,
-      Field<Long> excludedTransactions, Field<String> statusBucket, Field<java.time.OffsetDateTime> completedAt,
-      Field<java.time.OffsetDateTime> startedAt, Field<String> batchId) {
+      Field<Long> excludedTransactions, Field<LocalDateTime> completedAt, Field<LocalDateTime> startedAt, Field<String> batchId) {
     List<org.jooq.OrderField<?>> keys = new java.util.ArrayList<>();
     if ("REPORTED".equals(metricFocus)) {
       keys.add(transformerOutput.desc().nullsLast());
@@ -100,7 +88,6 @@ public class BatchExplorerRepository {
     if ("EXCLUDED".equals(metricFocus)) {
       keys.add(excludedTransactions.desc().nullsLast());
     }
-    keys.add(DSL.when(statusBucket.eq(STATUS_NOT_YET_REPORTED), 1).otherwise(0));
     keys.add(completedAt.desc().nullsLast());
     keys.add(startedAt.desc().nullsLast());
     keys.add(batchId.asc());
@@ -108,11 +95,10 @@ public class BatchExplorerRepository {
   }
 
   /**
-   * Every batch this class reports on is either (a) a batch with a reconciliation record -- {@code
-   * report_transformation_reconciliation} -- possibly with issues, or (b) a batch that has only
-   * journey activity so far and no reconciliation record yet ("not yet reported"). This builds the
-   * reconciled side: the latest reconciliation rows in scope, with the three issue counts and a
-   * combined {@code total_issues}.
+   * Phase 1 only cares about completed batches from a batch perspective -- batches with a
+   * reconciliation record ({@code report_transformation_reconciliation}), possibly with issues.
+   * The latest reconciliation rows in scope, with the three issue counts and a combined {@code
+   * total_issues}.
    */
   private org.jooq.Table<?> enrichedBatchMetrics(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
@@ -164,75 +150,22 @@ public class BatchExplorerRepository {
       .asTable("enriched_batch_metrics");
   }
 
-  /**
-   * Journey activity with no reconciliation record yet -- "not yet reported" batches.
-   */
-  private org.jooq.Table<?> notYetReportedBatches(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
-      Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
-    var config = CONFIG;
-    Field<String> latestActiveReportGroupName = DSL.field(dsl
-      .select(config.RPT_GRP_NAME)
-      .from(config)
-      .where(config.RPT_GRP_ID.eq(JOURNEY.RPT_GRP_ID))
-      .and(config.RPT_CONFIG_ACTIVE_FLAG.eq(true))
-      .orderBy(config.MODIFIED_TIMESTAMP.desc().nullsLast())
-      .limit(1));
-
-    return dsl
-      .select(JOURNEY.RPT_GRP_ID, JOURNEY.BATCH_ID, latestActiveReportGroupName.as(REPORT_GROUP_NAME_COLUMN),
-          DSL.min(JOURNEY.CREATED_TIMESTAMP).as(STARTED_AT_COLUMN), DSL.max(JOURNEY.MODIFIED_TIMESTAMP).as("last_activity_at"),
-          DSL.countDistinct(JOURNEY.IDENTIFIER).cast(SQLDataType.BIGINT).as(DISCOVERED_TRANSACTIONS_COLUMN))
-      .from(JOURNEY)
-      .where(zonelessTimestampBetween(JOURNEY.CREATED_TIMESTAMP, fromTimestamp, toTimestampExclusive))
-      .and(containsIgnoreCase(JOURNEY.BATCH_ID, batchId))
-      .and(reportGroupId == null ? DSL.trueCondition() : JOURNEY.RPT_GRP_ID.eq(reportGroupId))
-      .and(filterByCountry ? JOURNEY.RPT_GRP_ID.in(reportGroupIds) : DSL.trueCondition())
-      .and(DSL.notExists(dsl
-        .selectOne()
-        .from(RECONCILIATION)
-        .where(RECONCILIATION.RPT_GRP_ID.eq(JOURNEY.RPT_GRP_ID))
-        .and(RECONCILIATION.BATCH_ID.eq(JOURNEY.BATCH_ID))))
-      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.BATCH_ID)
-      .asTable("not_yet_reported_batches");
-  }
-
   @SqlQueryPurpose("Summarize batches matching the Batch Explorer filters")
   public BatchSummaryProjection getBatchSummary(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
     var enriched = enrichedBatchMetrics(fromTimestamp, toTimestampExclusive, batchId, reportGroupId, filterByCountry, reportGroupIds);
-    var notYetReported = notYetReportedBatches(fromTimestamp, toTimestampExclusive, batchId, reportGroupId, filterByCountry, reportGroupIds);
 
     Field<Long> totalIssues = requiredField(enriched, TOTAL_ISSUES_COLUMN, Long.class);
     Field<String> enrichedRptGrpName = requiredField(enriched, RECONCILIATION.RPT_GRP_NAME.getName(), String.class);
-    Field<String> notYetReportedRptGrpName = requiredField(notYetReported, REPORT_GROUP_NAME_COLUMN, String.class);
-
-    var enrichedSummary = dsl
-      .select(DSL.count().cast(SQLDataType.BIGINT).as("all_enriched"),
-          DSL.count().filterWhere(totalIssues.eq(0L)).cast(SQLDataType.BIGINT).as("successful"),
-          DSL.count().filterWhere(totalIssues.gt(0L)).cast(SQLDataType.BIGINT).as("attention"),
-          DSL.max(enrichedRptGrpName).as("enriched_report_group_name"))
-      .from(enriched)
-      .asTable("enriched_summary");
-    var notYetReportedSummary = dsl
-      .select(DSL.count().cast(SQLDataType.BIGINT).as("not_yet_reported"),
-          DSL.max(notYetReportedRptGrpName).as("not_yet_reported_report_group_name"))
-      .from(notYetReported)
-      .asTable("not_yet_reported_summary");
-
-    Field<Long> allEnriched = requiredField(enrichedSummary, "all_enriched", Long.class);
-    Field<Long> allNotYetReported = requiredField(notYetReportedSummary, "not_yet_reported", Long.class);
-    Field<Long> successful = requiredField(enrichedSummary, "successful", Long.class);
-    Field<Long> attention = requiredField(enrichedSummary, "attention", Long.class);
-    Field<String> reportGroupName = DSL.coalesce(requiredField(enrichedSummary, "enriched_report_group_name", String.class),
-        requiredField(notYetReportedSummary, "not_yet_reported_report_group_name", String.class));
 
     return dsl
-      .select(allEnriched.add(allNotYetReported).as("all_batches"), successful, attention, allNotYetReported,
-          reportGroupName.as("report_group_name"))
-      .from(enrichedSummary)
-      .crossJoin(notYetReportedSummary)
-      .fetchOptional(record -> new BatchSummaryProjection(requiredLong(record, "all_batches"), requiredLong(record, successful),
-          requiredLong(record, attention), requiredLong(record, allNotYetReported), record.get("report_group_name", String.class)))
+      .select(DSL.count().cast(SQLDataType.BIGINT).as("all_batches"),
+          DSL.count().filterWhere(totalIssues.eq(0L)).cast(SQLDataType.BIGINT).as("successful"),
+          DSL.count().filterWhere(totalIssues.gt(0L)).cast(SQLDataType.BIGINT).as("attention"), DSL.max(enrichedRptGrpName).as(
+              "report_group_name"))
+      .from(enriched)
+      .fetchOptional(record -> new BatchSummaryProjection(requiredLong(record, "all_batches"), requiredLong(record, "successful"),
+          requiredLong(record, "attention"), record.get("report_group_name", String.class)))
       .orElseThrow(() -> new IllegalStateException("Batch summary aggregate returned no row"));
   }
 
@@ -241,7 +174,6 @@ public class BatchExplorerRepository {
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds, String status, String issueType, String metricFocus,
       int size, long offset) {
     var enriched = enrichedBatchMetrics(fromTimestamp, toTimestampExclusive, batchId, reportGroupId, filterByCountry, reportGroupIds);
-    var notYetReported = notYetReportedBatches(fromTimestamp, toTimestampExclusive, batchId, reportGroupId, filterByCountry, reportGroupIds);
 
     Field<Integer> eRptGrpId = requiredField(enriched, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> eBatchId = requiredField(enriched, RECONCILIATION.BATCH_ID.getName(), String.class);
@@ -263,112 +195,57 @@ public class BatchExplorerRepository {
     Field<Long> eSoftDedupTransactions = requiredField(enriched, SOFT_DEDUP_TRANSACTIONS_COLUMN, Long.class);
     Field<Long> eTotalIssues = requiredField(enriched, TOTAL_ISSUES_COLUMN, Long.class);
 
-    Field<Integer> nRptGrpId = requiredField(notYetReported, JOURNEY.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> nBatchId = requiredField(notYetReported, JOURNEY.BATCH_ID.getName(), String.class);
-    Field<String> nRptGrpName = requiredField(notYetReported, REPORT_GROUP_NAME_COLUMN, String.class);
-    Field<LocalDateTime> nStartedAt = requiredField(notYetReported, STARTED_AT_COLUMN, LocalDateTime.class);
-    Field<Long> nDiscovered = requiredField(notYetReported, DISCOVERED_TRANSACTIONS_COLUMN, Long.class);
-
-    var reconciledBranch = dsl
-      .select(eRptGrpId, eBatchId, eSeqNo, eRptGrpName, eFromDate, eToDate,
-          eCreated.cast(SQLDataType.TIMESTAMPWITHTIMEZONE).as(STARTED_AT_COLUMN),
-          eModified.cast(SQLDataType.TIMESTAMPWITHTIMEZONE).as(COMPLETED_AT_COLUMN), eTransformationFailures, eMissingAttempts,
-          eActivityMissing, eFiltrationErrors, eReconciliationImbalance, eTransformerOutput, eExcludedTransactions, eDuplicateTransactions,
-          eSimulatedTransactions, eSoftDedupTransactions, eTotalIssues, DSL.inline(0L).as(DISCOVERED_TRANSACTIONS_COLUMN),
-          DSL.inline(STATUS_RECONCILED).as(STATUS_BUCKET_COLUMN))
-      .from(enriched);
-
-    var notYetReportedBranch = dsl
-      .select(nRptGrpId, nBatchId, DSL.inline(0).as("seq_no"), nRptGrpName, DSL.cast(null, SQLDataType.CLOB).as("rpt_from_date"),
-          DSL.cast(null, SQLDataType.CLOB).as("rpt_to_date"), nStartedAt.cast(SQLDataType.TIMESTAMPWITHTIMEZONE).as(STARTED_AT_COLUMN),
-          DSL.cast(null, SQLDataType.TIMESTAMPWITHTIMEZONE).as(COMPLETED_AT_COLUMN), DSL.inline(0L).as(TRANSFORMATION_FAILURES_COLUMN),
-          DSL.inline(0L).as(MISSING_ATTEMPTS_COLUMN), DSL.inline(0L).as(ACTIVITY_MISSING_COLUMN),
-          DSL.inline(0L).as(FILTRATION_ERRORS_COLUMN), DSL.inline(0L).as(RECONCILIATION_IMBALANCE_COLUMN),
-          DSL.inline(0L).as(TRANSFORMER_OUTPUT_COLUMN), DSL.inline(0L).as(EXCLUDED_TRANSACTIONS_COLUMN),
-          DSL.inline(0L).as(DUPLICATE_TRANSACTIONS_COLUMN), DSL.inline(0L).as(SIMULATED_TRANSACTIONS_COLUMN),
-          DSL.inline(0L).as(SOFT_DEDUP_TRANSACTIONS_COLUMN), DSL.inline(0L).as(TOTAL_ISSUES_COLUMN), nDiscovered,
-          DSL.inline(STATUS_NOT_YET_REPORTED).as(STATUS_BUCKET_COLUMN))
-      .from(notYetReported);
-
-    var combinedQueue = reconciledBranch.unionAll(notYetReportedBranch).asTable("combined_queue");
-
-    Field<Integer> cRptGrpId = requiredField(combinedQueue, "rpt_grp_id", Integer.class);
-    Field<String> cRptGrpName = requiredField(combinedQueue, REPORT_GROUP_NAME_COLUMN, String.class);
-    Field<String> cBatchId = requiredField(combinedQueue, "batch_id", String.class);
-    Field<Integer> cSeqNo = requiredField(combinedQueue, "seq_no", Integer.class);
-    Field<String> cFromDate = requiredField(combinedQueue, "rpt_from_date", String.class);
-    Field<String> cToDate = requiredField(combinedQueue, "rpt_to_date", String.class);
-    Field<java.time.OffsetDateTime> cStartedAt = requiredField(combinedQueue, STARTED_AT_COLUMN, java.time.OffsetDateTime.class);
-    Field<java.time.OffsetDateTime> cCompletedAt = requiredField(combinedQueue, COMPLETED_AT_COLUMN, java.time.OffsetDateTime.class);
-    Field<Long> cTransformationFailures = requiredField(combinedQueue, TRANSFORMATION_FAILURES_COLUMN, Long.class);
-    Field<Long> cMissingAttempts = requiredField(combinedQueue, MISSING_ATTEMPTS_COLUMN, Long.class);
-    Field<Long> cActivityMissing = requiredField(combinedQueue, ACTIVITY_MISSING_COLUMN, Long.class);
-    Field<Long> cFiltrationErrors = requiredField(combinedQueue, FILTRATION_ERRORS_COLUMN, Long.class);
-    Field<Long> cReconciliationImbalance = requiredField(combinedQueue, RECONCILIATION_IMBALANCE_COLUMN, Long.class);
-    Field<Long> cTransformerOutput = requiredField(combinedQueue, TRANSFORMER_OUTPUT_COLUMN, Long.class);
-    Field<Long> cExcludedTransactions = requiredField(combinedQueue, EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> cDuplicateTransactions = requiredField(combinedQueue, DUPLICATE_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> cSimulatedTransactions = requiredField(combinedQueue, SIMULATED_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> cSoftDedupTransactions = requiredField(combinedQueue, SOFT_DEDUP_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> cTotalIssues = requiredField(combinedQueue, TOTAL_ISSUES_COLUMN, Long.class);
-    Field<Long> cDiscoveredTransactions = requiredField(combinedQueue, DISCOVERED_TRANSACTIONS_COLUMN, Long.class);
-    Field<String> cStatusBucket = requiredField(combinedQueue, STATUS_BUCKET_COLUMN, String.class);
-
     Condition statusCondition = switch (status) {
       case "ALL" -> DSL.trueCondition();
-      case "SUCCESSFUL" -> cStatusBucket.eq(STATUS_RECONCILED).and(cTotalIssues.eq(0L));
-      case "ATTENTION" -> cStatusBucket.eq(STATUS_RECONCILED).and(cTotalIssues.gt(0L));
-      case STATUS_NOT_YET_REPORTED -> cStatusBucket.eq(STATUS_NOT_YET_REPORTED);
+      case "SUCCESSFUL" -> eTotalIssues.eq(0L);
+      case "ATTENTION" -> eTotalIssues.gt(0L);
       default -> DSL.falseCondition();
     };
-    Condition reconciledOnly = cStatusBucket.eq(STATUS_RECONCILED);
     Condition issueTypeCondition = switch (issueType) {
       case "ALL" -> DSL.trueCondition();
-      case "ACTIVITY_MISSING" -> reconciledOnly.and(cActivityMissing.gt(0L));
-      case "MISSING_ATTEMPTS" -> reconciledOnly.and(cMissingAttempts.gt(0L));
-      case "TRANSFORMATION" -> reconciledOnly.and(cTransformationFailures.gt(0L));
-      case "DUPLICATE_TRANSFORMATION" -> reconciledOnly.and(cDuplicateTransactions.gt(0L));
-      case "EXCLUSION" -> reconciledOnly.and(cExcludedTransactions.gt(0L));
-      case "SIMULATED" -> reconciledOnly.and(cSimulatedTransactions.gt(0L));
-      case "SOFT_DEDUP" -> reconciledOnly.and(cSoftDedupTransactions.gt(0L));
+      case "ACTIVITY_MISSING" -> eActivityMissing.gt(0L);
+      case "MISSING_ATTEMPTS" -> eMissingAttempts.gt(0L);
+      case "TRANSFORMATION" -> eTransformationFailures.gt(0L);
+      case "DUPLICATE_TRANSFORMATION" -> eDuplicateTransactions.gt(0L);
+      case "EXCLUSION" -> eExcludedTransactions.gt(0L);
+      case "SIMULATED" -> eSimulatedTransactions.gt(0L);
+      case "SOFT_DEDUP" -> eSoftDedupTransactions.gt(0L);
       default -> DSL.falseCondition();
     };
     Condition metricFocusCondition = switch (metricFocus) {
       case "DEFAULT" -> DSL.trueCondition();
-      case "REPORTED" -> reconciledOnly.and(cTransformerOutput.gt(0L));
-      case "EXCLUDED" -> reconciledOnly.and(cExcludedTransactions.gt(0L));
+      case "REPORTED" -> eTransformerOutput.gt(0L);
+      case "EXCLUDED" -> eExcludedTransactions.gt(0L);
       default -> DSL.falseCondition();
     };
 
     var matchingCount = DSL.count().over().as("matchingCount");
 
     return dsl
-      .select(cRptGrpId.as(REPORT_GROUP_ID_ALIAS), cRptGrpName.as(REPORT_GROUP_NAME_ALIAS), cBatchId.as(BATCH_ID_ALIAS),
-          cSeqNo.as(SEQUENCE_NUMBER_ALIAS), cFromDate.as(REPORTING_PERIOD_FROM_ALIAS), cToDate.as(REPORTING_PERIOD_TO_ALIAS),
-          cStartedAt.as(STARTED_AT_ALIAS), cCompletedAt.as(COMPLETED_AT_ALIAS), cTransformationFailures.as(TRANSFORMATION_FAILURES_ALIAS),
-          cMissingAttempts.as(MISSING_ATTEMPTS_ALIAS), cActivityMissing.as(ACTIVITY_MISSING_ALIAS),
-          cFiltrationErrors.as(FILTRATION_ERRORS_ALIAS), cReconciliationImbalance.as(RECONCILIATION_IMBALANCE_ALIAS),
-          cTransformerOutput.as(TRANSFORMER_OUTPUT_ALIAS), cExcludedTransactions.as(EXCLUDED_TRANSACTIONS_ALIAS),
-          cDuplicateTransactions.as(DUPLICATE_TRANSACTIONS_ALIAS), cSimulatedTransactions.as(SIMULATED_TRANSACTIONS_ALIAS),
-          cSoftDedupTransactions.as(SOFT_DEDUP_TRANSACTIONS_ALIAS), cTotalIssues.as("totalIssues"),
-          cDiscoveredTransactions.as(DISCOVERED_TRANSACTIONS_ALIAS), cStatusBucket.as("statusBucket"), matchingCount)
-      .from(combinedQueue)
+      .select(eRptGrpId.as(REPORT_GROUP_ID_ALIAS), eRptGrpName.as(REPORT_GROUP_NAME_ALIAS), eBatchId.as(BATCH_ID_ALIAS),
+          eSeqNo.as(SEQUENCE_NUMBER_ALIAS), eFromDate.as(REPORTING_PERIOD_FROM_ALIAS), eToDate.as(REPORTING_PERIOD_TO_ALIAS),
+          eCreated.as(STARTED_AT_ALIAS), eModified.as(COMPLETED_AT_ALIAS), eTransformationFailures.as(TRANSFORMATION_FAILURES_ALIAS),
+          eMissingAttempts.as(MISSING_ATTEMPTS_ALIAS), eActivityMissing.as(ACTIVITY_MISSING_ALIAS),
+          eFiltrationErrors.as(FILTRATION_ERRORS_ALIAS), eReconciliationImbalance.as(RECONCILIATION_IMBALANCE_ALIAS),
+          eTransformerOutput.as(TRANSFORMER_OUTPUT_ALIAS), eExcludedTransactions.as(EXCLUDED_TRANSACTIONS_ALIAS),
+          eDuplicateTransactions.as(DUPLICATE_TRANSACTIONS_ALIAS), eSimulatedTransactions.as(SIMULATED_TRANSACTIONS_ALIAS),
+          eSoftDedupTransactions.as(SOFT_DEDUP_TRANSACTIONS_ALIAS), eTotalIssues.as("totalIssues"), matchingCount)
+      .from(enriched)
       .where(statusCondition)
       .and(issueTypeCondition)
       .and(metricFocusCondition)
-      .orderBy(
-          batchQueueSortKeys(metricFocus, cTransformerOutput, cExcludedTransactions, cStatusBucket, cCompletedAt, cStartedAt, cBatchId))
+      .orderBy(batchQueueSortKeys(metricFocus, eTransformerOutput, eExcludedTransactions, eModified, eCreated, eBatchId))
       .limit(size)
       .offset(offset)
       .fetch(r -> new BatchQueueProjection(requiredInt(r, REPORT_GROUP_ID_ALIAS), r.get(REPORT_GROUP_NAME_ALIAS, String.class),
           r.get(BATCH_ID_ALIAS, String.class), requiredInt(r, SEQUENCE_NUMBER_ALIAS), r.get(REPORTING_PERIOD_FROM_ALIAS, String.class),
-          r.get(REPORTING_PERIOD_TO_ALIAS, String.class), toLocalDateTime(r.get(STARTED_AT_ALIAS, java.time.OffsetDateTime.class)),
-          toLocalDateTime(r.get(COMPLETED_AT_ALIAS, java.time.OffsetDateTime.class)), requiredLong(r, TRANSFORMATION_FAILURES_ALIAS),
+          r.get(REPORTING_PERIOD_TO_ALIAS, String.class), r.get(STARTED_AT_ALIAS, LocalDateTime.class),
+          r.get(COMPLETED_AT_ALIAS, LocalDateTime.class), requiredLong(r, TRANSFORMATION_FAILURES_ALIAS),
           requiredLong(r, MISSING_ATTEMPTS_ALIAS), requiredLong(r, ACTIVITY_MISSING_ALIAS), requiredLong(r, FILTRATION_ERRORS_ALIAS),
           requiredLong(r, RECONCILIATION_IMBALANCE_ALIAS), requiredLong(r, TRANSFORMER_OUTPUT_ALIAS),
           requiredLong(r, EXCLUDED_TRANSACTIONS_ALIAS), requiredLong(r, DUPLICATE_TRANSACTIONS_ALIAS),
           requiredLong(r, SIMULATED_TRANSACTIONS_ALIAS), requiredLong(r, SOFT_DEDUP_TRANSACTIONS_ALIAS), requiredLong(r, "totalIssues"),
-          requiredLong(r, DISCOVERED_TRANSACTIONS_ALIAS), r.get("statusBucket", String.class), requiredLong(r, "matchingCount")));
+          requiredLong(r, "matchingCount")));
   }
 
   private static LocalDateTime toLocalDateTime(java.time.OffsetDateTime value) {
@@ -457,50 +334,5 @@ public class BatchExplorerRepository {
           requiredLong(r, SOFT_DEDUP_TRANSACTIONS_ALIAS), requiredBoolean(r, JOURNEY_AVAILABLE_ALIAS),
           requiredBoolean(r, EXCLUSIONS_AVAILABLE_ALIAS), r.get(REPORT_SELECTION_VERSION_ID_ALIAS, Integer.class),
           r.get(TRANSFORMER_VERSION_ID_ALIAS, String.class)));
-  }
-
-  @SqlQueryPurpose("Load latest-state journey evidence for one not-yet-reported batch")
-  public Optional<NotYetReportedBatchDetailsProjection> getNotYetReportedBatchDetails(int reportGroupId, String batchId) {
-    Field<String> latestActiveReportGroupName = DSL.field(dsl
-      .select(CONFIG.RPT_GRP_NAME)
-      .from(CONFIG)
-      .where(CONFIG.RPT_GRP_ID.eq(JOURNEY.RPT_GRP_ID))
-      .and(CONFIG.RPT_CONFIG_ACTIVE_FLAG.eq(true))
-      .orderBy(CONFIG.MODIFIED_TIMESTAMP.desc().nullsLast())
-      .limit(1));
-
-    var exclusionAudit = com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT;
-
-    Condition stalledCondition = DSL.upper(DSL.coalesce(JOURNEY.STATUS, "")).eq("ERROR").and(JOURNEY.PROCESSING_COMPLETE.isTrue());
-
-    return dsl
-      .select(JOURNEY.RPT_GRP_ID.as(REPORT_GROUP_ID_ALIAS), latestActiveReportGroupName.as(REPORT_GROUP_NAME_ALIAS),
-          JOURNEY.BATCH_ID.as(BATCH_ID_ALIAS), DSL.min(JOURNEY.CREATED_TIMESTAMP).as(STARTED_AT_ALIAS),
-          DSL.max(JOURNEY.MODIFIED_TIMESTAMP).as("lastActivityAt"),
-          DSL.countDistinct(JOURNEY.IDENTIFIER).cast(SQLDataType.BIGINT).as(DISCOVERED_TRANSACTIONS_ALIAS),
-          DSL.countDistinct(JOURNEY.IDENTIFIER).filterWhere(stalledCondition).cast(SQLDataType.BIGINT).as("stalledTransactions"),
-          DSL.boolOr(DSL.inline(true)).as(JOURNEY_AVAILABLE_ALIAS),
-          DSL
-            .exists(dsl
-              .selectOne()
-              .from(exclusionAudit)
-              .where(exclusionAudit.RPT_GRP_ID.eq(JOURNEY.RPT_GRP_ID))
-              .and(exclusionAudit.PROCESSING_BATCH_ID.eq(JOURNEY.BATCH_ID)))
-            .as(EXCLUSIONS_AVAILABLE_ALIAS))
-      .from(JOURNEY)
-      .where(JOURNEY.RPT_GRP_ID.eq(reportGroupId))
-      .and(JOURNEY.BATCH_ID.eq(batchId))
-      .and(DSL.notExists(dsl
-        .selectOne()
-        .from(RECONCILIATION)
-        .where(RECONCILIATION.RPT_GRP_ID.eq(JOURNEY.RPT_GRP_ID))
-        .and(RECONCILIATION.BATCH_ID.eq(JOURNEY.BATCH_ID))))
-      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.BATCH_ID)
-      .fetchOptional(r -> new NotYetReportedBatchDetailsProjection(requiredInt(r, REPORT_GROUP_ID_ALIAS),
-          r.get(REPORT_GROUP_NAME_ALIAS, String.class), r.get(BATCH_ID_ALIAS, String.class),
-          toLocalDateTime(r.get(STARTED_AT_ALIAS, java.time.OffsetDateTime.class)),
-          toLocalDateTime(r.get("lastActivityAt", java.time.OffsetDateTime.class)), requiredLong(r, DISCOVERED_TRANSACTIONS_ALIAS),
-          requiredLong(r, "stalledTransactions"), requiredBoolean(r, JOURNEY_AVAILABLE_ALIAS),
-          requiredBoolean(r, EXCLUSIONS_AVAILABLE_ALIAS)));
   }
 }

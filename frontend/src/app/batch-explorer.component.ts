@@ -5,7 +5,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
 
-type BatchStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED';
+type BatchStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION';
 type BatchIssueType =
   | 'ALL'
   | 'ACTIVITY_MISSING'
@@ -50,7 +50,6 @@ interface BatchExplorerSummary {
   allBatches: number;
   successfulBatches: number;
   attentionBatches: number;
-  notYetReportedBatches: number;
 }
 
 interface BatchQueueItem {
@@ -76,7 +75,6 @@ interface BatchQueueItem {
   simulatedTransactions: number;
   softDedupTransactions: number;
   totalIssues: number;
-  discoveredTransactions: number;
 }
 
 interface BatchExplorerResponse {
@@ -134,10 +132,8 @@ interface BatchDetailsResponse {
   journeyAvailable: boolean;
   ruleHitsAvailable: boolean;
   exclusionsAvailable: boolean;
-  discoveredTransactions: number;
-  stalledTransactions: number;
   // The report_group_config version this batch actually ran under (from its own report_batch_info
-  // row) -- null for NOT_YET_REPORTED batches, which have no report_batch_info row yet.
+  // row) -- null if no report_batch_info row exists for this batch.
   reportSelectionVersionId: number | null;
   transformerVersionId: string | null;
 }
@@ -287,8 +283,7 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   selectStatus(status: BatchStatus): void {
-    const issueType =
-      status === 'SUCCESSFUL' || status === 'NOT_YET_REPORTED' ? 'ALL' : this.issueType();
+    const issueType = status === 'SUCCESSFUL' ? 'ALL' : this.issueType();
     this.updateRoute({ status, issueType, page: 0 });
   }
 
@@ -325,13 +320,11 @@ export class BatchExplorerComponent implements OnInit {
     // batchId + reportGroupId + sequenceNumber alone pin down the exact batch (see BATCH mode in
     // TransactionReportComponent.readRouteState), and `metric` alone picks the evidence bucket --
     // this page's own status()/issueType()/metricFocus() signals are BATCH-level investigation-
-    // queue filters (e.g. status is 'ALL' | 'SUCCESSFUL' | 'ATTENTION' | 'NOT_YET_REPORTED'), an
-    // entirely different domain from the transaction-level TransactionStatus the destination page's
-    // status filter expects. They used to be forwarded here anyway: issueType/metricFocus are never
-    // read on arrival (dead params), and status only coincidentally ever produced a valid value
-    // ('ALL' or the shared 'NOT_YET_REPORTED' literal) -- every other value silently parsed back to
-    // 'ALL', which is exactly why the destination page's status filter always showed "All statuses"
-    // regardless of which batch-queue tab was active when the metric was clicked.
+    // queue filters (e.g. status is 'ALL' | 'SUCCESSFUL' | 'ATTENTION'), an entirely different
+    // domain from the transaction-level TransactionStatus the destination page's status filter
+    // expects. They used to be forwarded here anyway: issueType/metricFocus are never read on
+    // arrival (dead params), and status was silently parsed back to 'ALL' on arrival regardless of
+    // which batch-queue tab was active when the metric was clicked.
     void this.router.navigate(['/transactions'], {
       queryParams: {
         reportGroupId: batch.reportGroupId,
@@ -361,9 +354,6 @@ export class BatchExplorerComponent implements OnInit {
     if (this.status() === 'ATTENTION') {
       return 'Batches Needing Attention';
     }
-    if (this.status() === 'NOT_YET_REPORTED') {
-      return 'Not Yet Reported Batches';
-    }
     return 'Batch Explorer';
   }
 
@@ -390,9 +380,6 @@ export class BatchExplorerComponent implements OnInit {
     }
     if (this.status() === 'ATTENTION') {
       return 'Batches needing attention';
-    }
-    if (this.status() === 'NOT_YET_REPORTED') {
-      return 'Batches not yet reported';
     }
     return 'All batches';
   }
@@ -565,8 +552,8 @@ export class BatchExplorerComponent implements OnInit {
 
   private loadReportConfigSummary(reportGroupId: number, reportSelectionVersionId: number | null, transformerVersionId: string | null): void {
     if (reportSelectionVersionId === null || transformerVersionId === null) {
-      // No report_batch_info row for this batch (e.g. NOT_YET_REPORTED) -- there's no version to
-      // look up yet, so fall straight to the "no record found" empty state rather than guessing.
+      // No report_batch_info row for this batch -- there's no version to look up, so fall
+      // straight to the "no record found" empty state rather than guessing.
       this.reportConfigSummary.set(null);
       return;
     }
@@ -621,9 +608,7 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   private parseStatus(value: string | null): BatchStatus {
-    return value === 'SUCCESSFUL' || value === 'ATTENTION' || value === 'NOT_YET_REPORTED'
-      ? value
-      : 'ALL';
+    return value === 'SUCCESSFUL' || value === 'ATTENTION' ? value : 'ALL';
   }
 
   private parseIssueType(value: string | null): BatchIssueType {

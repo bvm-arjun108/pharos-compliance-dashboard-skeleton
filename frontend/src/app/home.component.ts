@@ -26,7 +26,6 @@ interface ReportGroupOption {
 interface BatchDashboardResponse {
   batchesRan: number;
   successfulBatches: number;
-  batchesNotYetReported: number;
   batchesNeedingAttention: number;
   transformationFailureBatches: number;
   missingAttemptBatches: number;
