@@ -83,6 +83,7 @@ public class TransactionReportRepository {
             .coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0)
             .cast(SQLDataType.BIGINT)
             .as("missingAttempts"),
+          DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).cast(SQLDataType.BIGINT).as("activityMissing"),
           DSL.coalesce(RECONCILIATION.EXPECTED_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("expectedEligible"),
           DSL.coalesce(RECONCILIATION.ACTUAL_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("actualEligible"),
           DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMED, 0).cast(SQLDataType.BIGINT).as("transformed"),
@@ -110,8 +111,8 @@ public class TransactionReportRepository {
       .fetchOptional(r -> new TransactionReportContextProjection(requiredInt(r, "reportGroupId"),
           r.get(REPORT_GROUP_NAME_ALIAS, String.class), r.get("batchId", String.class), requiredInt(r, "sequenceNumber"),
           r.get("reportingPeriodFrom", String.class), r.get("reportingPeriodTo", String.class), requiredLong(r, "selectedTransactions"),
-          requiredLong(r, "attemptsFound"), requiredLong(r, "missingAttempts"), requiredLong(r, "expectedEligible"),
-          requiredLong(r, "actualEligible"), requiredLong(r, "transformed"), requiredLong(r, "failed"),
+          requiredLong(r, "attemptsFound"), requiredLong(r, "missingAttempts"), requiredLong(r, "activityMissing"),
+          requiredLong(r, "expectedEligible"), requiredLong(r, "actualEligible"), requiredLong(r, "transformed"), requiredLong(r, "failed"),
           requiredLong(r, "expectedReportable"), requiredLong(r, "actualReportable"), requiredLong(r, "excluded"),
           requiredLong(r, "simulated"), requiredLong(r, "alreadyReported"), requiredLong(r, "softDedup"),
           requiredLong(r, "filtrationVariance"), requiredLong(r, "reconciliationVariance")));

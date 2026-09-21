@@ -729,6 +729,7 @@
 .evidence-bar-segment--simulated { background: #b3a6c9; }
 .evidence-bar-segment--already-reported { background: #8fb0c4; }
 .evidence-bar-segment--soft-dedup { background: #c4a6b0; }
+.evidence-bar-segment--activity-missing { background: #c98a5e; }
 .evidence-bar-segment--gap { background: repeating-linear-gradient(135deg, #ebe9e2, #ebe9e2 4px, #ddd9cd 4px, #ddd9cd 8px); }
 
 .evidence-panel__subheading {
@@ -768,6 +769,10 @@
 
 .evidence-values--five {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.evidence-values--six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 /* The report configuration card is the one --five row whose cells are not all short
@@ -986,7 +991,8 @@
 
   .evidence-values--four,
   .evidence-values--three,
-  .evidence-values--five {
+  .evidence-values--five,
+  .evidence-values--six {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

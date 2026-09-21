@@ -21,6 +21,7 @@ type TransactionMetric =
   | 'SELECTED'
   | 'ATTEMPTS_FOUND'
   | 'MISSING'
+  | 'ACTIVITY_MISSING'
   | 'EXPECTED_ELIGIBLE'
   | 'ACTUAL_ELIGIBLE'
   | 'TRANSFORMED'

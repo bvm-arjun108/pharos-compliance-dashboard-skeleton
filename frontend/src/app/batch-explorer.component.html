@@ -200,19 +200,16 @@
               <h3 id="data-selection-evidence-heading">Data Selection</h3>
               <span [class.bad]="details.missingAttempts > 0">{{ details.missingAttempts === 0 ? 'Complete' : 'Gap found' }}</span>
             </div>
-            <p>Transactions selected for this batch, and the simulated, excluded, already-reported, soft-dedup, or missing-attempt reasons some didn't carry through cleanly.</p>
-            <div class="evidence-bar" role="img" [attr.aria-label]="details.missingAttempts + ' missing, ' + details.excludedTransactions + ' excluded, ' + details.simulatedTransactions + ' simulated, ' + details.alreadyReportedTransactions + ' already reported, ' + details.softDedupTransactions + ' soft-dedup dropped, out of ' + details.selectedTransactions + ' selected'">
-              @if (barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions) > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions), details.selectedTransactions)" [title]="barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions) + ' cleanly selected — click to view'" (click)="openTransactionReport('ATTEMPTS_FOUND')">{{ barRemainder(details.selectedTransactions, details.missingAttempts, details.excludedTransactions, details.simulatedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions) }}</span>
-              }
-              @if (details.missingAttempts > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--pending" [style.width.%]="barShare(details.missingAttempts, details.selectedTransactions)" [title]="details.missingAttempts + ' missing — click to view'" (click)="openTransactionReport('MISSING')">{{ details.missingAttempts }}</span>
-              }
-              @if (details.excludedTransactions > 0) {
-                <span class="evidence-bar-segment evidence-bar-segment--excluded" [style.width.%]="barShare(details.excludedTransactions, details.selectedTransactions)" [title]="details.excludedTransactions + ' excluded — click to view'" (click)="openTransactionReport('EXCLUDED')">{{ details.excludedTransactions }}</span>
+            <p>Transactions selected for this batch, and the simulated, excluded, already-reported, soft-dedup, missing-attempt, or activity-missing reasons some didn't carry through cleanly.</p>
+            <div class="evidence-bar" role="img" [attr.aria-label]="details.simulatedTransactions + ' simulated, ' + details.excludedTransactions + ' excluded, ' + details.alreadyReportedTransactions + ' already reported, ' + details.softDedupTransactions + ' soft-dedup dropped, ' + details.missingAttempts + ' missing, ' + details.activityMissing + ' activity missing, out of ' + details.selectedTransactions + ' selected'">
+              @if (barRemainder(details.selectedTransactions, details.simulatedTransactions, details.excludedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions, details.missingAttempts, details.activityMissing) > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--success" [style.width.%]="barShare(barRemainder(details.selectedTransactions, details.simulatedTransactions, details.excludedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions, details.missingAttempts, details.activityMissing), details.selectedTransactions)" [title]="barRemainder(details.selectedTransactions, details.simulatedTransactions, details.excludedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions, details.missingAttempts, details.activityMissing) + ' cleanly selected — click to view'" (click)="openTransactionReport('ATTEMPTS_FOUND')">{{ barRemainder(details.selectedTransactions, details.simulatedTransactions, details.excludedTransactions, details.alreadyReportedTransactions, details.softDedupTransactions, details.missingAttempts, details.activityMissing) }}</span>
               }
               @if (details.simulatedTransactions > 0) {
                 <span class="evidence-bar-segment evidence-bar-segment--simulated" [style.width.%]="barShare(details.simulatedTransactions, details.selectedTransactions)" [title]="details.simulatedTransactions + ' simulated (SML) — click to view'" (click)="openTransactionReport('SIMULATED')">{{ details.simulatedTransactions }}</span>
+              }
+              @if (details.excludedTransactions > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--excluded" [style.width.%]="barShare(details.excludedTransactions, details.selectedTransactions)" [title]="details.excludedTransactions + ' excluded — click to view'" (click)="openTransactionReport('EXCLUDED')">{{ details.excludedTransactions }}</span>
               }
               @if (details.alreadyReportedTransactions > 0) {
                 <span class="evidence-bar-segment evidence-bar-segment--already-reported" [style.width.%]="barShare(details.alreadyReportedTransactions, details.selectedTransactions)" [title]="details.alreadyReportedTransactions + ' already reported — click to view'" (click)="openTransactionReport('ALREADY_REPORTED')">{{ details.alreadyReportedTransactions }}</span>
@@ -220,18 +217,25 @@
               @if (details.softDedupTransactions > 0) {
                 <span class="evidence-bar-segment evidence-bar-segment--soft-dedup" [style.width.%]="barShare(details.softDedupTransactions, details.selectedTransactions)" [title]="details.softDedupTransactions + ' soft-dedup dropped — click to view'" (click)="openTransactionReport('SOFT_DEDUP')">{{ details.softDedupTransactions }}</span>
               }
+              @if (details.missingAttempts > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--pending" [style.width.%]="barShare(details.missingAttempts, details.selectedTransactions)" [title]="details.missingAttempts + ' missing — click to view'" (click)="openTransactionReport('MISSING')">{{ details.missingAttempts }}</span>
+              }
+              @if (details.activityMissing > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--activity-missing" [style.width.%]="barShare(details.activityMissing, details.selectedTransactions)" [title]="details.activityMissing + ' activity missing — click to view'" (click)="openTransactionReport('ACTIVITY_MISSING')">{{ details.activityMissing }}</span>
+              }
             </div>
             <div class="evidence-values evidence-values--two evidence-values--selection-summary">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SELECTED')" aria-label="View selected transaction evidence"><span>Selected data</span><strong>{{ details.selectedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FILTERED')" aria-label="View excluded transaction evidence"><span>Total exclusions</span><strong [class.issue-number]="filteredTransactions(details) > 0">{{ filteredTransactions(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
             <p class="evidence-panel__subheading">Exclusions by reason</p>
-            <div class="evidence-values evidence-values--five">
+            <div class="evidence-values evidence-values--six">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SIMULATED')" aria-label="View simulated (SML) transaction evidence"><span>Simulated (SML)</span><strong>{{ details.simulatedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXCLUDED')" aria-label="View excluded transaction evidence"><span>Excluded</span><strong>{{ details.excludedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ALREADY_REPORTED')" aria-label="View already reported transaction evidence"><span>Already reported</span><strong>{{ details.alreadyReportedTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SOFT_DEDUP')" aria-label="View soft-dedup dropped transaction evidence"><span>Soft-dedup dropped</span><strong>{{ details.softDedupTransactions | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing attempts</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTIVITY_MISSING')" aria-label="View activity missing transaction evidence"><span>Activity missing</span><strong [class.issue-number]="details.activityMissing > 0">{{ details.activityMissing | number:'1.0-0' }}</strong><small>View report →</small></button></div>
             </div>
           </section>
 

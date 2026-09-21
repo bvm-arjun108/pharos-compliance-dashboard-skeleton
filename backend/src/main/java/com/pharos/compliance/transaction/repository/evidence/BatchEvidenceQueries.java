@@ -239,6 +239,24 @@ public class BatchEvidenceQueries {
         .eq("SELECTION")
         .and(upperStatus.eq("ATTEMPT_MISSING"))
         .or(upperStage.eq("TRANSACTION_JOIN").and(upperStatus.eq("ERROR")).and(upperComments.eq("ATTEMPT_NOT_RECEIVED"))));
+    // A TRANSACTION_JOIN-stage sibling of missingAttemptCondition's own second convention, not a
+    // TRANSFORMATION-stage concept despite the "activity" in its name coinciding with the
+    // eligible/transformed/failed "activity_*" columns below. Matches the real
+    // report-batch-transformer job's actual convention (ReportReconciliationMetricTransformer
+    // .reconcileRegActivity, which sets activity_missing = ruleHitTotalCount -
+    // activitySelectedCount and terminates those transactions at the join with no
+    // TRANSFORMATION-stage row) -- this dashboard's own mock data was originally generated with a
+    // different, invented SELECTION-stage convention that didn't match the real system; fixed at
+    // the source (database/loaders/generate_load_test_data.py) rather than carried here as a
+    // second branch. The comment filter is load-bearing, not optional: a separate writer at that
+    // same TRANSACTION_JOIN/ERROR combination (reconcileRegActivityMissing) records a different,
+    // later gap -- the shortfall between expected and actual activity eligible for
+    // transformation -- and matching on stage+status alone would conflate the two.
+    Condition activityMissingCondition = evidenceSource
+      .eq(SOURCE_JOURNEY)
+      .and(upperStage.eq("TRANSACTION_JOIN"))
+      .and(upperStatus.eq("ERROR"))
+      .and(upperComments.eq("TXN_DATA_MISSING"));
     // Reused by SKIPPED below, which needs the same condition FAILED matches on its own.
     Condition failedCondition = journeyAtTransformation.and(outcome.eq(OUTCOME_ERROR));
 
@@ -288,6 +306,7 @@ public class BatchEvidenceQueries {
       // exactly for the batches using it. Matching both, rather than picking one, is the same
       // multi-variant approach ALREADY_REPORTED takes above for its own two comment spellings.
       case "MISSING" -> missingAttemptCondition;
+      case "ACTIVITY_MISSING" -> activityMissingCondition;
       // FILTRATION_VARIANCE/RECONCILIATION_VARIANCE never reach this method -- see
       // TransactionReportServiceImpl.isAggregateOnlyMetric. This default remains a defensive
       // fallback for a metric this switch hasn't been taught yet, not a deliberate route for

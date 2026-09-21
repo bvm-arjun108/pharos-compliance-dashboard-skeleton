@@ -9,6 +9,7 @@ type TransactionMetric =
   | 'SELECTED'
   | 'ATTEMPTS_FOUND'
   | 'MISSING'
+  | 'ACTIVITY_MISSING'
   | 'EXPECTED_ELIGIBLE'
   | 'ACTUAL_ELIGIBLE'
   | 'TRANSFORMED'
@@ -682,7 +683,7 @@ export class TransactionReportComponent implements OnInit {
 
   private parseMetric(value: string | null): TransactionMetric {
     const metrics: TransactionMetric[] = [
-      'SELECTED', 'ATTEMPTS_FOUND', 'MISSING', 'EXPECTED_ELIGIBLE', 'ACTUAL_ELIGIBLE',
+      'SELECTED', 'ATTEMPTS_FOUND', 'MISSING', 'ACTIVITY_MISSING', 'EXPECTED_ELIGIBLE', 'ACTUAL_ELIGIBLE',
       'TRANSFORMED', 'FAILED', 'EXPECTED_REPORTABLE', 'ACTUAL_REPORTABLE', 'EXCLUDED',
       'SIMULATED', 'ALREADY_REPORTED', 'SOFT_DEDUP', 'FILTERED', 'SKIPPED',
       'FILTRATION_VARIANCE', 'RECONCILIATION_VARIANCE', 'TRANSFORMER_OUTPUT'

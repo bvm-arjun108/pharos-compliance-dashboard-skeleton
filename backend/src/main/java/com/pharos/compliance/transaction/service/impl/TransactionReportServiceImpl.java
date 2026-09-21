@@ -311,6 +311,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case ALL, SELECTED -> context.selectedTransactions();
       case ATTEMPTS_FOUND -> context.attemptsFound();
       case MISSING -> context.missingAttempts();
+      case ACTIVITY_MISSING -> context.activityMissing();
       case EXPECTED_ELIGIBLE -> context.expectedEligible();
       case ACTUAL_ELIGIBLE -> context.actualEligible();
       case TRANSFORMED -> context.transformed();
@@ -340,6 +341,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case SELECTED -> "Selected transactions";
       case ATTEMPTS_FOUND -> "Transaction attempts found";
       case MISSING -> "Missing transaction attempts";
+      case ACTIVITY_MISSING -> "Activity missing";
       case EXPECTED_ELIGIBLE -> "Expected transformation eligible";
       case ACTUAL_ELIGIBLE -> "Actual transformation eligible";
       case TRANSFORMED -> "Transformed transactions";
