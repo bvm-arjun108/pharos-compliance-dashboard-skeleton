@@ -21,30 +21,30 @@
     "duplicateTransactionBatches": 1,
     "exclusionBatches": 2,
     "simulatedTransactionBatches": 1,
-    "softDedupBatches": 0,
-    "totalReportedTransactions": 1640,
-    "totalExcludedTransactions": 18
+    "softDedupBatches": 0
   },
   "trend": [
     {
       "periodStart": "2026-08-20",
       "batchesRan": 5,
       "successfulBatches": 4,
-      "batchesNeedingAttention": 1,
-      "transformationFailureBatches": 1,
-      "missingAttemptBatches": 0,
-      "activityMissingBatches": 0,
-      "totalReportedTransactions": 710,
-      "totalExcludedTransactions": 7
+      "batchesNeedingAttention": 1
     },
     {
       "periodStart": "2026-08-21",
       "batchesRan": 5,
       "successfulBatches": 3,
-      "batchesNeedingAttention": 2,
-      "transformationFailureBatches": 1,
-      "missingAttemptBatches": 1,
-      "activityMissingBatches": 1,
+      "batchesNeedingAttention": 2
+    }
+  ],
+  "transactionVolumeTrend": [
+    {
+      "periodStart": "2026-08-20",
+      "totalReportedTransactions": 710,
+      "totalExcludedTransactions": 7
+    },
+    {
+      "periodStart": "2026-08-21",
       "totalReportedTransactions": 930,
       "totalExcludedTransactions": 11
     }

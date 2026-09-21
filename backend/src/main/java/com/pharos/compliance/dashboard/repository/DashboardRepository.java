@@ -7,6 +7,7 @@ import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonPr
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
 import static com.pharos.compliance.common.jooq.JooqConditions.countDistinctTupleFiltered;
 import static com.pharos.compliance.common.jooq.JooqConditions.zonelessTimestampBetween;
@@ -105,7 +106,6 @@ public class DashboardRepository {
     Field<Integer> excludedTxn = requiredField(rtrScope, RECONCILIATION.EXCLUDED_TXN.getName(), Integer.class);
     Field<Integer> txnSimulated = requiredField(rtrScope, RECONCILIATION.TXN_SIMULATED.getName(), Integer.class);
     Field<Integer> softDedup = requiredField(rtrScope, RECONCILIATION.SOFT_DEDUP_DROPPED_TXN_COUNT.getName(), Integer.class);
-    Field<Integer> actualReportableTxn = requiredField(rtrScope, RECONCILIATION.ACTUAL_REPORTABLE_TXN.getName(), Integer.class);
 
     Condition transformationFailedGtZero = DSL.coalesce(transformationFailed, 0).gt(0);
     Condition missingAttemptsGtZero = DSL.coalesce(missingAttempts, 0).gt(0);
@@ -132,9 +132,7 @@ public class DashboardRepository {
           countDistinctTupleFiltered(DSL.coalesce(txnSimulated, 0).gt(0).and(noPriorIssue), rptGrpId, scopedBatchId, seqNo)
             .as("simulated_transaction_batches"),
           countDistinctTupleFiltered(DSL.coalesce(softDedup, 0).gt(0).and(noPriorIssue), rptGrpId, scopedBatchId, seqNo).as(
-              "soft_dedup_batches"),
-          DSL.coalesce(DSL.sum(actualReportableTxn), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_REPORTED_TRANSACTIONS_COLUMN),
-          DSL.coalesce(DSL.sum(excludedTxn), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
+              "soft_dedup_batches"))
       .from(rtrScope)
       .asTable("rtr_aggregates");
 
@@ -160,8 +158,6 @@ public class DashboardRepository {
     Field<Long> exclusionBatchesA = requiredField(rtrAggregates, "exclusion_batches", Long.class);
     Field<Long> simulatedTransactionBatchesA = requiredField(rtrAggregates, "simulated_transaction_batches", Long.class);
     Field<Long> softDedupBatchesA = requiredField(rtrAggregates, "soft_dedup_batches", Long.class);
-    Field<Long> totalReportedA = requiredField(rtrAggregates, TOTAL_REPORTED_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> totalExcludedA = requiredField(rtrAggregates, TOTAL_EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
     Field<Long> batchesNotYetReportedN = requiredField(notYetReported, "batches_not_yet_reported", Long.class);
 
     return dsl
@@ -170,16 +166,14 @@ public class DashboardRepository {
           transformationFailureBatchesA.as(TRANSFORMATION_FAILURE_BATCHES_ALIAS), missingAttemptBatchesA.as(MISSING_ATTEMPT_BATCHES_ALIAS),
           activityMissingBatchesA.as(ACTIVITY_MISSING_BATCHES_ALIAS), duplicateTransactionBatchesA.as("duplicateTransactionBatches"),
           exclusionBatchesA.as("exclusionBatches"), simulatedTransactionBatchesA.as("simulatedTransactionBatches"),
-          softDedupBatchesA.as("softDedupBatches"), totalReportedA.as(TOTAL_REPORTED_TRANSACTIONS_ALIAS),
-          totalExcludedA.as(TOTAL_EXCLUDED_TRANSACTIONS_ALIAS))
+          softDedupBatchesA.as("softDedupBatches"))
       .from(rtrAggregates)
       .crossJoin(notYetReported)
       .fetchOptional(r -> new DashboardCountsProjection(requiredLong(r, BATCHES_RAN_ALIAS), requiredLong(r, "batchesNotYetReported"),
           requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS), requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS),
           requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS), requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS),
           requiredLong(r, "duplicateTransactionBatches"), requiredLong(r, "exclusionBatches"),
-          requiredLong(r, "simulatedTransactionBatches"), requiredLong(r, "softDedupBatches"),
-          requiredLong(r, TOTAL_REPORTED_TRANSACTIONS_ALIAS), requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)))
+          requiredLong(r, "simulatedTransactionBatches"), requiredLong(r, "softDedupBatches")))
       .orElseThrow(() -> new IllegalStateException("Dashboard count aggregate returned no row"));
   }
 
@@ -256,16 +250,18 @@ public class DashboardRepository {
           requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)));
   }
 
-  @SqlQueryPurpose("Batch View > Adaptive Batch Health chart > Load successful and failed batch counts")
-  public List<BatchHealthTrendProjection> getBatchHealthTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
-      LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
-      boolean filterByReportGroup, int reportGroupId) {
-    // Bucket boundaries and the per-row bucketing expression are both driven entirely by
-    // `granularity`, which is already resolved to exactly one of DAILY/WEEKLY/MONTHLY before this
-    // method is ever called (TrendGranularity.forPeriod(...)) -- unlike the original SQL text,
-    // which had to encode all three branches as a runtime CASE because a native query can't vary
-    // its own text, jOOQ builds the query in Java, so only the one branch that actually applies is
-    // ever constructed.
+  /**
+   * Bucket boundaries and the per-row bucketing expression, shared by every trend query that
+   * groups {@code report_transformation_reconciliation} rows into DAILY/WEEKLY/MONTHLY buckets
+   * over the requested date range (see {@link #getBatchHealthTrend} and {@link
+   * #getTransactionVolumeTrend}) -- both queries need the identical calendar/bucketing setup, just
+   * with different aggregates grouped into it. {@code granularity} is already resolved to exactly
+   * one of DAILY/WEEKLY/MONTHLY before either caller runs (via {@code
+   * TrendGranularity.forPeriod(...)}) -- unlike the original SQL text, which had to encode all
+   * three branches as a runtime CASE because a native query can't vary its own text, jOOQ builds
+   * the query in Java, so only the one branch that actually applies is ever constructed.
+   */
+  private TrendPeriods buildTrendPeriods(LocalDate fromDate, LocalDate toDate, String granularity) {
     Field<LocalDate> seriesStart;
     Field<String> seriesStep;
     Field<LocalDate> periodStartExpr;
@@ -297,62 +293,101 @@ public class DashboardRepository {
       .asTable("periods");
     Field<LocalDate> periodsStart = requiredField(periods, PERIOD_START_COLUMN, LocalDate.class);
 
-    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
+    return new TrendPeriods(periods, periodsStart, periodStartExpr);
+  }
+
+  private record TrendPeriods(Table<?> periods, Field<LocalDate> periodsStart, Field<LocalDate> periodStartExpr) {}
+
+  private Condition trendScope(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId, boolean filterByCountry,
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+    return RECONCILIATION.CREATED_TIMESTAMP
       .ge(fromTimestamp)
       .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
       .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
       .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+  }
+
+  /**
+   * Batch View's Daily Batch Health chart alone -- ran/successful/needing-attention per bucket.
+   * Deliberately doesn't compute reported/excluded transaction totals: those are a different
+   * page's concern (see {@link #getTransactionVolumeTrend}), and since this method and that one
+   * are never both called within the same request (each page calls only its own), splitting them
+   * costs neither page an extra round trip while sparing whichever page's request runs from
+   * aggregating columns it will never read.
+   */
+  @SqlQueryPurpose("Batch View > Daily Batch Health chart > Load successful and failed batch counts")
+  public List<BatchHealthTrendProjection> getBatchHealthTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
+      boolean filterByReportGroup, int reportGroupId) {
+    TrendPeriods trendPeriods = buildTrendPeriods(fromDate, toDate, granularity);
+    Condition scope = trendScope(fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds, filterByReportGroup,
+        reportGroupId);
 
     Condition transformationFailedGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).gt(0);
     Condition missingAttemptsGtZero = DSL.coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0).gt(0);
     Condition activityMissingGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).gt(0);
 
     var periodMetrics = dsl
-      .select(periodStartExpr.as(PERIOD_START_COLUMN),
+      .select(trendPeriods.periodStartExpr().as(PERIOD_START_COLUMN),
           countDistinctTupleFiltered(DSL.trueCondition(), RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
             .as(BATCHES_RAN_COLUMN),
           countDistinctTupleFiltered(transformationFailedGtZero.or(missingAttemptsGtZero).or(activityMissingGtZero),
               RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(BATCHES_NEEDING_ATTENTION_COLUMN),
-          countDistinctTupleFiltered(transformationFailedGtZero, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(TRANSFORMATION_FAILURE_BATCHES_COLUMN),
-          countDistinctTupleFiltered(missingAttemptsGtZero, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(MISSING_ATTEMPT_BATCHES_COLUMN),
-          countDistinctTupleFiltered(activityMissingGtZero, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(ACTIVITY_MISSING_BATCHES_COLUMN),
+            .as(BATCHES_NEEDING_ATTENTION_COLUMN))
+      .from(RECONCILIATION)
+      .where(scope)
+      .groupBy(trendPeriods.periodStartExpr())
+      .asTable("period_metrics");
+
+    Field<Long> batchesRan = requiredField(periodMetrics, BATCHES_RAN_COLUMN, Long.class);
+    Field<Long> batchesNeedingAttention = requiredField(periodMetrics, BATCHES_NEEDING_ATTENTION_COLUMN, Long.class);
+
+    return dsl
+      .select(trendPeriods.periodsStart().as("periodStart"), DSL.coalesce(batchesRan, 0L).as(BATCHES_RAN_ALIAS),
+          DSL.coalesce(batchesRan, 0L).sub(DSL.coalesce(batchesNeedingAttention, 0L)).as(SUCCESSFUL_BATCHES_ALIAS),
+          DSL.coalesce(batchesNeedingAttention, 0L).as(BATCHES_NEEDING_ATTENTION_ALIAS))
+      .from(trendPeriods.periods())
+      .leftJoin(periodMetrics)
+      .using(trendPeriods.periodsStart())
+      .orderBy(trendPeriods.periodsStart())
+      .fetch(r -> new BatchHealthTrendProjection(r.get("periodStart", LocalDate.class), requiredLong(r, BATCHES_RAN_ALIAS),
+          requiredLong(r, SUCCESSFUL_BATCHES_ALIAS), requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS)));
+  }
+
+  /**
+   * Transactions Overview's trend heatmap/line charts alone -- reported/excluded transaction
+   * totals per bucket. See {@link #getBatchHealthTrend}'s Javadoc for why this is a separate
+   * query rather than the two totals riding along on that one.
+   */
+  @SqlQueryPurpose("Transactions Overview > Trend heatmap/line charts > Load reported and excluded transaction totals")
+  public List<TransactionVolumeTrendProjection> getTransactionVolumeTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
+      boolean filterByReportGroup, int reportGroupId) {
+    TrendPeriods trendPeriods = buildTrendPeriods(fromDate, toDate, granularity);
+    Condition scope = trendScope(fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds, filterByReportGroup,
+        reportGroupId);
+
+    var periodMetrics = dsl
+      .select(trendPeriods.periodStartExpr().as(PERIOD_START_COLUMN),
           DSL.coalesce(DSL.sum(RECONCILIATION.ACTUAL_REPORTABLE_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(
               TOTAL_REPORTED_TRANSACTIONS_COLUMN),
           DSL.coalesce(DSL.sum(RECONCILIATION.EXCLUDED_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
       .from(RECONCILIATION)
       .where(scope)
-      .groupBy(periodStartExpr)
+      .groupBy(trendPeriods.periodStartExpr())
       .asTable("period_metrics");
 
-    Field<Long> batchesRan = requiredField(periodMetrics, BATCHES_RAN_COLUMN, Long.class);
-    Field<Long> batchesNeedingAttention = requiredField(periodMetrics, BATCHES_NEEDING_ATTENTION_COLUMN, Long.class);
-    Field<Long> transformationFailureBatches = requiredField(periodMetrics, TRANSFORMATION_FAILURE_BATCHES_COLUMN, Long.class);
-    Field<Long> missingAttemptBatches = requiredField(periodMetrics, MISSING_ATTEMPT_BATCHES_COLUMN, Long.class);
-    Field<Long> activityMissingBatches = requiredField(periodMetrics, ACTIVITY_MISSING_BATCHES_COLUMN, Long.class);
     Field<Long> totalReported = requiredField(periodMetrics, TOTAL_REPORTED_TRANSACTIONS_COLUMN, Long.class);
     Field<Long> totalExcluded = requiredField(periodMetrics, TOTAL_EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
 
     return dsl
-      .select(periodsStart.as("periodStart"), DSL.coalesce(batchesRan, 0L).as(BATCHES_RAN_ALIAS),
-          DSL.coalesce(batchesRan, 0L).sub(DSL.coalesce(batchesNeedingAttention, 0L)).as(SUCCESSFUL_BATCHES_ALIAS),
-          DSL.coalesce(batchesNeedingAttention, 0L).as(BATCHES_NEEDING_ATTENTION_ALIAS),
-          DSL.coalesce(transformationFailureBatches, 0L).as(TRANSFORMATION_FAILURE_BATCHES_ALIAS),
-          DSL.coalesce(missingAttemptBatches, 0L).as(MISSING_ATTEMPT_BATCHES_ALIAS),
-          DSL.coalesce(activityMissingBatches, 0L).as(ACTIVITY_MISSING_BATCHES_ALIAS),
-          DSL.coalesce(totalReported, 0L).as(TOTAL_REPORTED_TRANSACTIONS_ALIAS),
+      .select(trendPeriods.periodsStart().as("periodStart"), DSL.coalesce(totalReported, 0L).as(TOTAL_REPORTED_TRANSACTIONS_ALIAS),
           DSL.coalesce(totalExcluded, 0L).as(TOTAL_EXCLUDED_TRANSACTIONS_ALIAS))
-      .from(periods)
+      .from(trendPeriods.periods())
       .leftJoin(periodMetrics)
-      .using(periodsStart)
-      .orderBy(periodsStart)
-      .fetch(r -> new BatchHealthTrendProjection(r.get("periodStart", LocalDate.class), requiredLong(r, BATCHES_RAN_ALIAS),
-          requiredLong(r, SUCCESSFUL_BATCHES_ALIAS), requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS),
-          requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS), requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS),
-          requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS), requiredLong(r, TOTAL_REPORTED_TRANSACTIONS_ALIAS),
+      .using(trendPeriods.periodsStart())
+      .orderBy(trendPeriods.periodsStart())
+      .fetch(r -> new TransactionVolumeTrendProjection(r.get("periodStart", LocalDate.class), requiredLong(r, TOTAL_REPORTED_TRANSACTIONS_ALIAS),
           requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)));
   }
 

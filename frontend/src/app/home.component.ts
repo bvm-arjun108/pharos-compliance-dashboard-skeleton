@@ -45,8 +45,6 @@ interface BatchDashboardResponse {
   exclusionBatches: number;
   simulatedTransactionBatches: number;
   softDedupBatches: number;
-  totalReportedTransactions: number;
-  totalExcludedTransactions: number;
   trendGranularity: TrendGranularity;
   batchHealthTrend: BatchHealthTrend[];
   reportGroupsRequiringAttention: ReportGroupAttention[];
@@ -62,12 +60,6 @@ interface BatchHealthTrend {
   batchesRan: number;
   successfulBatches: number;
   batchesNeedingAttention: number;
-  transformationFailureBatches: number;
-  missingAttemptBatches: number;
-  activityMissingBatches: number;
-  attentionRate: number;
-  totalReportedTransactions: number;
-  totalExcludedTransactions: number;
 }
 
 interface ReportGroupAttention {
@@ -981,17 +973,7 @@ export class HomeComponent implements OnInit {
     this.http.get<BatchDashboardResponse>('/dashboardDetails/batch-view', { params }).subscribe({
       next: details => {
         this.attentionPage.set(0);
-        this.dashboardDetails.set({
-          ...details,
-          batchHealthTrend: details.batchHealthTrend.map(period => ({
-            ...period,
-            transformationFailureBatches: period.transformationFailureBatches ?? 0,
-            missingAttemptBatches: period.missingAttemptBatches ?? 0,
-            activityMissingBatches: period.activityMissingBatches ?? 0,
-            totalReportedTransactions: period.totalReportedTransactions ?? 0,
-            totalExcludedTransactions: period.totalExcludedTransactions ?? 0
-          }))
-        });
+        this.dashboardDetails.set(details);
         this.dashboardLoading.set(false);
       },
       error: () => {

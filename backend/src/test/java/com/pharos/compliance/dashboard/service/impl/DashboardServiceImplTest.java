@@ -23,6 +23,7 @@ import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProj
 import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
 import com.pharos.compliance.reportgroup.model.CountryDefinition;
 import com.pharos.compliance.reportgroup.service.CountryCatalog;
@@ -74,16 +75,17 @@ class DashboardServiceImplTest {
     assertEquals(7, response.successfulBatches());
     assertEquals(3, response.batchesNeedingAttention());
     assertEquals(2, response.batchesNotYetReported());
-    assertEquals(1640, response.totalReportedTransactions());
-    assertEquals(18, response.totalExcludedTransactions());
     assertEquals(TrendGranularity.DAILY, response.trendGranularity());
     assertEquals(2, response.batchHealthTrend().size());
-    assertEquals(20.0, response.batchHealthTrend().getFirst().attentionRate());
+    assertEquals(5, response.batchHealthTrend().getFirst().batchesRan());
+    assertEquals(1, response.batchHealthTrend().getFirst().batchesNeedingAttention());
     assertEquals("PORTUGAL OBJECTIVE", response.reportGroupsRequiringAttention().getFirst().reportGroupName());
 
     verify(dashboardRepository, never()).getTransactionOverview(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
     verify(dashboardRepository, never()).getTopExclusionReasons(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
     verify(dashboardRepository, never()).getNotReportedReasons(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
+    verify(dashboardRepository, never())
+      .getTransactionVolumeTrend(any(), any(), any(), any(), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
   }
 
   @Test
@@ -97,9 +99,9 @@ class DashboardServiceImplTest {
     when(dashboardRepository.getNotReportedReasons(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(), anyList(),
         anyBoolean(), anyInt()))
       .thenReturn(fixture.notReportedReasons());
-    when(dashboardRepository.getBatchHealthTrend(any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDate.class),
+    when(dashboardRepository.getTransactionVolumeTrend(any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDate.class),
         any(LocalDate.class), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt()))
-      .thenReturn(fixture.trend());
+      .thenReturn(fixture.transactionVolumeTrend());
 
     TransactionDashboardResponse response = dashboardService.getTransactionDashboard(FROM_DATE, TO_DATE, "SG", 1573742369);
 
@@ -110,10 +112,14 @@ class DashboardServiceImplTest {
     assertEquals(2, response.topExclusionReasons().size());
     assertEquals(2, response.notReportedReasons().size());
     assertEquals(TrendGranularity.DAILY, response.trendGranularity());
+    assertEquals(2, response.batchHealthTrend().size());
+    assertEquals(710, response.batchHealthTrend().getFirst().totalReportedTransactions());
 
     verify(dashboardRepository, never()).getDashboardCounts(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
     verify(dashboardRepository, never())
       .getReportGroupsRequiringAttention(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
+    verify(dashboardRepository, never())
+      .getBatchHealthTrend(any(), any(), any(), any(), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
   }
 
   @Test
@@ -125,7 +131,7 @@ class DashboardServiceImplTest {
   }
 
   private record DashboardFixture(List<CountryDefinition> countries, DashboardCountsProjection counts,
-      List<BatchHealthTrendProjection> trend, List<ReportGroupMetricsProjection> reportGroups,
-      TransactionOverviewProjection transactionOverview, List<ExclusionReasonProjection> exclusionReasons,
-      List<NotReportedReasonProjection> notReportedReasons) {}
+      List<BatchHealthTrendProjection> trend, List<TransactionVolumeTrendProjection> transactionVolumeTrend,
+      List<ReportGroupMetricsProjection> reportGroups, TransactionOverviewProjection transactionOverview,
+      List<ExclusionReasonProjection> exclusionReasons, List<NotReportedReasonProjection> notReportedReasons) {}
 }

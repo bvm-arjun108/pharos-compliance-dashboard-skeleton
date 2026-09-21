@@ -9,6 +9,7 @@ import com.pharos.compliance.dashboard.dto.NotReportedReasonResponse;
 import com.pharos.compliance.dashboard.dto.ReportGroupAttentionResponse;
 import com.pharos.compliance.dashboard.dto.TransactionDashboardResponse;
 import com.pharos.compliance.dashboard.dto.TransactionOverviewResponse;
+import com.pharos.compliance.dashboard.dto.TransactionVolumeTrendResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.repository.DashboardRepository;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
@@ -17,6 +18,7 @@ import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProj
 import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import com.pharos.compliance.dashboard.service.DashboardService;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
 import com.pharos.compliance.reportgroup.model.CountryDefinition;
@@ -35,14 +37,18 @@ import org.springframework.stereotype.Service;
  * response -- each page threw away roughly half the payload and paid for query work the other
  * page owned (Batch View never reads {@code topExclusionReasons}/{@code notReportedReasons};
  * Transactions Overview never reads the batch KPI counts or {@code reportGroupsRequiringAttention}
- * -- see each frontend component's own response interface). The six {@link DashboardRepository}
- * queries were always independent of each other (no shared join or merge), so the split below is
- * a pure "call only the queries this page needs" change: {@link #getBatchDashboard} runs the three
- * Batch View queries, {@link #getTransactionDashboard} runs the four Transactions Overview
- * queries. {@code getBatchHealthTrend} is the one query both pages genuinely use (Batch View's
- * Adaptive Batch Health chart and Transactions Overview's own trend heatmap/line charts), so both
- * methods call it -- each page already triggered exactly one dashboard request per load either
- * way, so this duplicates no work that wasn't already being paid for.
+ * -- see each frontend component's own response interface). The seven {@link DashboardRepository}
+ * queries are always independent of each other (no shared join or merge), so the split below is a
+ * pure "call only the queries this page needs" change: {@link #getBatchDashboard} runs the three
+ * Batch View queries ({@link DashboardRepository#getBatchHealthTrend} among them), {@link
+ * #getTransactionDashboard} runs the four Transactions Overview queries ({@link
+ * DashboardRepository#getTransactionVolumeTrend} among them). Those last two used to be one method
+ * ({@code getBatchHealthTrend} returning every field either page might want), but since the two
+ * pages read disjoint fields off it (batches ran/needing-attention for Batch View,
+ * reported/excluded transaction totals for Transactions Overview) and neither page ever calls the
+ * other's query in the same request, splitting them costs neither page an extra round trip while
+ * sparing each one from aggregating columns its own request will never read -- see each
+ * repository method's own Javadoc.
  */
 @Service
 public class DashboardServiceImpl implements DashboardService {
@@ -70,7 +76,7 @@ public class DashboardServiceImpl implements DashboardService {
           scope.normalizedBatchId(), scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(),
           scope.reportGroupIdFilter())
       .stream()
-      .map(period -> toTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
+      .map(period -> toBatchHealthTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
       .toList();
 
     List<ReportGroupAttentionResponse> reportGroups = dashboardRepository
@@ -84,16 +90,13 @@ public class DashboardServiceImpl implements DashboardService {
         counts.batchesRan() - counts.batchesNeedingAttention() - counts.batchesNotYetReported(), counts.batchesNotYetReported(),
         counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
         counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
-        counts.simulatedTransactionBatches(), counts.softDedupBatches(), counts.totalReportedTransactions(),
-        counts.totalExcludedTransactions(), scope.trendGranularity(), trend, reportGroups, fromDate, toDate);
+        counts.simulatedTransactionBatches(), counts.softDedupBatches(), scope.trendGranularity(), trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Batch dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={}"
-        + " | attention={} | notYetReported={} | reportedTransactions={} | excludedTransactions={} | issueReportGroups={}"
-        + " | trendBuckets={} | duration={}ms", fromDate, toDate, scope.normalizedCountryCode(),
-        reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(), response.successfulBatches(),
-        response.batchesNeedingAttention(), response.batchesNotYetReported(), response.totalReportedTransactions(),
-        response.totalExcludedTransactions(), response.reportGroupsRequiringAttention().size(), response.batchHealthTrend().size(),
-        (System.nanoTime() - startedAt) / 1_000_000);
+        + " | attention={} | notYetReported={} | issueReportGroups={} | trendBuckets={} | duration={}ms", fromDate, toDate,
+        scope.normalizedCountryCode(), reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(), response.successfulBatches(),
+        response.batchesNeedingAttention(), response.batchesNotYetReported(), response.reportGroupsRequiringAttention().size(),
+        response.batchHealthTrend().size(), (System.nanoTime() - startedAt) / 1_000_000);
     return response;
   }
 
@@ -121,12 +124,12 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toNotReportedReasonResponse)
       .toList();
 
-    List<BatchHealthTrendResponse> trend = dashboardRepository
-      .getBatchHealthTrend(scope.fromTimestamp(), scope.toTimestampExclusive(), fromDate, toDate, scope.trendGranularity().name(),
+    List<TransactionVolumeTrendResponse> trend = dashboardRepository
+      .getTransactionVolumeTrend(scope.fromTimestamp(), scope.toTimestampExclusive(), fromDate, toDate, scope.trendGranularity().name(),
           scope.normalizedBatchId(), scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(),
           scope.reportGroupIdFilter())
       .stream()
-      .map(period -> toTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
+      .map(period -> toTransactionVolumeTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
       .toList();
 
     TransactionDashboardResponse response = new TransactionDashboardResponse(new TransactionOverviewResponse(transactionOverview.selected(),
@@ -174,13 +177,18 @@ public class DashboardServiceImpl implements DashboardService {
     return new NotReportedReasonResponse(reason.reason(), reason.count());
   }
 
-  private BatchHealthTrendResponse toTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate, LocalDate requestedToDate,
-      TrendGranularity granularity) {
+  private BatchHealthTrendResponse toBatchHealthTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate,
+      LocalDate requestedToDate, TrendGranularity granularity) {
     return new BatchHealthTrendResponse(period.periodStart().isBefore(requestedFromDate) ? requestedFromDate : period.periodStart(),
         periodEnd(period.periodStart(), requestedToDate, granularity), period.batchesRan(), period.successfulBatches(),
-        period.batchesNeedingAttention(), period.transformationFailureBatches(), period.missingAttemptBatches(),
-        period.activityMissingBatches(), period.batchesRan() == 0 ? 0.0 : (period.batchesNeedingAttention() * 100.0) / period.batchesRan(),
-        period.totalReportedTransactions(), period.totalExcludedTransactions());
+        period.batchesNeedingAttention());
+  }
+
+  private TransactionVolumeTrendResponse toTransactionVolumeTrendResponse(TransactionVolumeTrendProjection period,
+      LocalDate requestedFromDate, LocalDate requestedToDate, TrendGranularity granularity) {
+    return new TransactionVolumeTrendResponse(period.periodStart().isBefore(requestedFromDate) ? requestedFromDate : period.periodStart(),
+        periodEnd(period.periodStart(), requestedToDate, granularity), period.totalReportedTransactions(),
+        period.totalExcludedTransactions());
   }
 
   private ReportGroupAttentionResponse toReportGroupResponse(ReportGroupMetricsProjection group) {
