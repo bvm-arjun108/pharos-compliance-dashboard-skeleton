@@ -8,10 +8,12 @@ import com.pharos.compliance.common.error.ApiErrorResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigDetailsResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigExplorerResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigFilterOptionsResponse;
+import com.pharos.compliance.reportgroup.dto.ReportGroupOptionResponse;
 import com.pharos.compliance.reportgroup.model.ReportConfigStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -19,6 +21,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +37,14 @@ public interface ReportConfigApi {
       @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)})
   @GetMapping(value = "/filter-options", produces = MediaType.APPLICATION_JSON_VALUE)
   ReportConfigFilterOptionsResponse getFilterOptions();
+
+  @Operation(operationId = "getReportGroupOptions", summary = "Get report-group filter options", description = "Returns one row per "
+      + "report group (its latest configuration version only) for populating report-group filter dropdowns -- not the full, "
+      + "every-version configuration directory that getReportConfigs returns.")
+  @ApiResponse(responseCode = "200", description = "Report group options returned successfully", headers = {@Header(name = TRACE_ID_HEADER, description = TRACE_ID_DESCRIPTION),
+      @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)}, content = @Content(array = @ArraySchema(schema = @Schema(implementation = ReportGroupOptionResponse.class))))
+  @GetMapping(value = "/report-groups", produces = MediaType.APPLICATION_JSON_VALUE)
+  List<ReportGroupOptionResponse> getReportGroupOptions();
 
   @Operation(operationId = "getReportConfigs", summary = "Explore latest report-group configurations", description = "Returns the latest "
       + "configuration version for each report group, filtered by country, status, report type, or exact report group ID.")

@@ -20,16 +20,6 @@ interface ReportGroupOption {
   countryCode: string;
 }
 
-interface ReportConfigListItem {
-  reportGroupId: number;
-  reportGroupName: string | null;
-  countryCode: string;
-}
-
-interface ReportConfigExplorerResponse {
-  configurations: ReportConfigListItem[];
-}
-
 // Only the field this page actually reads -- the transaction report page's own search box only
 // understands identifier/mtcn, so every result's resolved mtcn is what gets carried into that
 // redirect, regardless of whether the search matched on MTCN or external transaction key.
@@ -676,17 +666,8 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
       next: options => this.countryOptions.set(options.countries),
       error: () => this.countryOptions.set([])
     });
-    this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs').subscribe({
-      next: response =>
-        this.reportGroupOptions.set(
-          response.configurations
-            .map(config => ({
-              reportGroupId: config.reportGroupId,
-              reportGroupName: config.reportGroupName,
-              countryCode: config.countryCode
-            }))
-            .sort((a, b) => (a.reportGroupName || '').localeCompare(b.reportGroupName || ''))
-        ),
+    this.http.get<ReportGroupOption[]>('/api/v1/report-configs/report-groups').subscribe({
+      next: options => this.reportGroupOptions.set(options),
       error: () => this.reportGroupOptions.set([])
     });
     this.loadDashboardDetails();

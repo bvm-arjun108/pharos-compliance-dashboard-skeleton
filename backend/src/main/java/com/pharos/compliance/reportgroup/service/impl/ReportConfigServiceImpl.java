@@ -8,12 +8,14 @@ import com.pharos.compliance.reportgroup.dto.ReportConfigExplorerResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigFilterOptionsResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigListItemResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigSummaryResponse;
+import com.pharos.compliance.reportgroup.dto.ReportGroupOptionResponse;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
 import com.pharos.compliance.reportgroup.model.ReportConfigStatus;
 import com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository;
 import com.pharos.compliance.reportgroup.repository.projection.ReportConfigDetailsProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportConfigListProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportConfigSummaryProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportGroupOptionProjection;
 import com.pharos.compliance.reportgroup.service.CountryCatalog;
 import com.pharos.compliance.reportgroup.service.ReportConfigService;
 import java.util.List;
@@ -48,6 +50,11 @@ public class ReportConfigServiceImpl implements ReportConfigService {
       .map(type -> type.reportType())
       .toList();
     return new ReportConfigFilterOptionsResponse(countries, reportTypes);
+  }
+
+  @Override
+  public List<ReportGroupOptionResponse> getReportGroupOptions() {
+    return reportGroupConfigRepository.findReportGroupOptions().stream().map(this::toReportGroupOption).toList();
   }
 
   @Override
@@ -92,6 +99,10 @@ public class ReportConfigServiceImpl implements ReportConfigService {
         + " | selectionVersion={} | transformerVersion={} | duration={}ms", reportGroupId, config.reportGroupName(), config.countryCode(),
         config.reportType(), config.active(), reportSelectionVersionId, transformerVersionId, (System.nanoTime() - startedAt) / 1_000_000);
     return response;
+  }
+
+  private ReportGroupOptionResponse toReportGroupOption(ReportGroupOptionProjection option) {
+    return new ReportGroupOptionResponse(option.reportGroupId(), option.reportGroupName(), option.countryCode());
   }
 
   private ReportConfigSummaryResponse toSummary(ReportConfigSummaryProjection summary) {

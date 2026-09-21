@@ -4,8 +4,10 @@ import com.pharos.compliance.reportgroup.api.ReportConfigApi;
 import com.pharos.compliance.reportgroup.dto.ReportConfigDetailsResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigExplorerResponse;
 import com.pharos.compliance.reportgroup.dto.ReportConfigFilterOptionsResponse;
+import com.pharos.compliance.reportgroup.dto.ReportGroupOptionResponse;
 import com.pharos.compliance.reportgroup.model.ReportConfigStatus;
 import com.pharos.compliance.reportgroup.service.ReportConfigService;
+import java.util.List;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -21,6 +23,11 @@ public class ReportConfigController implements ReportConfigApi {
   @Override
   public ReportConfigFilterOptionsResponse getFilterOptions() {
     return reportConfigService.getFilterOptions();
+  }
+
+  @Override
+  public List<ReportGroupOptionResponse> getReportGroupOptions() {
+    return reportConfigService.getReportGroupOptions();
   }
 
   @Override

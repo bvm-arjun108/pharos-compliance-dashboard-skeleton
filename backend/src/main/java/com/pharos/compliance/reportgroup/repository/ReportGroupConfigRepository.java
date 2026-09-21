@@ -2,6 +2,7 @@ package com.pharos.compliance.reportgroup.repository;
 
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
 import com.pharos.compliance.reportgroup.repository.projection.CountryMappingProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportGroupOptionProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportTypeProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportConfigSummaryProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportConfigListProjection;
@@ -102,6 +103,39 @@ public class ReportGroupConfigRepository {
       .and(DSL.trim(countryCode).ne(""))
       .orderBy(countryNameOut, countryCodeOut, reportGroupIdOut)
       .fetch(r -> new CountryMappingProjection(r.get(countryCodeOut), r.get(countryNameOut), requiredInt(r, reportGroupIdOut)));
+  }
+
+  /**
+   * One row per report group (its latest version, same {@link #latestConfigRank} ranking as {@link
+   * #findCountryMappings}) for populating report-group filter dropdowns on Batch View, Batch
+   * Explorer, and Transactions Overview -- those three pages used to each independently call
+   * {@link #findReportConfigs} (every historical version of every report group, every column) and
+   * then dedupe to one row per group in client-side JavaScript, three separate times, just to get
+   * {@code reportGroupId}/{@code reportGroupName}/{@code countryCode}. Unlike {@link
+   * #findCountryMappings}, this doesn't drop report groups with a null/blank country code -- a
+   * report group with no country is still a real filter option (it just never matches a specific
+   * country filter), and dropping it here would silently remove it from three dropdowns that
+   * previously showed it.
+   */
+  @SqlQueryPurpose("Load the latest report-group options for filter dropdowns")
+  public List<ReportGroupOptionProjection> findReportGroupOptions() {
+    Table<Record> rankedConfigs = dsl.select(CONFIG.asterisk(), latestConfigRank()).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
+
+    Field<Integer> reportGroupId = requiredField(rankedConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> reportGroupName = requiredField(rankedConfigs, CONFIG.RPT_GRP_NAME.getName(), String.class);
+    Field<String> countryCode = requiredField(rankedConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
+    Field<Integer> configRank = requiredField(rankedConfigs, CONFIG_RANK_COLUMN, Integer.class);
+
+    var reportGroupIdOut = reportGroupId.as(REPORT_GROUP_ID_ALIAS);
+    var reportGroupNameOut = reportGroupName.as(REPORT_GROUP_NAME_ALIAS);
+    var countryCodeOut = DSL.upper(DSL.trim(countryCode)).as(COUNTRY_CODE_ALIAS);
+
+    return dsl
+      .select(reportGroupIdOut, reportGroupNameOut, countryCodeOut)
+      .from(rankedConfigs)
+      .where(configRank.eq(1))
+      .orderBy(reportGroupNameOut.nullsLast(), reportGroupIdOut)
+      .fetch(r -> new ReportGroupOptionProjection(requiredInt(r, reportGroupIdOut), r.get(reportGroupNameOut), r.get(countryCodeOut)));
   }
 
   @SqlQueryPurpose("Load the configured regulatory report types")

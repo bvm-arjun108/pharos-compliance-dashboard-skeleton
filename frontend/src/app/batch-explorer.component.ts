@@ -155,8 +155,10 @@ interface ReportConfigSummary {
   modifiedAt: string | null;
 }
 
-interface ReportConfigExplorerResponse {
-  configurations: ReportConfigSummary[];
+interface ReportGroupOption {
+  reportGroupId: number;
+  reportGroupName: string | null;
+  countryCode: string;
 }
 
 // Only the fields this page reads from GET /api/v1/report-configs/{reportGroupId}/
@@ -182,7 +184,7 @@ export class BatchExplorerComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly filterOptions = signal<BatchFilterOptionsResponse>({ countries: [] });
-  readonly reportGroupOptions = signal<ReportConfigSummary[]>([]);
+  readonly reportGroupOptions = signal<ReportGroupOption[]>([]);
   readonly response = signal<BatchExplorerResponse | null>(null);
   readonly selectedBatch = signal<BatchQueueItem | null>(null);
   readonly selectedDetails = signal<BatchDetailsResponse | null>(null);
@@ -481,26 +483,8 @@ export class BatchExplorerComponent implements OnInit {
       next: options => this.filterOptions.set(options),
       error: () => this.filterOptions.set({ countries: [] })
     });
-    this.http.get<ReportConfigExplorerResponse>('/api/v1/report-configs').subscribe({
-      // /api/v1/report-configs lists every config version as its own row (see
-      // ReportGroupConfigRepository), which is right for the Report Config page's own directory
-      // but means this batch filter -- which only cares which report group a batch belongs to,
-      // never which config version was active when it ran -- would otherwise offer several
-      // identical-looking options per group that all filter to the exact same report group ID.
-      next: response => {
-        const seenReportGroupIds = new Set<number>();
-        this.reportGroupOptions.set(
-          response.configurations
-            .filter(config => {
-              if (seenReportGroupIds.has(config.reportGroupId)) {
-                return false;
-              }
-              seenReportGroupIds.add(config.reportGroupId);
-              return true;
-            })
-            .sort((a, b) => (a.reportGroupName || '').localeCompare(b.reportGroupName || ''))
-        );
-      },
+    this.http.get<ReportGroupOption[]>('/api/v1/report-configs/report-groups').subscribe({
+      next: options => this.reportGroupOptions.set(options),
       error: () => this.reportGroupOptions.set([])
     });
   }
