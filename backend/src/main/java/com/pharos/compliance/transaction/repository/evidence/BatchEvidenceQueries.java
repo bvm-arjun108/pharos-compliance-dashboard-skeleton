@@ -259,12 +259,35 @@ public class BatchEvidenceQueries {
       .and(upperComments.eq("TXN_DATA_MISSING"));
     // Reused by SKIPPED below, which needs the same condition FAILED matches on its own.
     Condition failedCondition = journeyAtTransformation.and(outcome.eq(OUTCOME_ERROR));
+    // This mock data records some successfully-transformed transactions with a
+    // REPORT_GENERATION/GENERATED row instead of a TRANSFORMATION/SUCCESS one -- see
+    // generate_load_test_data.py, which appends exactly one journey row per transaction and picks
+    // REPORT_GENERATION over TRANSFORMATION for roughly a third of successes once a batch's report
+    // has actually been generated. Established precedent for treating the two as equivalent
+    // already exists in OverviewEvidenceQueries#reportingRoll's everReportedCondition. Reused by
+    // both cases below.
+    Condition reportGenerationSuccess = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("REPORT_GENERATION")).and(upperStatus.eq(
+        "GENERATED"));
+    // "Eligible for transformation" is any transaction that reached the TRANSFORMATION stage at
+    // all, whether it succeeded or failed there, plus the REPORT_GENERATION-recorded successes
+    // above. Previously scoped identically to SELECTED/ATTEMPTS_FOUND (any journey row at all, no
+    // stage restriction), so clicking through from Expected/Actual Eligible showed the exact same
+    // list as Selected Data. EXPECTED_ELIGIBLE and ACTUAL_ELIGIBLE share this one condition rather
+    // than having their own: the aggregate gap between them (reconciliation_error) isn't tied to
+    // specific records -- see RECONCILIATION_VARIANCE, already isAggregateOnlyMetric for exactly
+    // that reason -- so there's no finer-grained row-level distinction to draw between the two.
+    Condition eligibleForTransformationCondition = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).or(
+        reportGenerationSuccess);
 
     Condition metricCondition = switch (metric) {
       case "ALL" -> DSL.trueCondition();
-      case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE",
-          "TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_JOURNEY);
-      case "TRANSFORMED" -> journeyAtTransformation.and(outcome.eq(OUTCOME_SUCCESS));
+      case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE", "TRANSFORMER_OUTPUT" -> evidenceSource.eq(
+          SOURCE_JOURNEY);
+      case "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE" -> eligibleForTransformationCondition;
+      // Undercounted before reportGenerationSuccess was added here (confirmed against a real
+      // batch: only 14 of 22 aggregate-reported transformed transactions had a matching
+      // TRANSFORMATION/SUCCESS row -- the other 8 were recorded as REPORT_GENERATION/GENERATED).
+      case "TRANSFORMED" -> journeyAtTransformation.and(outcome.eq(OUTCOME_SUCCESS)).or(reportGenerationSuccess);
       case "FAILED" -> failedCondition;
       // Previously sourced from EXCLUSION_AUDIT alone, which only has a row for a transaction once
       // something (typically a downstream rule/reporting check) explicitly audits the exclusion --
