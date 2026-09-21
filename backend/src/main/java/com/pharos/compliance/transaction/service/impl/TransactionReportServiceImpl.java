@@ -401,6 +401,16 @@ public class TransactionReportServiceImpl implements TransactionReportService {
     };
   }
 
+  /**
+   * RECORD_LEVEL requires an exact match, not just "at least as many records as the aggregate
+   * claims" -- the latter silently classified an over-count (more evidence rows than the aggregate)
+   * as a full, untroubled match, which is exactly backwards: an aggregate that under-reports
+   * relative to its own evidence is just as much a data-quality signal as one that over-reports.
+   * Both directions fall into PARTIAL_RECORD_LEVEL and get an explanatory message instead of being
+   * silently absorbed into "everything's fine" (confirmed against a real over-count: a filter bug
+   * once put 8,552 evidence rows against an aggregate of 8,451, which this would have shown as
+   * RECORD_LEVEL with no explanation at all).
+   */
   private TransactionEvidenceLevel evidenceLevel(long aggregateCount, long availableRecords) {
     if (aggregateCount == 0 && availableRecords == 0) {
       return TransactionEvidenceLevel.NO_RECORDS;
@@ -408,7 +418,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
     if (availableRecords == 0) {
       return TransactionEvidenceLevel.AGGREGATE_ONLY;
     }
-    if (aggregateCount > 0 && availableRecords >= aggregateCount) {
+    if (aggregateCount > 0 && availableRecords == aggregateCount) {
       return TransactionEvidenceLevel.RECORD_LEVEL;
     }
     return TransactionEvidenceLevel.PARTIAL_RECORD_LEVEL;
@@ -428,8 +438,13 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   private String evidenceMessage(TransactionEvidenceLevel level, long aggregateCount, long availableRecords) {
     return switch (level) {
       case RECORD_LEVEL -> "Record-level evidence is available for the full aggregate count in this batch.";
-      case PARTIAL_RECORD_LEVEL -> availableRecords + " latest-state record(s) are available for an aggregate count of " + aggregateCount
-          + ". Journey is latest-state evidence, not event history.";
+      // Deliberately states both numbers side by side rather than "N available for an aggregate of
+      // M" -- that phrasing assumes the evidence list is a subset of the aggregate (N <= M), which
+      // breaks if the aggregate itself under-reports relative to real evidence (N > M) -- a filter
+      // or aggregate bug produces exactly that shape, and the message needs to read sensibly either
+      // way, not just when evidence falls short.
+      case PARTIAL_RECORD_LEVEL -> "Transaction evidence shows " + availableRecords + " record(s); the reconciliation aggregate reports "
+          + aggregateCount + ". Journey is latest-state evidence, not full event history.";
       case AGGREGATE_ONLY -> "The count of " + aggregateCount
           + " is available only as batch reconciliation evidence; Phase 1 has no authoritative transaction rows for this metric.";
       case NO_RECORDS -> "The batch has no transactions for this metric.";

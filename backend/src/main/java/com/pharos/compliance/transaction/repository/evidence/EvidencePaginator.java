@@ -290,6 +290,20 @@ public class EvidencePaginator {
    * table -- the "how many transactions match" companion to {@link #pageEvidence}, shared by all
    * three pipelines' own count methods.
    */
+  /**
+   * Counts distinct {@code (evidence_batch_id, identifier)} tuples, not distinct identifiers --
+   * deliberately a per-batch-decision count, not a per-transaction one. This is the grain every
+   * batch-scalar reconciliation aggregate this evidence gets compared against actually has: {@code
+   * SUM(report_transformation_reconciliation.excluded_txn)} (and its siblings) is a sum of
+   * per-batch scalars, so it can never be identity-deduplicated across batches -- only the
+   * per-(batch, identifier) count can match it. Deduplicating by identifier alone would undercount
+   * relative to that sum for any transaction re-excluded (or re-whatever) in more than one batch
+   * within the same scope; this currently produces the same number as identifier-only dedup would
+   * for most windows simply because that overlap is rare, not because the two are equivalent -- a
+   * real sample had 40 rule-excluded rows collapse to just 10 distinct transactions recurring
+   * across 4 batches, a gap a narrower comment filter elsewhere happened to hide for that
+   * particular window, not fix in general.
+   */
   public long countDistinctIdentifiers(Table<?> filtered) {
     Field<String> evidenceBatchId = requiredField(filtered, EVIDENCE_BATCH_ID, String.class);
     Field<String> identifier = requiredField(filtered, IDENTIFIER, String.class);

@@ -84,6 +84,16 @@ public final class EvidenceColumns {
   public static final String TRANSACTION_SIDE = "transaction_side";
   public static final String TRANSACTION_SOURCE = "txn_source";
   public static final String VALUE_EXCLUDED = "EXCLUDED";
+  // The one journey comment report_transformation_reconciliation.excluded_txn actually sums --
+  // confirmed against real production data (AUSTRALIA IFTI, 4 batches): excluded_txn equals this
+  // exact count on every batch, with zero unaccounted, while EXCLUDED_BECAUSE_SML/
+  // EXCLUDED_BECAUSE_ALREADY_REPORTED/EXCLUDED_SOFT_DEDUP back their own separate reconciliation
+  // scalars (txn_simulated/already_reported_count/soft_dedup_dropped_txn_count) and must stay out
+  // of this bucket, not fold into it. Shared by BatchEvidenceQueries and PeriodEvidenceQueries so
+  // the single-batch and batch-total "Excluded" evidence conditions can't drift apart the way they
+  // did before -- a wider, comment-agnostic match in the batch-total path once over-counted by
+  // exactly the SML+ALREADY_REPORTED rows this constant deliberately excludes.
+  public static final String VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS = "EXCLUDED_BECAUSE_EXCLUSION_EXISTS";
   public static final String VALUE_NOT_REPORTED = "NOT_REPORTED";
   public static final String VALUE_REPORTED = "REPORTED";
   public static final String REPORTING_TIMESTAMP = "reportingTimestamp";

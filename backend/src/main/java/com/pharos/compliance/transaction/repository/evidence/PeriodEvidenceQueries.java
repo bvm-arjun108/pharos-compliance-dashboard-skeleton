@@ -42,11 +42,13 @@ import static com.pharos.compliance.transaction.repository.evidence.EvidenceColu
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.SOURCE_JOURNEY;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.SOURCE_RULE_HIT;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.STAGE;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.STAGE_FILTRATION;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.STATUS;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.TRANSACTION_DATE;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.TRANSACTION_SIDE;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.TRANSACTION_SOURCE;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_REPORTED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceSqlSupport.journeyOutcome;
@@ -289,15 +291,22 @@ public class PeriodEvidenceQueries {
    * defined, deliberately independent of {@link OverviewEvidenceQueries}'s "ever excluded across a
    * transaction's whole history" rollup (that one matches a *different* KPI -- Transactions
    * Overview's own Excluded tile, which really is an all-time, identity-deduplicated concept).
-   * Matches every FILTRATION/EXCLUDED journey row regardless of its comment -- including
-   * EXCLUDED_BECAUSE_SML (simulated) -- since excluded_txn itself doesn't carve simulated out into
-   * a separate scalar the way txn_simulated's own bucket does downstream; excluding SML here would
-   * silently undercount relative to the sum being explained.
+   *
+   * <p>Narrowed to {@link EvidenceColumns#VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS} specifically --
+   * an earlier version of this method matched every FILTRATION/EXCLUDED row regardless of comment
+   * on the theory that {@code excluded_txn} doesn't carve simulated/already-reported exclusions out
+   * into their own scalars. That was wrong, confirmed against real production data: {@code
+   * excluded_txn} equals the EXCLUDED_BECAUSE_EXCLUSION_EXISTS count exactly on every batch (zero
+   * unaccounted across the whole sample), while EXCLUDED_BECAUSE_SML and
+   * EXCLUDED_BECAUSE_ALREADY_REPORTED back their own separate reconciliation scalars
+   * (txn_simulated, already_reported_count) and were never part of this one -- the wider match
+   * over-counted by exactly their combined size.
    */
   public Table<?> filteredExcludedEvidenceForBatchTotal(Table<?> evidence, String search) {
     Field<String> evidenceSource = requiredField(evidence, EVIDENCE_SOURCE, String.class);
     Field<String> stage = requiredField(evidence, STAGE, String.class);
     Field<String> outcome = requiredField(evidence, OUTCOME, String.class);
+    Field<String> comments = requiredField(evidence, COMMENTS, String.class);
     Field<String> identifier = requiredField(evidence, IDENTIFIER, String.class);
     Field<String> mtcn = requiredField(evidence, "mtcn", String.class);
 
@@ -306,8 +315,9 @@ public class PeriodEvidenceQueries {
       .from(evidence)
       .where(searchScope(search, identifier, mtcn))
       .and(evidenceSource.eq(SOURCE_JOURNEY))
-      .and(DSL.upper(DSL.coalesce(stage, "")).eq("FILTRATION"))
+      .and(DSL.upper(DSL.coalesce(stage, "")).eq(STAGE_FILTRATION))
       .and(outcome.eq(VALUE_EXCLUDED))
+      .and(DSL.upper(DSL.coalesce(comments, "")).eq(VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS))
       .asTable("filtered_excluded_evidence");
   }
 

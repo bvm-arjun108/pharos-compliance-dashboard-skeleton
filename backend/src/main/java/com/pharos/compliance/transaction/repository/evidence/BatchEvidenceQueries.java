@@ -43,6 +43,7 @@ import static com.pharos.compliance.transaction.repository.evidence.EvidenceColu
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.TRANSACTION_SIDE;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.TRANSACTION_SOURCE;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_REPORTED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceSqlSupport.matchesDigitsOnly;
@@ -308,32 +309,38 @@ public class BatchEvidenceQueries {
       // report_transformation_reconciliation.excluded_txn (and a matching count straight off
       // record_transformation_journey) was 2,236, i.e. EXCLUSION_AUDIT was missing 2,203 of the
       // batch's real exclusions -- the "Excluded" drill-through silently showed 33 rows for a tile
-      // that said 2,236. Journey is the correct, always-populated source: every FILTRATION-stage
-      // journey row has status EXCLUDED (confirmed with zero exceptions across every FILTRATION row
-      // in the dataset), so this mirrors SIMULATED/ALREADY_REPORTED/SOFT_DEDUP below exactly, just
-      // for whichever exclusion reason isn't one of theirs -- the same "generic" bucket
-      // report_transformation_reconciliation.excluded_txn itself represents.
-      case VALUE_EXCLUDED -> journeyAtFiltration
-        .and(outcome.eq(VALUE_EXCLUDED))
-        .and(upperComments.notLike("EXCLUDED_BECAUSE_SML%"))
-        .and(upperComments.notLike("EXCLUDED_BECAUSE_ALREADY_REPORTED%"))
-        .and(upperComments.notLike("EXCLUDED_SOFT_DEDUP%"))
-        .and(upperComments.notLike("EXCLUDED_REAPPEARING_%"));
+      // that said 2,236. Journey is the correct, always-populated source for the "generic" bucket
+      // report_transformation_reconciliation.excluded_txn itself represents: matches
+      // VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS specifically (confirmed 1:1 against excluded_txn on
+      // every batch in a real sample, zero unaccounted), not "every FILTRATION/EXCLUDED row that
+      // isn't one of SIMULATED/ALREADY_REPORTED/SOFT_DEDUP below" -- a NOT-LIKE catch-all here
+      // silently absorbs any future exclusion-comment convention neither this bucket nor those
+      // three know about, over-counting exactly the way the period-scoped equivalent of this
+      // condition once did (see PeriodEvidenceQueries#filteredExcludedEvidenceForBatchTotal)
+      // before it was narrowed to this same positive match.
+      case VALUE_EXCLUDED -> journeyAtFiltration.and(outcome.eq(VALUE_EXCLUDED)).and(upperComments.eq(
+          VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS));
       case "SIMULATED" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_BECAUSE_SML"));
       case "ALREADY_REPORTED" -> journeyAtFiltration.and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
       case "SOFT_DEDUP" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
       // Mirrors its own aggregate exactly (missingAttempts + activityMissing + excluded +
       // simulated + alreadyReported + softDedup): the FILTRATION-stage branch already catches
       // every SML/ALREADY_REPORTED/SOFT_DEDUP/generic-EXCLUDED journey row (all four live at that
-      // one stage), so missingAttemptCondition and activityMissingCondition were the two pieces
-      // missing -- literally, before this fix a batch with real missing-attempt/activity-missing
-      // journey evidence still showed a "Total exclusions" aggregate bigger than the evidence
-      // returned for it.
-      case "FILTERED" -> evidenceSource
-        .eq(SOURCE_EXCLUSION_AUDIT)
-        .or(journeyAtFiltration)
-        .or(missingAttemptCondition)
-        .or(activityMissingCondition);
+      // one stage), so missingAttemptCondition and activityMissingCondition are the only other
+      // pieces needed -- exactly the six terms the aggregate sums, no more.
+      //
+      // Deliberately does NOT include evidenceSource.eq(SOURCE_EXCLUSION_AUDIT): an earlier version
+      // did, unconditionally admitting every rule_hit_exclusion_audit row for the batch with no
+      // check that the transaction was actually excluded. rule_hit_exclusion_audit is keyed at
+      // rule-hit grain (bucket_id, rpt_grp_id, rule_id, attempt_id), so a transaction can pick up an
+      // audit row for one rule/attempt while a different attempt still carries it through to
+      // reporting -- confirmed against real production data: 13 of a batch's 30 audit rows had a
+      // null exclusion_reason_id and were, in fact, ADDED_IN_REPORT, inflating "Total exclusions"
+      // past its own aggregate (2,232 evidence rows for an aggregate of 2,219) instead of matching
+      // it. The VALUE_EXCLUDED case above already reached the same conclusion for the same reason
+      // (see its own Javadoc) -- EXCLUSION_AUDIT is sparse and unreliable as an exclusion signal,
+      // journeyAtFiltration is the correct, always-populated one.
+      case "FILTERED" -> journeyAtFiltration.or(missingAttemptCondition).or(activityMissingCondition);
       // The Skipped Status card's own total: the three ways a selected transaction never reaches
       // a reportable outcome outside of exclusion -- never attempted, expected activity that was
       // never found, or attempted and failed. Mirrors its aggregate (missingAttempts +

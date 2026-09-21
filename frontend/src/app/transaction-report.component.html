@@ -30,7 +30,11 @@
           <h1>{{ result.metricLabel }}</h1>
           <span>{{ contextGroupLabel(result.context) }} · {{ result.context.countryName }}</span>
           @if (result.aggregateCountMismatch) {
-            <span class="transaction-report-note">Reconciliation reported {{ result.reportedAggregateCount | number:'1.0-0' }} — showing the {{ result.aggregateCount | number:'1.0-0' }} confirmed in transaction evidence.</span>
+            <!-- Deliberately states both numbers side by side rather than "reported X, showing Y
+                 confirmed" -- that phrasing assumes the corrected count is always a subset of the
+                 raw one, which breaks for the (confirmed real) opposite case where journey shows
+                 more than reconciliation reported. -->
+            <span class="transaction-report-note">Reconciliation recorded {{ result.reportedAggregateCount | number:'1.0-0' }}; transaction evidence shows {{ result.aggregateCount | number:'1.0-0' }}.</span>
           } @else if (result.evidenceLevel !== 'RECORD_LEVEL') {
             <!-- Whenever the aggregate the user clicked through from can't be fully matched to
                  real transaction rows (fewer rows in journey than the count claimed, or no
@@ -72,7 +76,11 @@
           <span>
             {{ result.matchingRecordCount | number:'1.0-0' }} matching
             @if (result.aggregateCount !== result.matchingRecordCount) {
-              <small class="transaction-report-aggregate-note">of {{ result.aggregateCount | number:'1.0-0' }} reported</small>
+              <!-- "reported" was metric-specific wording bleeding into every metric -- aggregateCount
+                   is always a reconciliation-derived value, whatever the metric, so this reads
+                   correctly for Excluded/Failed/Transformed/etc alike instead of implying the
+                   aggregate always means "transactions filed downstream". -->
+              <small class="transaction-report-aggregate-note">of {{ result.aggregateCount | number:'1.0-0' }} in reconciliation</small>
             }
           </span>
         </header>
