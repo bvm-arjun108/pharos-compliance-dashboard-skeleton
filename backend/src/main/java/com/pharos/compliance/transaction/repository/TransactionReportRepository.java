@@ -164,16 +164,27 @@ public class TransactionReportRepository {
 
   /**
    * Routes EXCLUDED/NOT_REPORTED to {@link OverviewEvidenceQueries} (a transaction's whole journey
-   * history, matching the dashboard tile's own definition) and every other status to {@link
-   * PeriodEvidenceQueries} (this period's batch evidence rows) -- see {@link
-   * OverviewEvidenceQueries}'s class Javadoc for why the two are deliberately not shared.
+   * history, matching the Transactions Overview dashboard tile's own "ever excluded"/"ever
+   * reported" definition) and every other status to {@link PeriodEvidenceQueries} (this period's
+   * batch evidence rows) -- see {@link OverviewEvidenceQueries}'s class Javadoc for why the two are
+   * deliberately not shared. {@code batchScopedExcluded} is the one exception: the Report Groups
+   * Requiring Attention table's own "Excluded" column is {@code SUM(excluded_txn)} over the exact
+   * same batch set this scope already resolves -- a fundamentally different, simpler definition
+   * than "ever excluded across a transaction's whole history" -- so a caller showing evidence for
+   * *that* number passes this flag to get {@link PeriodEvidenceQueries
+   * #findExcludedEvidenceRecordsForBatchTotal} instead, which actually matches it. Ignored unless
+   * status is EXCLUDED; NOT_REPORTED always uses the overview rollup, since it has no batch-scoped
+   * KPI to match in the first place.
    */
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String reason, String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
         filterByReportGroup, reportGroupId, "");
+    if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
+      return periodEvidenceQueries.findExcludedEvidenceRecordsForBatchTotal(scope, search, sortDirection, size, offset, cursor);
+    }
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
       return overviewEvidenceQueries.findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset, cursor);
     }
@@ -183,9 +194,12 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("Count filtered transaction evidence records across the selected reporting period")
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String reason) {
+      String reason, boolean batchScopedExcluded) {
     Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
         filterByReportGroup, reportGroupId, "");
+    if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
+      return periodEvidenceQueries.countExcludedEvidenceRecordsForBatchTotal(scope, search);
+    }
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
       return overviewEvidenceQueries.countOverviewEvidenceRecords(scope, status, reason, search, outcome);
     }

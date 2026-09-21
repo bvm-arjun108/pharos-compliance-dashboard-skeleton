@@ -30,10 +30,7 @@
           <h1>{{ result.metricLabel }}</h1>
           <span>{{ contextGroupLabel(result.context) }} · {{ result.context.countryName }}</span>
           @if (result.aggregateCountMismatch) {
-            <span
-              class="transaction-report-mismatch"
-              [title]="'The reconciliation record reported ' + result.reportedAggregateCount + ', but only ' + result.aggregateCount + ' matching transaction(s) are recorded in the transaction journey — the upstream transformer job may be over- or under-counting.'"
-            >⚠ Reconciliation reported {{ result.reportedAggregateCount | number:'1.0-0' }} — showing the {{ result.aggregateCount | number:'1.0-0' }} confirmed in transaction evidence</span>
+            <span class="transaction-report-note">Reconciliation reported {{ result.reportedAggregateCount | number:'1.0-0' }} — showing the {{ result.aggregateCount | number:'1.0-0' }} confirmed in transaction evidence.</span>
           } @else if (result.evidenceLevel !== 'RECORD_LEVEL') {
             <!-- Whenever the aggregate the user clicked through from can't be fully matched to
                  real transaction rows (fewer rows in journey than the count claimed, or no
@@ -41,7 +38,7 @@
                  backend already computed evidenceMessage for exactly this but nothing rendered
                  it, so a KPI tile's own number and this page's "N matching" could legitimately
                  differ with no explanation in sight. -->
-            <span class="transaction-report-mismatch" [title]="result.evidenceMessage">⚠ {{ result.evidenceMessage }}</span>
+            <span class="transaction-report-note">{{ result.evidenceMessage }}</span>
           }
         </div>
         <button type="button" (click)="goBack()">{{ mode() === 'BATCH' ? '← Back to batch' : returnToTransactionView() ? '← Back to Transaction View' : '← Back to dashboard' }}</button>

@@ -84,12 +84,10 @@
   font-size: 13px;
 }
 
-.transaction-report-heading > div > span.transaction-report-mismatch {
+.transaction-report-heading > div > span.transaction-report-note {
   margin-top: 6px;
-  color: #864047;
-  font-weight: 700;
+  color: #68675f;
   font-size: 12px;
-  cursor: help;
 }
 
 .transaction-report-heading > button {
@@ -151,7 +149,7 @@
 
 .transaction-table-panel > header h2 { margin: 0; color: #22221f; font-size: 18px; letter-spacing: -.025em; }
 .transaction-table-panel > header > span { display: inline-flex; min-height: 27px; padding: 6px 10px; align-items: center; gap: 6px; color: #55544e; background: #f1f0eb; border-radius: 999px; font-size: 10px; font-weight: 800; }
-.transaction-report-aggregate-note { color: #864047; font-weight: 700; text-transform: none; letter-spacing: normal; }
+.transaction-report-aggregate-note { color: #78766d; font-weight: 700; text-transform: none; letter-spacing: normal; }
 
 .transaction-toolbar {
   /* flex, not a fixed-column grid: the status field only renders in PERIOD mode (see the

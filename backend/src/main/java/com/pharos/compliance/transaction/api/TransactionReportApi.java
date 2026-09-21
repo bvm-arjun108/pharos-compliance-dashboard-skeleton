@@ -61,11 +61,13 @@ public interface TransactionReportApi {
       + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
       + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
 
-  @Operation(operationId = "getPeriodTransactionEvidenceReport", summary = "Get excluded-transaction evidence across every batch in a "
-      + "date range", description = "Used when a dashboard KPI (e.g. total excluded transactions) spans many batches, so there"
-      + " is no single batch to show evidence for. Aggregates report_transformation_reconciliation.excluded_txn"
-      + " across every matching batch exactly the way the dashboard sums it, and lists every"
-      + " rule_hit_exclusion_audit record for those same batches. Scoped to the EXCLUDED metric" + " only.")
+  @Operation(operationId = "getPeriodTransactionEvidenceReport", summary = "Get transaction evidence across every batch in a date range",
+      description = "Used when a dashboard KPI spans many batches, so there is no single batch to show evidence for. `status` "
+      + "picks which evidence bucket -- for EXCLUDED/NOT_REPORTED specifically, evidence answers 'has this transaction ever "
+      + "been excluded/not-reported, anywhere in its journey history' (matching the Transactions Overview page's own tiles), "
+      + "unless `batchScopedExcluded` is set for EXCLUDED, which instead matches "
+      + "report_transformation_reconciliation.excluded_txn's own simpler, batch-scoped definition. Every other status answers "
+      + "from this period's own batch evidence rows directly.")
   @ApiResponses({@ApiResponse(responseCode = "200", description = "Period transaction evidence report returned successfully", headers = {@Header(name = "X"
       + "-Trace-Id", description = TRACE_ID_DESCRIPTION), @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)}, content = @Content(schema = @Schema(implementation = PeriodTransactionReportResponse.class))),
       @ApiResponse(responseCode = "400", description = "Missing, malformed, or inverted date range, or unsupported country filter", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
@@ -84,6 +86,14 @@ public interface TransactionReportApi {
       + "count: for status=EXCLUDED, the Top Exclusion Reasons bucket (identifier's skip_reason, falling back to "
       + "comments); for status=NOT_REPORTED, the Not Reported Reasons category. Ignored for other status values", example = "Already "
       + "Reported In Prior Batch") @RequestParam(value = "reason", defaultValue = "") String reason,
+      @Parameter(description = "Only meaningful for status=EXCLUDED. When true, evidence is scoped to exactly the batches in "
+      + "this date/country/report-group window and matches every FILTRATION/EXCLUDED journey row there (including simulated "
+      + "exclusions) -- the same simple definition report_transformation_reconciliation.excluded_txn itself sums to, for "
+      + "matching a batch-scoped 'total excluded' KPI (e.g. the Report Groups Requiring Attention table). When false "
+      + "(default), evidence instead answers 'has this transaction ever been excluded, anywhere in its journey history' -- "
+      + "matching the Transactions Overview page's own Excluded tile, which is a different, all-time definition. NOT_REPORTED "
+      + "always uses the all-time definition regardless of this flag.") @RequestParam(value = "batchScopedExcluded",
+      defaultValue = "false") boolean batchScopedExcluded,
       @RequestParam(value = "sortDirection", defaultValue = "DESC") TransactionSortDirection sortDirection,
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,
       @RequestParam(value = "size", defaultValue = "100") @Min(1) @Max(200) int size,

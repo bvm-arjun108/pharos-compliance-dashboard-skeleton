@@ -281,4 +281,50 @@ public class PeriodEvidenceQueries {
     var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
     return paginator.countDistinctIdentifiers(filtered);
   }
+
+  /**
+   * Journey-only, scoped to exactly the batches {@code scope} covers -- the simple, direct
+   * definition that actually matches how a "total excluded transactions" KPI computed as {@code
+   * SUM(report_transformation_reconciliation.excluded_txn)} over the same batch set is itself
+   * defined, deliberately independent of {@link OverviewEvidenceQueries}'s "ever excluded across a
+   * transaction's whole history" rollup (that one matches a *different* KPI -- Transactions
+   * Overview's own Excluded tile, which really is an all-time, identity-deduplicated concept).
+   * Matches every FILTRATION/EXCLUDED journey row regardless of its comment -- including
+   * EXCLUDED_BECAUSE_SML (simulated) -- since excluded_txn itself doesn't carve simulated out into
+   * a separate scalar the way txn_simulated's own bucket does downstream; excluding SML here would
+   * silently undercount relative to the sum being explained.
+   */
+  public Table<?> filteredExcludedEvidenceForBatchTotal(Table<?> evidence, String search) {
+    Field<String> evidenceSource = requiredField(evidence, EVIDENCE_SOURCE, String.class);
+    Field<String> stage = requiredField(evidence, STAGE, String.class);
+    Field<String> outcome = requiredField(evidence, OUTCOME, String.class);
+    Field<String> identifier = requiredField(evidence, IDENTIFIER, String.class);
+    Field<String> mtcn = requiredField(evidence, "mtcn", String.class);
+
+    return dsl
+      .select(evidence.fields())
+      .from(evidence)
+      .where(searchScope(search, identifier, mtcn))
+      .and(evidenceSource.eq(SOURCE_JOURNEY))
+      .and(DSL.upper(DSL.coalesce(stage, "")).eq("FILTRATION"))
+      .and(outcome.eq(VALUE_EXCLUDED))
+      .asTable("filtered_excluded_evidence");
+  }
+
+  /** Backs the "Excluded" total on the Report Groups Requiring Attention table -- see {@link
+   *  #filteredExcludedEvidenceForBatchTotal}. */
+  public EvidencePage findExcludedEvidenceRecordsForBatchTotal(Table<?> scope, String search, String sortDirection, int size, long offset,
+      EvidenceCursor cursor) {
+    var ruleHitMatches = ruleHitMatchesForPeriod(scope, VALUE_EXCLUDED);
+    var evidence = evidenceForPeriod(scope, ruleHitMatches);
+    var filtered = filteredExcludedEvidenceForBatchTotal(evidence, search);
+    return paginator.pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+  }
+
+  public long countExcludedEvidenceRecordsForBatchTotal(Table<?> scope, String search) {
+    var ruleHitMatches = ruleHitMatchesForPeriod(scope, VALUE_EXCLUDED);
+    var evidence = evidenceForPeriod(scope, ruleHitMatches);
+    var filtered = filteredExcludedEvidenceForBatchTotal(evidence, search);
+    return paginator.countDistinctIdentifiers(filtered);
+  }
 }

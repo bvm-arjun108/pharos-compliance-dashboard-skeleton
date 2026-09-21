@@ -160,7 +160,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   @Override
   public PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country,
       Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, String reason,
-      TransactionSortDirection sortDirection, int page, int size, String cursor) {
+      boolean batchScopedExcluded, TransactionSortDirection sortDirection, int page, int size, String cursor) {
     if (fromDate.isAfter(toDate)) {
       throw new InvalidDateRangeException("fromDate must be on or before toDate");
     }
@@ -187,11 +187,11 @@ public class TransactionReportServiceImpl implements TransactionReportService {
               countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
           var page1 = transactionEvidenceCache.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, countryFilter.enabled(),
               countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch, outcome.name(), status.name(),
-              normalizedReason, sortDirection.name(), size, offset, decodedCursor);
+              normalizedReason, batchScopedExcluded, sortDirection.name(), size, offset, decodedCursor);
           List<TransactionEvidenceProjection> evidence = page1.records();
           long matchingCount = transactionEvidenceCache.countPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive,
               countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch,
-              outcome.name(), status.name(), normalizedReason);
+              outcome.name(), status.name(), normalizedReason, batchScopedExcluded);
           // The reconciliation-sourced excluded_txn sum is only a meaningful "aggregate"
           // to compare record counts against when the user is actually viewing Excluded
           // evidence — it has no equivalent for Success/Reported/etc, so treating it as

@@ -222,6 +222,11 @@ export class TransactionReportComponent implements OnInit {
   // must NOT get overviewOnly's dropdown restriction) -- tracks only where "Back to dashboard"
   // should return to, independent of that restriction. See goBack().
   readonly returnToTransactionView = signal(false);
+  // True only for the Report Groups Requiring Attention table's "Excluded" column, whose own
+  // number is SUM(excluded_txn) over these exact batches — a different, simpler definition than
+  // overviewOnly's "ever excluded across a transaction's whole history" rollup. Threaded straight
+  // to the backend so evidence here actually reconciles with the number that was clicked.
+  readonly batchScopedExcluded = signal(false);
 
   readonly reportGroupId = signal<number | null>(null);
   readonly batchId = signal('');
@@ -618,6 +623,7 @@ export class TransactionReportComponent implements OnInit {
       .set('country', this.country())
       .set('search', this.search().trim())
       .set('status', this.status())
+      .set('batchScopedExcluded', this.batchScopedExcluded())
       .set('sortDirection', this.sortDirection())
       .set('page', this.page())
       .set('size', this.size());
@@ -666,6 +672,7 @@ export class TransactionReportComponent implements OnInit {
     this.page.set(Math.max(0, Number(params.get('page') ?? 0) || 0));
     this.overviewOnly.set(params.get('view') === 'overview');
     this.returnToTransactionView.set(params.get('origin') === 'overview');
+    this.batchScopedExcluded.set(params.get('batchScopedExcluded') === 'true');
 
     if (batchId && this.reportGroupId() !== null && this.sequenceNumber() !== null) {
       this.mode.set('BATCH');

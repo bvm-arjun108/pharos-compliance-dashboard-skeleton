@@ -63,16 +63,16 @@ public class TransactionEvidenceCache {
   @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_RECORDS)
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String reason, String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     return repository.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
-        reportGroupId, search, outcome, status, reason, sortDirection, size, offset, cursor);
+        reportGroupId, search, outcome, status, reason, batchScopedExcluded, sortDirection, size, offset, cursor);
   }
 
   @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_COUNT)
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String reason) {
+      String reason, boolean batchScopedExcluded) {
     return repository.countPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
-        reportGroupId, search, outcome, status, reason);
+        reportGroupId, search, outcome, status, reason, batchScopedExcluded);
   }
 }
