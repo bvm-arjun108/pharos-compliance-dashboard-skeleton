@@ -82,8 +82,10 @@ public class BatchEvidenceQueries {
   /**
    * Deliberately independent of {@code metric}: {@code metricScoped}'s own {@code evidenceSource}
    * filter already keeps a RULE_HIT-sourced row out of the merged evidence for every metric except
-   * ALL/ACTUAL_REPORTABLE/TRANSFORMER_OUTPUT/ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT, so this method
-   * running (or not) never changes which rows the merge itself produces. But this same match also
+   * ALL, so this method running (or not) never changes which rows the merge itself produces
+   * (ACTUAL_REPORTABLE/TRANSFORMER_OUTPUT used to also keep RULE_HIT rows via a separate,
+   * now-removed OR condition -- see the metricScoped's git history if that's ever needed again).
+   * But this same match also
    * feeds {@code rollupRuleHits} -- the "Rule Hit Details" enrichment shown per row, independent of
    * that row's own evidence source. An earlier version of this method also skipped based on metric,
    * on the theory that a metric which can't keep a RULE_HIT row has no use for the match at all --
@@ -278,16 +280,26 @@ public class BatchEvidenceQueries {
     // that reason -- so there's no finer-grained row-level distinction to draw between the two.
     Condition eligibleForTransformationCondition = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).or(
         reportGenerationSuccess);
+    // Undercounted before reportGenerationSuccess was added here (confirmed against a real batch:
+    // only 14 of 22 aggregate-reported transformed transactions had a matching
+    // TRANSFORMATION/SUCCESS row -- the other 8 were recorded as REPORT_GENERATION/GENERATED).
+    // EXPECTED_REPORTABLE/ACTUAL_REPORTABLE/TRANSFORMER_OUTPUT reuse this same condition rather
+    // than having their own: their reconciliation formulas subtract excluded/simulated/
+    // already_reported/soft_dedup/filtration_error from the transformed count, but this mock
+    // data's own generator assigns each transaction to exactly one terminal category up front
+    // (exclusion is decided before transformation is ever attempted), so a transaction that
+    // reaches this condition was never also counted as excluded/simulated/etc -- there is no
+    // finer-grained row set to subtract from it, the same reasoning already applied to
+    // EXPECTED_ELIGIBLE/ACTUAL_ELIGIBLE above. Not currently reachable from any UI tile (none of
+    // the three currently route here), fixed anyway to not leave the same "shows Selected Data"
+    // bug in place for whenever one is wired up.
+    Condition transformedSuccessfullyCondition = journeyAtTransformation.and(outcome.eq(OUTCOME_SUCCESS)).or(reportGenerationSuccess);
 
     Condition metricCondition = switch (metric) {
       case "ALL" -> DSL.trueCondition();
-      case "SELECTED", "ATTEMPTS_FOUND", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE", "TRANSFORMER_OUTPUT" -> evidenceSource.eq(
-          SOURCE_JOURNEY);
+      case "SELECTED", "ATTEMPTS_FOUND" -> evidenceSource.eq(SOURCE_JOURNEY);
       case "EXPECTED_ELIGIBLE", "ACTUAL_ELIGIBLE" -> eligibleForTransformationCondition;
-      // Undercounted before reportGenerationSuccess was added here (confirmed against a real
-      // batch: only 14 of 22 aggregate-reported transformed transactions had a matching
-      // TRANSFORMATION/SUCCESS row -- the other 8 were recorded as REPORT_GENERATION/GENERATED).
-      case "TRANSFORMED" -> journeyAtTransformation.and(outcome.eq(OUTCOME_SUCCESS)).or(reportGenerationSuccess);
+      case "TRANSFORMED", "EXPECTED_REPORTABLE", "ACTUAL_REPORTABLE", "TRANSFORMER_OUTPUT" -> transformedSuccessfullyCondition;
       case "FAILED" -> failedCondition;
       // Previously sourced from EXCLUSION_AUDIT alone, which only has a row for a transaction once
       // something (typically a downstream rule/reporting check) explicitly audits the exclusion --
@@ -310,7 +322,6 @@ public class BatchEvidenceQueries {
       case "SIMULATED" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_BECAUSE_SML"));
       case "ALREADY_REPORTED" -> journeyAtFiltration.and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
       case "SOFT_DEDUP" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
-      case "ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_RULE_HIT);
       // Mirrors its own aggregate exactly (missingAttempts + activityMissing + excluded +
       // simulated + alreadyReported + softDedup): the FILTRATION-stage branch already catches
       // every SML/ALREADY_REPORTED/SOFT_DEDUP/generic-EXCLUDED journey row (all four live at that
@@ -343,11 +354,6 @@ public class BatchEvidenceQueries {
       // unfiltered dump of the batch's evidence mislabeled as if it answered the metric.
       default -> DSL.trueCondition();
     };
-    // ACTUAL_REPORTABLE and TRANSFORMER_OUTPUT share the RULE_HIT-only condition in the original
-    // SQL's single OR-branch; re-expressed as two separate cases mapping to the same condition.
-    if ("ACTUAL_REPORTABLE".equals(metric) || "TRANSFORMER_OUTPUT".equals(metric)) {
-      metricCondition = metricCondition.or(evidenceSource.eq(SOURCE_RULE_HIT));
-    }
 
     return dsl
       .select(evidence.fields())

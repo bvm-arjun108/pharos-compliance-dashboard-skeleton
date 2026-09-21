@@ -34,6 +34,14 @@
               class="transaction-report-mismatch"
               [title]="'The reconciliation record reported ' + result.reportedAggregateCount + ', but only ' + result.aggregateCount + ' matching transaction(s) are recorded in the transaction journey — the upstream transformer job may be over- or under-counting.'"
             >⚠ Reconciliation reported {{ result.reportedAggregateCount | number:'1.0-0' }} — showing the {{ result.aggregateCount | number:'1.0-0' }} confirmed in transaction evidence</span>
+          } @else if (result.evidenceLevel !== 'RECORD_LEVEL') {
+            <!-- Whenever the aggregate the user clicked through from can't be fully matched to
+                 real transaction rows (fewer rows in journey than the count claimed, or no
+                 record-level evidence for this metric at all), say so here -- previously the
+                 backend already computed evidenceMessage for exactly this but nothing rendered
+                 it, so a KPI tile's own number and this page's "N matching" could legitimately
+                 differ with no explanation in sight. -->
+            <span class="transaction-report-mismatch" [title]="result.evidenceMessage">⚠ {{ result.evidenceMessage }}</span>
           }
         </div>
         <button type="button" (click)="goBack()">{{ mode() === 'BATCH' ? '← Back to batch' : returnToTransactionView() ? '← Back to Transaction View' : '← Back to dashboard' }}</button>
@@ -64,7 +72,12 @@
             <p>Available evidence</p>
             <h2 id="transaction-records-heading">Transaction records</h2>
           </div>
-          <span>{{ result.matchingRecordCount | number:'1.0-0' }} matching</span>
+          <span>
+            {{ result.matchingRecordCount | number:'1.0-0' }} matching
+            @if (result.aggregateCount !== result.matchingRecordCount) {
+              <small class="transaction-report-aggregate-note">of {{ result.aggregateCount | number:'1.0-0' }} reported</small>
+            }
+          </span>
         </header>
 
         <form class="transaction-toolbar" (submit)="applyFilters($event)">
