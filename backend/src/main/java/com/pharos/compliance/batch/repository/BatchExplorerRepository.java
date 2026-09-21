@@ -10,7 +10,6 @@ import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
-import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
 import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
 import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
 import java.time.LocalDateTime;
@@ -65,7 +64,6 @@ public class BatchExplorerRepository {
   private static final String TRANSFORMER_OUTPUT_COLUMN = "transformer_output";
   private static final com.pharos.compliance.jooq.tables.ReportTransformationReconciliation RECONCILIATION =
       REPORT_TRANSFORMATION_RECONCILIATION;
-  private static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
   private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
   private static final String REPORT_SELECTION_VERSION_ID_ALIAS = "reportSelectionVersionId";
   private static final String TRANSFORMER_VERSION_ID_ALIAS = "transformerVersionId";
@@ -107,6 +105,13 @@ public class BatchExplorerRepository {
    */
   private org.jooq.Table<?> enrichedBatchMetrics(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
+    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
+      .ge(fromTimestamp)
+      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
+      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
+      .and(reportGroupId == null ? DSL.trueCondition() : RECONCILIATION.RPT_GRP_ID.eq(reportGroupId))
+      .and(filterByCountry ? RECONCILIATION.RPT_GRP_ID.in(reportGroupIds) : DSL.trueCondition());
+
     var batchMetrics = dsl
       .select(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO, RECONCILIATION.RPT_GRP_NAME,
           RECONCILIATION.RPT_FROM_DATE, RECONCILIATION.RPT_TO_DATE, RECONCILIATION.CREATED_TIMESTAMP, RECONCILIATION.MODIFIED_TIMESTAMP,
@@ -136,10 +141,7 @@ public class BatchExplorerRepository {
           DSL.coalesce(RECONCILIATION.TXN_SIMULATED, 0).cast(SQLDataType.BIGINT).as(SIMULATED_TRANSACTIONS_COLUMN),
           DSL.coalesce(RECONCILIATION.SOFT_DEDUP_DROPPED_TXN_COUNT, 0).cast(SQLDataType.BIGINT).as(SOFT_DEDUP_TRANSACTIONS_COLUMN))
       .from(RECONCILIATION)
-      .where(RECONCILIATION.CREATED_TIMESTAMP.ge(fromTimestamp))
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupId == null ? DSL.trueCondition() : RECONCILIATION.RPT_GRP_ID.eq(reportGroupId))
+      .where(scope)
       .asTable("batch_metrics");
 
     Field<Integer> bmRptGrpId = requiredField(batchMetrics, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
@@ -153,8 +155,10 @@ public class BatchExplorerRepository {
     // failure rows at all for this batch) is exactly the "no journey evidence for this fact"
     // signal, so COALESCE-ing straight onto it needs no separate journeyAvailable flag here,
     // unlike the single-batch getBatchDetails query below where a correlated COUNT can't produce
-    // that same NULL.
-    var journeyFailures = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    // that same NULL. Passing the same `scope` used for batchMetrics above narrows this aggregate
+    // to only the batches actually in view via a semi-join, instead of grouping every
+    // TRANSFORMATION-stage failure row that has ever existed on every call.
+    var journeyFailures = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
     Field<Integer> jfRptGrpId = requiredField(journeyFailures, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> jfBatchId = requiredField(journeyFailures, RECONCILIATION.BATCH_ID.getName(), String.class);
     Field<Long> jfCount = requiredField(journeyFailures, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
@@ -174,7 +178,6 @@ public class BatchExplorerRepository {
       .leftJoin(journeyFailures)
       .on(jfRptGrpId.eq(bmRptGrpId))
       .and(jfBatchId.eq(bmBatchId))
-      .where(filterByCountry ? bmRptGrpId.in(reportGroupIds) : DSL.trueCondition())
       .asTable("enriched_batch_metrics");
   }
 
@@ -288,26 +291,25 @@ public class BatchExplorerRepository {
   @SqlQueryPurpose("Selected batch > Data Selection, Data Transformation and Reconciliation cards > Load aggregate counters and evidence "
       + "availability")
   public Optional<BatchDetailsProjection> getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
-    // Reused for both the exposed journeyAvailable flag and to gate the corrected transformation
-    // failure count below: a correlated COUNT (unlike the list view's LEFT JOIN/GROUP BY) always
-    // returns a row, so 0 is ambiguous between "confirmed zero failures" and "no journey coverage
-    // at all" -- this EXISTS check is what tells the two apart.
-    Condition journeyAvailableCondition =
-        DSL.exists(dsl.selectOne().from(JOURNEY).where(JOURNEY.RPT_GRP_ID.eq(RECONCILIATION.RPT_GRP_ID)).and(JOURNEY.BATCH_ID.eq(
-            RECONCILIATION.BATCH_ID)));
-    // Deliberately unaliased -- these get reused inside the CASE/comparison expressions below, and
-    // a jOOQ Field that already carries .as(...) renders as a bare alias reference (not its
-    // original expression) the second time it's used within the same SELECT list, which Postgres
-    // rejects since a SELECT-list alias can't be referenced by another item in that same list.
+    // A LATERAL join computes journeyAvailable and the journey-derived failure count exactly once
+    // per row -- both are then plain column references below, safe to reuse across the CASE and
+    // mismatch expressions without Postgres re-evaluating the underlying journey-table subquery
+    // each time (see TransformationFailureQueries#journeyStatsLateral's Javadoc).
+    var journeyStats = TransformationFailureQueries.journeyStatsLateral(dsl, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID);
+    Field<Boolean> journeyAvailable = requiredField(journeyStats, TransformationFailureQueries.JOURNEY_AVAILABLE_COLUMN, Boolean.class);
+    Field<Long> journeyTransformationFailures =
+        requiredField(journeyStats, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
+    // Deliberately unaliased -- reused inside the CASE/comparison expressions below, and a jOOQ
+    // Field that already carries .as(...) renders as a bare alias reference (not its original
+    // expression) the second time it's used within the same SELECT list, which Postgres rejects
+    // since a SELECT-list alias can't be referenced by another item in that same list.
     Field<Long> reportedTransformationFailuresRaw =
         DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT);
-    Field<Long> journeyTransformationFailures =
-        TransformationFailureQueries.correlatedJourneyFailureCount(dsl, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID);
     Field<Long> transformationFailures =
-        DSL.when(journeyAvailableCondition, journeyTransformationFailures).otherwise(reportedTransformationFailuresRaw).as(
+        DSL.when(journeyAvailable, journeyTransformationFailures).otherwise(reportedTransformationFailuresRaw).as(
             TRANSFORMATION_FAILURES_ALIAS);
     Field<Boolean> transformationFailureMismatch =
-        journeyAvailableCondition.and(journeyTransformationFailures.ne(reportedTransformationFailuresRaw)).as(
+        DSL.condition(journeyAvailable).and(journeyTransformationFailures.ne(reportedTransformationFailuresRaw)).as(
             TRANSFORMATION_FAILURE_MISMATCH_ALIAS);
 
     return dsl
@@ -349,7 +351,7 @@ public class BatchExplorerRepository {
           DSL.coalesce(RECONCILIATION.TXN_SIMULATED, 0).cast(SQLDataType.BIGINT).as(SIMULATED_TRANSACTIONS_ALIAS),
           DSL.coalesce(RECONCILIATION.ALREADY_REPORTED_COUNT, 0).cast(SQLDataType.BIGINT).as("alreadyReportedTransactions"),
           DSL.coalesce(RECONCILIATION.SOFT_DEDUP_DROPPED_TXN_COUNT, 0).cast(SQLDataType.BIGINT).as(SOFT_DEDUP_TRANSACTIONS_ALIAS),
-          journeyAvailableCondition.as(JOURNEY_AVAILABLE_ALIAS),
+          journeyAvailable.as(JOURNEY_AVAILABLE_ALIAS),
           DSL
             .exists(dsl
               .selectOne()
@@ -366,6 +368,10 @@ public class BatchExplorerRepository {
       .on(BATCH_INFO.RPT_GRP_ID.eq(RECONCILIATION.RPT_GRP_ID))
       .and(BATCH_INFO.BATCH_ID.eq(RECONCILIATION.BATCH_ID))
       .and(BATCH_INFO.SEQ_NO.eq(RECONCILIATION.SEQ_NO))
+      // journeyStats' own query is a GROUP-BY-less aggregate, so it always returns exactly one row
+      // -- a plain CROSS JOIN LATERAL is enough, no ON condition needed beyond what's already
+      // correlated inside it.
+      .crossJoin(journeyStats)
       .where(RECONCILIATION.RPT_GRP_ID.eq(reportGroupId))
       .and(RECONCILIATION.BATCH_ID.eq(batchId))
       .and(RECONCILIATION.SEQ_NO.eq(sequenceNumber))

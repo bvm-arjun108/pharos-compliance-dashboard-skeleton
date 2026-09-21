@@ -1,16 +1,15 @@
 package com.pharos.compliance.transaction.repository;
 
 import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
+import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
-import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.JOURNEY;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.RECONCILIATION;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.REPORT_GROUP_NAME_ALIAS;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
 import com.pharos.compliance.common.jooq.TransformationFailureQueries;
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
-import org.jooq.Condition;
 import org.jooq.Field;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.repository.evidence.BatchEvidenceQueries;
@@ -79,18 +78,19 @@ public class TransactionReportRepository {
     // what record_transformation_journey actually recorded, so "failed" (and SKIPPED, which sums
     // it in) is corrected to the journey-derived count whenever journey has any coverage for this
     // batch, falling back to the raw reconciliation scalar otherwise -- exactly mirroring
-    // BatchExplorerRepository#getBatchDetails.
-    Condition journeyAvailableCondition =
-        DSL.exists(dsl.selectOne().from(JOURNEY).where(JOURNEY.RPT_GRP_ID.eq(RECONCILIATION.RPT_GRP_ID)).and(JOURNEY.BATCH_ID.eq(
-            RECONCILIATION.BATCH_ID)));
+    // BatchExplorerRepository#getBatchDetails. The LATERAL join computes both journeyAvailable and
+    // the journey-derived count once; both are then plain column references, safe to reuse below.
+    var journeyStats = TransformationFailureQueries.journeyStatsLateral(dsl, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID);
+    Field<Boolean> journeyAvailable = requiredField(journeyStats, TransformationFailureQueries.JOURNEY_AVAILABLE_COLUMN, Boolean.class);
+    Field<Long> journeyFailed =
+        requiredField(journeyStats, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
     // Deliberately unaliased raw expression -- reused inside the CASE/comparison below; see
     // BatchExplorerRepository#getBatchDetails for why an already-.as()-aliased field can't be
     // reused a second time within the same SELECT list.
     Field<Long> reportedFailedRaw = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT);
-    Field<Long> journeyFailed = TransformationFailureQueries.correlatedJourneyFailureCount(dsl, RECONCILIATION.RPT_GRP_ID,
-        RECONCILIATION.BATCH_ID);
-    Field<Long> failed = DSL.when(journeyAvailableCondition, journeyFailed).otherwise(reportedFailedRaw).as("failed");
-    Field<Boolean> failedMismatch = journeyAvailableCondition.and(journeyFailed.ne(reportedFailedRaw)).as("failedMismatch");
+    Field<Long> failed = DSL.when(journeyAvailable, journeyFailed).otherwise(reportedFailedRaw).as("failed");
+    Field<Boolean> failedMismatch =
+        DSL.condition(journeyAvailable).and(journeyFailed.ne(reportedFailedRaw)).as("failedMismatch");
 
     return dsl
       .select(RECONCILIATION.RPT_GRP_ID.as("reportGroupId"), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
@@ -127,6 +127,7 @@ public class TransactionReportRepository {
             .cast(SQLDataType.BIGINT)
             .as("reconciliationVariance"))
       .from(RECONCILIATION)
+      .crossJoin(journeyStats)
       .where(RECONCILIATION.RPT_GRP_ID.eq(reportGroupId))
       .and(RECONCILIATION.BATCH_ID.eq(batchId))
       .and(RECONCILIATION.SEQ_NO.eq(sequenceNumber))

@@ -95,7 +95,7 @@ public class DashboardRepository {
       .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
       .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
 
-    var journeyFailures = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    var journeyFailures = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
     Field<Integer> jfRptGrpId = requiredField(journeyFailures, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> jfBatchId = requiredField(journeyFailures, RECONCILIATION.BATCH_ID.getName(), String.class);
     Field<Long> jfCount = requiredField(journeyFailures, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
@@ -202,7 +202,7 @@ public class DashboardRepository {
       .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
       .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
 
-    var journeyFailuresForGroups = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    var journeyFailuresForGroups = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
     Field<Integer> jfgRptGrpId = requiredField(journeyFailuresForGroups, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> jfgBatchId = requiredField(journeyFailuresForGroups, RECONCILIATION.BATCH_ID.getName(), String.class);
     Field<Long> jfgCount =
@@ -338,7 +338,7 @@ public class DashboardRepository {
     Condition scope = trendScope(fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds, filterByReportGroup,
         reportGroupId);
 
-    var journeyFailuresForTrend = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    var journeyFailuresForTrend = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
     Field<Integer> jftRptGrpId = requiredField(journeyFailuresForTrend, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> jftBatchId = requiredField(journeyFailuresForTrend, RECONCILIATION.BATCH_ID.getName(), String.class);
     Field<Long> jftCount =
