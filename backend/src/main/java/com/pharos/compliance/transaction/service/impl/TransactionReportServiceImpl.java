@@ -322,14 +322,15 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case SIMULATED -> context.simulated();
       case ALREADY_REPORTED -> context.alreadyReported();
       case SOFT_DEDUP -> context.softDedup();
-      // Mirrors the Data Selection card's "Filtered data" tile exactly: every reason a selected
+      // Mirrors the Data Selection card's "Total exclusions" tile exactly: every reason a selected
       // transaction did not carry through.
-      case FILTERED -> context.missingAttempts() + context.excluded() + context.simulated() + context.alreadyReported()
-          + context.softDedup();
-      // Mirrors the Skipped Status card: the two ways a selected transaction never reaches a
+      case FILTERED -> context.missingAttempts() + context.activityMissing() + context.excluded() + context.simulated()
+          + context.alreadyReported() + context.softDedup();
+      // Mirrors the Skipped Status card: the three ways a selected transaction never reaches a
       // reportable outcome outside of exclusion -- see BatchEvidenceQueries#metricScoped for the
-      // corresponding evidence condition (missingAttemptCondition OR FAILED's own condition).
-      case SKIPPED -> context.missingAttempts() + context.failed();
+      // corresponding evidence condition (missingAttemptCondition OR activityMissingCondition OR
+      // FAILED's own condition).
+      case SKIPPED -> context.missingAttempts() + context.activityMissing() + context.failed();
       case FILTRATION_VARIANCE -> context.filtrationVariance();
       case RECONCILIATION_VARIANCE -> context.reconciliationVariance();
     };

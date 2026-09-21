@@ -440,10 +440,12 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   /** Total selected transactions that didn't carry through cleanly — the sum of every Data
-   *  Selection reason (missing attempt, excluded, simulated, already reported, soft-dedup). */
+   *  Selection reason (missing attempt, activity missing, excluded, simulated, already reported,
+   *  soft-dedup). */
   filteredTransactions(details: BatchDetailsResponse): number {
     return (
       details.missingAttempts +
+      details.activityMissing +
       details.excludedTransactions +
       details.simulatedTransactions +
       details.alreadyReportedTransactions +
@@ -451,13 +453,14 @@ export class BatchExplorerComponent implements OnInit {
     );
   }
 
-  /** The two ways a selected transaction never reaches a reportable outcome outside of exclusion --
-   *  no matching attempt ever arrived, or an attempt arrived but its transformation failed. Replaced
-   *  the old "Reconciliation imbalance" card (expected vs. actual eligible), which in production is
-   *  balanced almost every time and so rarely showed anything actionable; these two counts are the
-   *  actual failure modes that put a batch in "needs attention." */
+  /** The three ways a selected transaction never reaches a reportable outcome outside of exclusion
+   *  -- no matching attempt ever arrived, the expected activity data was never found, or an attempt
+   *  arrived but its transformation failed. Replaced the old "Reconciliation imbalance" card
+   *  (expected vs. actual eligible), which in production is balanced almost every time and so
+   *  rarely showed anything actionable; these counts are the actual failure modes that put a batch
+   *  in "needs attention." */
   skippedTotal(details: BatchDetailsResponse): number {
-    return details.missingAttempts + details.transformationFailures;
+    return details.missingAttempts + details.activityMissing + details.transformationFailures;
   }
 
   batchKey(batch: BatchQueueItem | null): string {

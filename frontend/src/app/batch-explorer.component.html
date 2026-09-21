@@ -277,17 +277,21 @@
               <h3 id="skipped-status-evidence-heading">Skipped Status</h3>
               <span [class.bad]="skippedTotal(details) > 0">{{ skippedTotal(details) === 0 ? 'No skips' : 'Skips found' }}</span>
             </div>
-            <p>Transactions that never reached a reportable outcome, split by why: never attempted, or attempted and failed.</p>
-            <div class="evidence-bar" role="img" [attr.aria-label]="details.missingAttempts + ' missing attempts, ' + details.transformationFailures + ' transformation failures'">
+            <p>Transactions that never reached a reportable outcome, split by why: never attempted, expected activity never found, or attempted and failed.</p>
+            <div class="evidence-bar" role="img" [attr.aria-label]="details.missingAttempts + ' missing attempts, ' + details.activityMissing + ' activity missing, ' + details.transformationFailures + ' transformation failures'">
               @if (details.missingAttempts > 0) {
                 <span class="evidence-bar-segment evidence-bar-segment--pending" [style.width.%]="barShare(details.missingAttempts, skippedTotal(details))" [title]="details.missingAttempts + ' missing attempts — click to view'" (click)="openTransactionReport('MISSING')">{{ details.missingAttempts }}</span>
+              }
+              @if (details.activityMissing > 0) {
+                <span class="evidence-bar-segment evidence-bar-segment--activity-missing" [style.width.%]="barShare(details.activityMissing, skippedTotal(details))" [title]="details.activityMissing + ' activity missing — click to view'" (click)="openTransactionReport('ACTIVITY_MISSING')">{{ details.activityMissing }}</span>
               }
               @if (details.transformationFailures > 0) {
                 <span class="evidence-bar-segment evidence-bar-segment--error" [style.width.%]="barShare(details.transformationFailures, skippedTotal(details))" [title]="details.transformationFailures + ' transformation failures — click to view'" (click)="openTransactionReport('FAILED')">{{ details.transformationFailures }}</span>
               }
             </div>
-            <div class="evidence-values evidence-values--three">
+            <div class="evidence-values evidence-values--four">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing attempts</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTIVITY_MISSING')" aria-label="View activity missing transaction evidence"><span>Activity missing</span><strong [class.issue-number]="details.activityMissing > 0">{{ details.activityMissing | number:'1.0-0' }}</strong><small>View report →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Transformation failures</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SKIPPED')" aria-label="View all skipped transaction evidence"><span>Total skipped</span><strong [class.issue-number]="skippedTotal(details) > 0">{{ skippedTotal(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>

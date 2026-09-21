@@ -288,17 +288,23 @@ public class BatchEvidenceQueries {
       case "ALREADY_REPORTED" -> journeyAtFiltration.and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
       case "SOFT_DEDUP" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
       case "ACTUAL_REPORTABLE_TRANSFORMER_OUTPUT" -> evidenceSource.eq(SOURCE_RULE_HIT);
-      // Mirrors its own aggregate exactly (missingAttempts + excluded + simulated +
-      // alreadyReported + softDedup): the FILTRATION-stage branch already catches every
-      // SML/ALREADY_REPORTED/SOFT_DEDUP/generic-EXCLUDED journey row (all four live at that one
-      // stage), so missingAttemptCondition is the only piece that was missing -- literally, before
-      // this fix a batch with real missing-attempt journey evidence still showed a "Filtered"
-      // aggregate bigger than the evidence returned for it.
-      case "FILTERED" -> evidenceSource.eq(SOURCE_EXCLUSION_AUDIT).or(journeyAtFiltration).or(missingAttemptCondition);
-      // The Skipped Status card's own total: the two ways a selected transaction never reaches a
-      // reportable outcome outside of exclusion -- never attempted, or attempted and failed.
-      // Mirrors its aggregate (missingAttempts + failed) exactly.
-      case "SKIPPED" -> missingAttemptCondition.or(failedCondition);
+      // Mirrors its own aggregate exactly (missingAttempts + activityMissing + excluded +
+      // simulated + alreadyReported + softDedup): the FILTRATION-stage branch already catches
+      // every SML/ALREADY_REPORTED/SOFT_DEDUP/generic-EXCLUDED journey row (all four live at that
+      // one stage), so missingAttemptCondition and activityMissingCondition were the two pieces
+      // missing -- literally, before this fix a batch with real missing-attempt/activity-missing
+      // journey evidence still showed a "Total exclusions" aggregate bigger than the evidence
+      // returned for it.
+      case "FILTERED" -> evidenceSource
+        .eq(SOURCE_EXCLUSION_AUDIT)
+        .or(journeyAtFiltration)
+        .or(missingAttemptCondition)
+        .or(activityMissingCondition);
+      // The Skipped Status card's own total: the three ways a selected transaction never reaches
+      // a reportable outcome outside of exclusion -- never attempted, expected activity that was
+      // never found, or attempted and failed. Mirrors its aggregate (missingAttempts +
+      // activityMissing + failed) exactly.
+      case "SKIPPED" -> missingAttemptCondition.or(activityMissingCondition).or(failedCondition);
       // Previously routed around this whole method as an aggregate-only metric on the theory that
       // no journey row represents "this transaction never got an attempt" -- wrong, confirmed
       // against real data: different report groups use one of two conventions for the exact same
