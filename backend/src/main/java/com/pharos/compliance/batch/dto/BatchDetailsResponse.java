@@ -7,7 +7,12 @@ import java.time.LocalDateTime;
 @Schema(description = "Diagnostic preview for a selected reconciliation batch")
 public record BatchDetailsResponse(int reportGroupId, String reportGroupName, String batchId, int sequenceNumber, String countryCode,
     String countryName, String reportingPeriodFrom, String reportingPeriodTo, LocalDateTime startedAt, LocalDateTime completedAt,
-    long durationSeconds, String operationalStatus, BatchStatus status, long transformationFailures, long missingAttempts,
+    long durationSeconds, String operationalStatus, BatchStatus status, long transformationFailures,
+    @Schema(description = "The raw report_transformation_reconciliation.activity_transformation_failed value, before correcting it against "
+    + "record_transformation_journey evidence. See transformationFailureMismatch.") long reportedTransformationFailures,
+    @Schema(description = "True when transformationFailures and reportedTransformationFailures disagree -- the upstream transformer job's "
+    + "reconciliation count doesn't match what record_transformation_journey actually recorded for this batch.") boolean
+        transformationFailureMismatch, long missingAttempts,
     long activityMissing, long duplicateTransactions, long filtrationErrors, long reconciliationImbalance, long totalIssues,
     long selectedTransactions, long transactionAttemptsFound, long expectedReportableTransactions, long actualReportableTransactions,
     long expectedTransformationAttempts, long actualTransformationAttempts, long transformedActivities, boolean transformationBalanced,

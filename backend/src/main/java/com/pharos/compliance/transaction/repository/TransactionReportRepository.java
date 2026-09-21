@@ -1,12 +1,17 @@
 package com.pharos.compliance.transaction.repository;
 
+import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.JOURNEY;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.RECONCILIATION;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.REPORT_GROUP_NAME_ALIAS;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
+import com.pharos.compliance.common.jooq.TransformationFailureQueries;
 import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
+import org.jooq.Condition;
+import org.jooq.Field;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.repository.evidence.BatchEvidenceQueries;
 import com.pharos.compliance.transaction.repository.evidence.EvidencePaginator;
@@ -70,6 +75,23 @@ public class TransactionReportRepository {
 
   @SqlQueryPurpose("Load transaction reconciliation context for one batch")
   public Optional<TransactionReportContextProjection> findReportContext(int reportGroupId, String batchId, int sequenceNumber) {
+    // See TransformationFailureQueries' Javadoc: activity_transformation_failed can disagree with
+    // what record_transformation_journey actually recorded, so "failed" (and SKIPPED, which sums
+    // it in) is corrected to the journey-derived count whenever journey has any coverage for this
+    // batch, falling back to the raw reconciliation scalar otherwise -- exactly mirroring
+    // BatchExplorerRepository#getBatchDetails.
+    Condition journeyAvailableCondition =
+        DSL.exists(dsl.selectOne().from(JOURNEY).where(JOURNEY.RPT_GRP_ID.eq(RECONCILIATION.RPT_GRP_ID)).and(JOURNEY.BATCH_ID.eq(
+            RECONCILIATION.BATCH_ID)));
+    // Deliberately unaliased raw expression -- reused inside the CASE/comparison below; see
+    // BatchExplorerRepository#getBatchDetails for why an already-.as()-aliased field can't be
+    // reused a second time within the same SELECT list.
+    Field<Long> reportedFailedRaw = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT);
+    Field<Long> journeyFailed = TransformationFailureQueries.correlatedJourneyFailureCount(dsl, RECONCILIATION.RPT_GRP_ID,
+        RECONCILIATION.BATCH_ID);
+    Field<Long> failed = DSL.when(journeyAvailableCondition, journeyFailed).otherwise(reportedFailedRaw).as("failed");
+    Field<Boolean> failedMismatch = journeyAvailableCondition.and(journeyFailed.ne(reportedFailedRaw)).as("failedMismatch");
+
     return dsl
       .select(RECONCILIATION.RPT_GRP_ID.as("reportGroupId"), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
           RECONCILIATION.BATCH_ID.as("batchId"), RECONCILIATION.SEQ_NO.as("sequenceNumber"),
@@ -86,8 +108,8 @@ public class TransactionReportRepository {
           DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).cast(SQLDataType.BIGINT).as("activityMissing"),
           DSL.coalesce(RECONCILIATION.EXPECTED_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("expectedEligible"),
           DSL.coalesce(RECONCILIATION.ACTUAL_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("actualEligible"),
-          DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMED, 0).cast(SQLDataType.BIGINT).as("transformed"),
-          DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT).as("failed"),
+          DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMED, 0).cast(SQLDataType.BIGINT).as("transformed"), failed,
+          reportedFailedRaw.as("reportedFailed"), failedMismatch,
           DSL.coalesce(RECONCILIATION.EXPECTED_REPORTABLE_TXN, 0).cast(SQLDataType.BIGINT).as("expectedReportable"),
           DSL.coalesce(RECONCILIATION.ACTUAL_REPORTABLE_TXN, 0).cast(SQLDataType.BIGINT).as("actualReportable"),
           DSL.coalesce(RECONCILIATION.EXCLUDED_TXN, 0).cast(SQLDataType.BIGINT).as("excluded"),
@@ -113,7 +135,8 @@ public class TransactionReportRepository {
           r.get("reportingPeriodFrom", String.class), r.get("reportingPeriodTo", String.class), requiredLong(r, "selectedTransactions"),
           requiredLong(r, "attemptsFound"), requiredLong(r, "missingAttempts"), requiredLong(r, "activityMissing"),
           requiredLong(r, "expectedEligible"), requiredLong(r, "actualEligible"), requiredLong(r, "transformed"), requiredLong(r, "failed"),
-          requiredLong(r, "expectedReportable"), requiredLong(r, "actualReportable"), requiredLong(r, "excluded"),
+          requiredLong(r, "reportedFailed"), requiredBoolean(r, "failedMismatch"), requiredLong(r, "expectedReportable"),
+          requiredLong(r, "actualReportable"), requiredLong(r, "excluded"),
           requiredLong(r, "simulated"), requiredLong(r, "alreadyReported"), requiredLong(r, "softDedup"),
           requiredLong(r, "filtrationVariance"), requiredLong(r, "reconciliationVariance")));
   }

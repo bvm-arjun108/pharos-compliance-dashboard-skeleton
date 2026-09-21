@@ -66,6 +66,8 @@ interface BatchQueueItem {
   completedAt: string | null;
   status: Exclude<BatchStatus, 'ALL'>;
   transformationFailures: number;
+  reportedTransformationFailures: number;
+  transformationFailureMismatch: boolean;
   missingAttempts: number;
   activityMissing: number;
   filtrationErrors: number;
@@ -110,6 +112,8 @@ interface BatchDetailsResponse {
   operationalStatus: string;
   status: Exclude<BatchStatus, 'ALL'>;
   transformationFailures: number;
+  reportedTransformationFailures: number;
+  transformationFailureMismatch: boolean;
   missingAttempts: number;
   activityMissing: number;
   duplicateTransactions: number;

@@ -84,6 +84,14 @@
   font-size: 13px;
 }
 
+.transaction-report-heading > div > span.transaction-report-mismatch {
+  margin-top: 6px;
+  color: #864047;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: help;
+}
+
 .transaction-report-heading > button {
   min-height: 38px;
   padding: 0 15px;

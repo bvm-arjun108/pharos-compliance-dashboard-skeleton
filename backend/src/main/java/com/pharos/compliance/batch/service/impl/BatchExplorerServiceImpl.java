@@ -125,9 +125,10 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     CountryDefinition country = catalog.getForReportGroup(batch.reportGroupId());
     return new BatchQueueItemResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), batch.sequenceNumber(),
         country.code(), country.name(), batch.reportingPeriodFrom(), batch.reportingPeriodTo(), batch.startedAt(), batch.completedAt(),
-        queueItemStatus(batch), batch.transformationFailures(), batch.missingAttempts(), batch.activityMissing(), batch.filtrationErrors(),
-        batch.reconciliationImbalance(), batch.transformerOutput(), batch.excludedTransactions(), batch.duplicateTransactions(),
-        batch.simulatedTransactions(), batch.softDedupTransactions(), batch.totalIssues());
+        queueItemStatus(batch), batch.transformationFailures(), batch.reportedTransformationFailures(), batch.transformationFailureMismatch(),
+        batch.missingAttempts(), batch.activityMissing(), batch.filtrationErrors(), batch.reconciliationImbalance(),
+        batch.transformerOutput(), batch.excludedTransactions(), batch.duplicateTransactions(), batch.simulatedTransactions(),
+        batch.softDedupTransactions(), batch.totalIssues());
   }
 
   private BatchStatus queueItemStatus(BatchQueueProjection batch) {
@@ -141,8 +142,9 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     return new BatchDetailsResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), batch.sequenceNumber(), country.code(),
         country.name(), batch.reportingPeriodFrom(), batch.reportingPeriodTo(), batch.startedAt(), batch.completedAt(),
         durationSeconds(batch.startedAt(), batch.completedAt()), batch.completedAt() == null ? "RUNNING" : "COMPLETED",
-        totalIssues == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION, batch.transformationFailures(), batch.missingAttempts(),
-        batch.activityMissing(), batch.duplicateTransactions(), batch.filtrationErrors(), batch.reconciliationImbalance(), totalIssues,
+        totalIssues == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION, batch.transformationFailures(),
+        batch.reportedTransformationFailures(), batch.transformationFailureMismatch(), batch.missingAttempts(), batch.activityMissing(),
+        batch.duplicateTransactions(), batch.filtrationErrors(), batch.reconciliationImbalance(), totalIssues,
         batch.selectedTransactions(), batch.transactionAttemptsFound(), batch.expectedReportableTransactions(),
         batch.actualReportableTransactions(), batch.expectedTransformationAttempts(), batch.actualTransformationAttempts(),
         batch.transformedActivities(), transformationBalanced, batch.transformerOutput(), null, batch.excludedTransactions(),

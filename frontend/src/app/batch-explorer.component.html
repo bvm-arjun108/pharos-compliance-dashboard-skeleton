@@ -146,7 +146,9 @@
                     <span class="queue-issue-tags">
                       @if (batch.activityMissing > 0) { <i>Activity Missing {{ batch.activityMissing }}</i> }
                       @if (batch.missingAttempts > 0) { <i>Missing {{ batch.missingAttempts }}</i> }
-                      @if (batch.transformationFailures > 0) { <i>Transform {{ batch.transformationFailures }}</i> }
+                      @if (batch.transformationFailures > 0) {
+                        <i [title]="batch.transformationFailureMismatch ? 'Reconciliation reported ' + batch.reportedTransformationFailures + ', but only ' + batch.transformationFailures + ' failure(s) are recorded in the transaction journey.' : ''">Transform {{ batch.transformationFailures }}{{ batch.transformationFailureMismatch ? ' ⚠' : '' }}</i>
+                      }
                     </span>
                   }
                 </span>
@@ -264,7 +266,13 @@
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('EXPECTED_ELIGIBLE')" aria-label="View expected eligible transaction evidence"><span>Expected eligible</span><strong>{{ details.expectedTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTUAL_ELIGIBLE')" aria-label="View actual eligible transaction evidence"><span>Actual eligible</span><strong>{{ details.actualTransformationAttempts | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('TRANSFORMED')" aria-label="View transformed transaction evidence"><span>Transformed</span><strong>{{ details.transformedActivities | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Failed</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Failed</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong>
+                @if (details.transformationFailureMismatch) {
+                  <small class="mismatch-flag" [title]="'Reconciliation reported ' + details.reportedTransformationFailures + ', but only ' + details.transformationFailures + ' failure(s) are recorded in the transaction journey — the upstream transformer job may be over- or under-counting.'">⚠ Reconciliation shows {{ details.reportedTransformationFailures | number:'1.0-0' }}</small>
+                } @else {
+                  <small>View transactions →</small>
+                }
+              </button></div>
             </div>
           </section>
 
@@ -292,7 +300,13 @@
             <div class="evidence-values evidence-values--four">
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('MISSING')" aria-label="View missing transaction attempt evidence"><span>Missing attempts</span><strong [class.issue-number]="details.missingAttempts > 0">{{ details.missingAttempts | number:'1.0-0' }}</strong><small>View report →</small></button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('ACTIVITY_MISSING')" aria-label="View activity missing transaction evidence"><span>Activity missing</span><strong [class.issue-number]="details.activityMissing > 0">{{ details.activityMissing | number:'1.0-0' }}</strong><small>View report →</small></button></div>
-              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Transformation failures</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
+              <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('FAILED')" aria-label="View failed transformation transaction evidence"><span>Transformation failures</span><strong [class.issue-number]="details.transformationFailures > 0">{{ details.transformationFailures | number:'1.0-0' }}</strong>
+                @if (details.transformationFailureMismatch) {
+                  <small class="mismatch-flag" [title]="'Reconciliation reported ' + details.reportedTransformationFailures + ', but only ' + details.transformationFailures + ' failure(s) are recorded in the transaction journey — the upstream transformer job may be over- or under-counting.'">⚠ Reconciliation shows {{ details.reportedTransformationFailures | number:'1.0-0' }}</small>
+                } @else {
+                  <small>View transactions →</small>
+                }
+              </button></div>
               <div><button type="button" class="evidence-value-link" (click)="openTransactionReport('SKIPPED')" aria-label="View all skipped transaction evidence"><span>Total skipped</span><strong [class.issue-number]="skippedTotal(details) > 0">{{ skippedTotal(details) | number:'1.0-0' }}</strong><small>View transactions →</small></button></div>
             </div>
           </section>

@@ -687,6 +687,12 @@
   color: #864047;
 }
 
+.evidence-value-link small.mismatch-flag {
+  color: #864047;
+  font-weight: 700;
+  cursor: help;
+}
+
 .evidence-panel > p {
   min-height: 28px;
   margin: 7px 0 14px;

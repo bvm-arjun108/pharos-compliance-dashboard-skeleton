@@ -8,6 +8,7 @@ import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsP
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
+import com.pharos.compliance.common.jooq.TransformationFailureQueries;
 import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
 import static com.pharos.compliance.common.jooq.JooqConditions.countDistinctTupleFiltered;
 import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
@@ -38,6 +39,7 @@ public class DashboardRepository {
   private static final String BATCHES_NEEDING_ATTENTION_COLUMN = "batches_needing_attention";
   private static final String BATCHES_RAN_ALIAS = "batchesRan";
   private static final String BATCHES_RAN_COLUMN = "batches_ran";
+  private static final String JOURNEY_TRANSFORMATION_FAILURES_ALIAS = "journeyTransformationFailures";
   private static final String MISSING_ATTEMPT_BATCHES_ALIAS = "missingAttemptBatches";
   private static final String MISSING_ATTEMPT_BATCHES_COLUMN = "missing_attempt_batches";
   private static final String PERIOD_START_COLUMN = "period_start";
@@ -93,12 +95,26 @@ public class DashboardRepository {
       .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
       .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
 
-    Table<Record> rtrScope = dsl.select(RECONCILIATION.asterisk()).from(RECONCILIATION).where(scope).asTable("rtr_scope");
+    var journeyFailures = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    Field<Integer> jfRptGrpId = requiredField(journeyFailures, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> jfBatchId = requiredField(journeyFailures, RECONCILIATION.BATCH_ID.getName(), String.class);
+    Field<Long> jfCount = requiredField(journeyFailures, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
+
+    var rtrScope = dsl
+      .select(RECONCILIATION.asterisk())
+      .select(jfCount.as(JOURNEY_TRANSFORMATION_FAILURES_ALIAS))
+      .from(RECONCILIATION)
+      .leftJoin(journeyFailures)
+      .on(jfRptGrpId.eq(RECONCILIATION.RPT_GRP_ID))
+      .and(jfBatchId.eq(RECONCILIATION.BATCH_ID))
+      .where(scope)
+      .asTable("rtr_scope");
 
     Field<Integer> rptGrpId = requiredField(rtrScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
     Field<String> scopedBatchId = requiredField(rtrScope, RECONCILIATION.BATCH_ID.getName(), String.class);
     Field<Integer> seqNo = requiredField(rtrScope, RECONCILIATION.SEQ_NO.getName(), Integer.class);
     Field<Integer> transformationFailed = requiredField(rtrScope, RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED.getName(), Integer.class);
+    Field<Long> journeyTransformationFailed = requiredField(rtrScope, JOURNEY_TRANSFORMATION_FAILURES_ALIAS, Long.class);
     Field<Integer> missingAttempts = requiredField(rtrScope, RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT.getName(), Integer.class);
     Field<Integer> activityMissing = requiredField(rtrScope, RECONCILIATION.ACTIVITY_MISSING.getName(), Integer.class);
     Field<Integer> duplicateTransformation = requiredField(rtrScope, RECONCILIATION.DUPLICATE_TRANSFORMATION.getName(), Integer.class);
@@ -106,13 +122,21 @@ public class DashboardRepository {
     Field<Integer> txnSimulated = requiredField(rtrScope, RECONCILIATION.TXN_SIMULATED.getName(), Integer.class);
     Field<Integer> softDedup = requiredField(rtrScope, RECONCILIATION.SOFT_DEDUP_DROPPED_TXN_COUNT.getName(), Integer.class);
 
-    Condition transformationFailedGtZero = DSL.coalesce(transformationFailed, 0).gt(0);
+    // Prefer the journey-derived count (COALESCE's own NULL-means-"no journey evidence for this
+    // fact" fallback -- see TransformationFailureQueries) over the raw reconciliation scalar,
+    // which can over- or under-count relative to what record_transformation_journey actually
+    // recorded. No numeric total is displayed at this headline level, only this >0 bucketing, so
+    // there's nothing here that needs a separate mismatch flag the way Batch Explorer's per-batch
+    // views do.
+    Field<Long> correctedTransformationFailed =
+        DSL.coalesce(journeyTransformationFailed, DSL.coalesce(transformationFailed, 0).cast(SQLDataType.BIGINT));
+    Condition transformationFailedGtZero = correctedTransformationFailed.gt(0L);
     Condition missingAttemptsGtZero = DSL.coalesce(missingAttempts, 0).gt(0);
     Condition activityMissingGtZero = DSL.coalesce(activityMissing, 0).gt(0);
     Condition noPriorIssue =
         DSL
-      .coalesce(transformationFailed, 0)
-      .eq(0)
+      .coalesce(correctedTransformationFailed, 0L)
+      .eq(0L)
       .and(DSL.coalesce(missingAttempts, 0).eq(0))
       .and(DSL.coalesce(activityMissing, 0).eq(0));
 
@@ -178,7 +202,13 @@ public class DashboardRepository {
       .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
       .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
 
-    Condition transformationFailedGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).gt(0);
+    var journeyFailuresForGroups = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    Field<Integer> jfgRptGrpId = requiredField(journeyFailuresForGroups, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> jfgBatchId = requiredField(journeyFailuresForGroups, RECONCILIATION.BATCH_ID.getName(), String.class);
+    Field<Long> jfgCount =
+        requiredField(journeyFailuresForGroups, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
+    Condition transformationFailedGtZero =
+        DSL.coalesce(jfgCount, DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT)).gt(0L);
     Condition missingAttemptsGtZero = DSL.coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0).gt(0);
     Condition activityMissingGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).gt(0);
 
@@ -198,6 +228,9 @@ public class DashboardRepository {
               TOTAL_REPORTED_TRANSACTIONS_COLUMN),
           DSL.coalesce(DSL.sum(RECONCILIATION.EXCLUDED_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
       .from(RECONCILIATION)
+      .leftJoin(journeyFailuresForGroups)
+      .on(jfgRptGrpId.eq(RECONCILIATION.RPT_GRP_ID))
+      .and(jfgBatchId.eq(RECONCILIATION.BATCH_ID))
       .where(scope)
       .groupBy(RECONCILIATION.RPT_GRP_ID)
       .asTable("report_group_metrics");
@@ -305,7 +338,13 @@ public class DashboardRepository {
     Condition scope = trendScope(fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds, filterByReportGroup,
         reportGroupId);
 
-    Condition transformationFailedGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).gt(0);
+    var journeyFailuresForTrend = TransformationFailureQueries.journeyFailuresByBatch(dsl);
+    Field<Integer> jftRptGrpId = requiredField(journeyFailuresForTrend, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
+    Field<String> jftBatchId = requiredField(journeyFailuresForTrend, RECONCILIATION.BATCH_ID.getName(), String.class);
+    Field<Long> jftCount =
+        requiredField(journeyFailuresForTrend, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
+    Condition transformationFailedGtZero =
+        DSL.coalesce(jftCount, DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT)).gt(0L);
     Condition missingAttemptsGtZero = DSL.coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0).gt(0);
     Condition activityMissingGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).gt(0);
 
@@ -317,6 +356,9 @@ public class DashboardRepository {
               RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
             .as(BATCHES_NEEDING_ATTENTION_COLUMN))
       .from(RECONCILIATION)
+      .leftJoin(journeyFailuresForTrend)
+      .on(jftRptGrpId.eq(RECONCILIATION.RPT_GRP_ID))
+      .and(jftBatchId.eq(RECONCILIATION.BATCH_ID))
       .where(scope)
       .groupBy(trendPeriods.periodStartExpr())
       .asTable("period_metrics");

@@ -107,7 +107,8 @@ public class TransactionReportServiceImpl implements TransactionReportService {
           CountryDefinition country = countryCatalog.getSnapshot().getForReportGroup(reportGroupId);
 
           return new TransactionReportResponse(toContext(context, country), metric, metricLabel(metric), aggregateCount,
-              availableRecordCount, matchingCount, evidenceLevel, evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
+              reportedAggregateCount(context, metric), aggregateCountMismatch(context, metric), availableRecordCount, matchingCount,
+              evidenceLevel, evidenceMessage(evidenceLevel, aggregateCount, availableRecordCount),
               evidence.stream().map(this::toEvidenceRecord).toList(), normalizedSearch, source, stage, outcome, status, sortDirection, page,
               size, nextCursor);
         },
@@ -333,6 +334,27 @@ public class TransactionReportServiceImpl implements TransactionReportService {
       case SKIPPED -> context.missingAttempts() + context.activityMissing() + context.failed();
       case FILTRATION_VARIANCE -> context.filtrationVariance();
       case RECONCILIATION_VARIANCE -> context.reconciliationVariance();
+    };
+  }
+
+  /**
+   * FAILED and SKIPPED are the only metrics whose {@link #aggregateCount} can disagree with the raw
+   * {@code report_transformation_reconciliation.activity_transformation_failed} column -- see
+   * TransformationFailureQueries' Javadoc. Every other metric's reported and corrected values are
+   * identical by construction, so this just re-returns {@link #aggregateCount} for them.
+   */
+  private long reportedAggregateCount(TransactionReportContextProjection context, TransactionMetric metric) {
+    return switch (metric) {
+      case FAILED -> context.reportedFailed();
+      case SKIPPED -> context.missingAttempts() + context.activityMissing() + context.reportedFailed();
+      default -> aggregateCount(context, metric);
+    };
+  }
+
+  private boolean aggregateCountMismatch(TransactionReportContextProjection context, TransactionMetric metric) {
+    return switch (metric) {
+      case FAILED, SKIPPED -> context.failedMismatch();
+      default -> false;
     };
   }
 

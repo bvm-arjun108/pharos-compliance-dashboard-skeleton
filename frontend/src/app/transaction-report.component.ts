@@ -139,6 +139,8 @@ interface TransactionReportResponse {
   metric: TransactionMetric | null;
   metricLabel: string;
   aggregateCount: number;
+  reportedAggregateCount?: number;
+  aggregateCountMismatch?: boolean;
   availableRecordCount: number;
   matchingRecordCount: number;
   evidenceLevel: TransactionEvidenceLevel;
@@ -159,6 +161,8 @@ interface RawBatchReportResponse {
   metric: TransactionMetric;
   metricLabel: string;
   aggregateCount: number;
+  reportedAggregateCount: number;
+  aggregateCountMismatch: boolean;
   availableRecordCount: number;
   matchingRecordCount: number;
   evidenceLevel: TransactionEvidenceLevel;
