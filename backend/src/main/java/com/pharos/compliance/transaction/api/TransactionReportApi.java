@@ -27,6 +27,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
+import java.util.List;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -79,6 +80,9 @@ public interface TransactionReportApi {
       @Parameter(description = "Active report_group_config country code or ALL", example = "PT") @RequestParam(value = "country", defaultValue = "A"
       + "LL") String country,
       @Parameter(description = "Exact report group ID", example = "1573742369") @RequestParam(value = "reportGroupId", required = false) Integer reportGroupId,
+      @Parameter(description = "Case-insensitive substring match against batch ID, narrowing this period's many batches down to "
+      + "one (or a few) -- same containsIgnoreCase semantics as Batch Explorer's own batch search.", example = "BIN512608") @RequestParam(
+      value = "batchId", defaultValue = "") String batchId,
       @RequestParam(value = "search", defaultValue = "") String search,
       @RequestParam(value = "outcome", defaultValue = "ALL") TransactionOutcome outcome,
       @RequestParam(value = "status", defaultValue = "ALL") TransactionStatus status,
@@ -100,6 +104,22 @@ public interface TransactionReportApi {
       @Parameter(description = "Opaque cursor from a previous response's nextCursor, for cheap sequential paging that skips "
       + "the OFFSET scan cost `page` incurs at depth. Takes precedence over `page` when present; omit for the normal "
       + "page-number paginator.") @RequestParam(value = "cursor", defaultValue = "") String cursor);
+
+  @Operation(operationId = "getPeriodReportBatchIds", summary = "List every distinct batch ID in a period-report scope",
+      description = "Same date/country/report-group scope as getPeriodTransactionEvidenceReport, without a status/metric filter -- "
+      + "backs a batch picker for that report (e.g. a typeahead) rather than a second full evidence fetch. Ordered by "
+      + "batch ID; not paginated, since a reporting period's batch count is small enough to hand back in one response.")
+  @ApiResponses({@ApiResponse(responseCode = "200", description = "Batch IDs returned successfully (possibly empty)", headers = {@Header(name = "X"
+      + "-Trace-Id", description = TRACE_ID_DESCRIPTION), @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)}),
+      @ApiResponse(responseCode = "400", description = "Missing, malformed, or inverted date range, or unsupported country filter", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+      @ApiResponse(responseCode = "503", description = "Compliance database unavailable", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))})
+  @GetMapping(value = "/period-report/batches", produces = MediaType.APPLICATION_JSON_VALUE)
+  List<String> getPeriodReportBatchIds(
+      @Parameter(description = "Inclusive reporting-period start date", required = true, example = "2026-08-01") @RequestParam("fromDate") @NotNull @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+      @Parameter(description = "Inclusive reporting-period end date", required = true, example = "2026-08-31") @RequestParam("toDate") @NotNull @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+      @Parameter(description = "Active report_group_config country code or ALL", example = "PT") @RequestParam(value = "country", defaultValue = "A"
+      + "LL") String country,
+      @Parameter(description = "Exact report group ID", example = "1573742369") @RequestParam(value = "reportGroupId", required = false) Integer reportGroupId);
 
   @Operation(operationId = "searchTransactions", summary = "Find every evidence row matching one MTCN or external transaction key, across"
       + " every report group", description = "No date range, report group, or country required -- for when the caller knows a transaction's "

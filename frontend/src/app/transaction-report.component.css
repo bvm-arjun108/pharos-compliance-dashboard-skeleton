@@ -36,8 +36,7 @@
   border: 0;
   font: inherit;
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
   cursor: pointer;
 }
 .batch-link:hover,
@@ -199,6 +198,43 @@
 .transaction-search svg { position: absolute; top: 10px; left: 11px; width: 17px; height: 17px; fill: none; stroke: #8b8a82; stroke-linecap: round; stroke-width: 1.8; }
 .transaction-search input { padding-left: 36px; }
 .transaction-status { flex: 0 1 200px; min-width: 175px; }
+
+.transaction-batch-filter { position: relative; flex: 0 1 240px; min-width: 200px; }
+.transaction-batch-filter input { width: 100%; }
+
+.transaction-batch-dropdown {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-height: 220px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #cfcdc4;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(30, 29, 25, .12);
+}
+.transaction-batch-dropdown li { display: block; }
+.transaction-batch-dropdown button {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 8px 10px;
+  color: #2e2e2a;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.transaction-batch-dropdown button:hover,
+.transaction-batch-dropdown button:focus-visible { background: #f5f2e2; }
 .transaction-toolbar .transaction-apply { flex: 0 0 auto; width: auto; padding: 0 18px; color: #111; background: #ffdd00; border-color: #e4c700; font-weight: 900; }
 .transaction-toolbar .transaction-clear { flex: 0 0 auto; width: auto; padding: 0 15px; background: transparent; font-weight: 750; }
 

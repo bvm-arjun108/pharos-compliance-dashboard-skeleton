@@ -13,6 +13,7 @@ import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
 import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.time.LocalDate;
+import java.util.List;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,10 +36,15 @@ public class TransactionReportController implements TransactionReportApi {
 
   @Override
   public PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country,
-      Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, String reason,
+      Integer reportGroupId, String batchId, String search, TransactionOutcome outcome, TransactionStatus status, String reason,
       boolean batchScopedExcluded, TransactionSortDirection sortDirection, int page, int size, String cursor) {
-    return transactionReportService.getPeriodTransactionReport(fromDate, toDate, country, reportGroupId, search, outcome, status, reason,
-        batchScopedExcluded, sortDirection, page, size, cursor);
+    return transactionReportService.getPeriodTransactionReport(fromDate, toDate, country, reportGroupId, batchId, search, outcome, status,
+        reason, batchScopedExcluded, sortDirection, page, size, cursor);
+  }
+
+  @Override
+  public List<String> getPeriodReportBatchIds(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
+    return transactionReportService.getPeriodReportBatchIds(fromDate, toDate, country, reportGroupId);
   }
 
   @Override

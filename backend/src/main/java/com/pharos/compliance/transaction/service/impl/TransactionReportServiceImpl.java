@@ -159,11 +159,12 @@ public class TransactionReportServiceImpl implements TransactionReportService {
 
   @Override
   public PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country,
-      Integer reportGroupId, String search, TransactionOutcome outcome, TransactionStatus status, String reason,
+      Integer reportGroupId, String batchId, String search, TransactionOutcome outcome, TransactionStatus status, String reason,
       boolean batchScopedExcluded, TransactionSortDirection sortDirection, int page, int size, String cursor) {
     if (fromDate.isAfter(toDate)) {
       throw new InvalidDateRangeException("fromDate must be on or before toDate");
     }
+    String normalizedBatchId = batchId == null ? "" : batchId.trim();
     String normalizedSearch = search == null ? "" : search.trim();
     String normalizedReason = reason == null ? "" : reason.trim();
     String normalizedCountry = normalizeCountryCode(country);
@@ -178,20 +179,21 @@ public class TransactionReportServiceImpl implements TransactionReportService {
     CountryFilter countryFilter = resolvePeriodCountryFilter(catalog, normalizedCountry, reportGroupId);
 
     return logOperation("Period transaction evidence report",
-        () -> LOGGER.debug("Period transaction evidence scope resolved | period={}..{} | country={} | reportGroupId={} | outcome={}"
-            + " | status={} | sortDirection={} | searchApplied={} | reasonApplied={} | page={} | size={} | cursorApplied={}", fromDate,
-            toDate, normalizedCountry, reportGroupId == null ? "ALL" : reportGroupId, outcome, status, sortDirection,
-            !normalizedSearch.isEmpty(), !normalizedReason.isEmpty(), page, size, decodedCursor != null),
+        () -> LOGGER.debug("Period transaction evidence scope resolved | period={}..{} | country={} | reportGroupId={} | batchFilter={}"
+            + " | outcome={} | status={} | sortDirection={} | searchApplied={} | reasonApplied={} | page={} | size={} | cursorApplied={}",
+            fromDate, toDate, normalizedCountry, reportGroupId == null ? "ALL" : reportGroupId,
+            normalizedBatchId.isEmpty() ? "ALL" : normalizedBatchId, outcome, status, sortDirection, !normalizedSearch.isEmpty(),
+            !normalizedReason.isEmpty(), page, size, decodedCursor != null),
         () -> {
           PeriodAggregateProjection aggregate = transactionEvidenceCache.findPeriodAggregate(fromTimestamp, toTimestampExclusive,
-              countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
+              countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedBatchId);
           var page1 = transactionEvidenceCache.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, countryFilter.enabled(),
-              countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch, outcome.name(), status.name(),
-              normalizedReason, batchScopedExcluded, sortDirection.name(), size, offset, decodedCursor);
+              countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedBatchId, normalizedSearch, outcome.name(),
+              status.name(), normalizedReason, batchScopedExcluded, sortDirection.name(), size, offset, decodedCursor);
           List<TransactionEvidenceProjection> evidence = page1.records();
           long matchingCount = transactionEvidenceCache.countPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive,
-              countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedSearch,
-              outcome.name(), status.name(), normalizedReason, batchScopedExcluded);
+              countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter, normalizedBatchId,
+              normalizedSearch, outcome.name(), status.name(), normalizedReason, batchScopedExcluded);
           // The reconciliation-sourced excluded_txn sum is only a meaningful "aggregate"
           // to compare record counts against when the user is actually viewing Excluded
           // evidence — it has no equivalent for Success/Reported/etc, so treating it as
@@ -219,6 +221,25 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         + response.context().batchCount() + " | aggregate=" + response.aggregateCount() + " | available=" + response.availableRecordCount()
         + " | matched=" + response.matchingRecordCount() + " | returned=" + response.transactions().size() + " | evidenceLevel="
         + response.evidenceLevel() + " | page=" + page + " | size=" + size + " | hasNextCursor=" + (response.nextCursor() != null));
+  }
+
+  /** Backs a batch picker (typeahead) for the period report above -- same scope, no status/metric
+   *  filter, not paginated (a reporting period's batch count is small enough to hand back whole). */
+  @Override
+  public List<String> getPeriodReportBatchIds(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
+    if (fromDate.isAfter(toDate)) {
+      throw new InvalidDateRangeException("fromDate must be on or before toDate");
+    }
+    String normalizedCountry = normalizeCountryCode(country);
+    boolean filterByReportGroup = reportGroupId != null;
+    int reportGroupIdFilter = filterByReportGroup ? reportGroupId : -1;
+    LocalDateTime fromTimestamp = fromDate.atStartOfDay();
+    LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
+
+    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
+    CountryFilter countryFilter = resolvePeriodCountryFilter(catalog, normalizedCountry, reportGroupId);
+    return transactionEvidenceCache.findPeriodBatchIds(fromTimestamp, toTimestampExclusive, countryFilter.enabled(),
+        countryFilter.reportGroupIds(), filterByReportGroup, reportGroupIdFilter);
   }
 
   /**

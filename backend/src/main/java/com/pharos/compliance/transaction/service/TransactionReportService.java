@@ -11,6 +11,7 @@ import com.pharos.compliance.transaction.model.TransactionSortDirection;
 import com.pharos.compliance.transaction.model.TransactionStage;
 import com.pharos.compliance.transaction.model.TransactionStatus;
 import java.time.LocalDate;
+import java.util.List;
 
 public interface TransactionReportService {
   TransactionReportResponse getTransactionReport(int reportGroupId, String batchId, int sequenceNumber, TransactionMetric metric,
@@ -18,8 +19,10 @@ public interface TransactionReportService {
       TransactionSortDirection sortDirection, int page, int size, String cursor);
 
   PeriodTransactionReportResponse getPeriodTransactionReport(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId,
-      String search, TransactionOutcome outcome, TransactionStatus status, String reason, boolean batchScopedExcluded,
+      String batchId, String search, TransactionOutcome outcome, TransactionStatus status, String reason, boolean batchScopedExcluded,
       TransactionSortDirection sortDirection, int page, int size, String cursor);
+
+  List<String> getPeriodReportBatchIds(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId);
 
   TransactionSearchResponse searchTransactions(TransactionSearchField field, String query);
 }

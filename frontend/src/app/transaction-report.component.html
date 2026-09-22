@@ -92,6 +92,38 @@
             <input type="search" placeholder="Search identifier or MTCN" [value]="search()" (input)="setSearch($event)" />
           </label>
           @if (mode() === 'PERIOD') {
+            <!-- Custom combobox rather than input+datalist: a native datalist popup is unstyleable
+                 (browser/OS chrome, not part of the page), so it looked jarringly inconsistent with
+                 the rest of this toolbar. This renders its own dropdown in the app's own styling.
+                 Applying still goes through the same Apply button as every other filter here, so a
+                 typed value that doesn't exactly match an option is just a substring search (batchId
+                 is containsIgnoreCase server-side), not an error. -->
+            <div class="transaction-batch-filter">
+              <label class="sr-only" for="transaction-batch-input">Filter by batch ID</label>
+              <input
+                id="transaction-batch-input"
+                type="text"
+                autocomplete="off"
+                role="combobox"
+                aria-controls="transaction-batch-listbox"
+                [attr.aria-expanded]="batchDropdownOpen()"
+                placeholder="Filter by batch ID"
+                [value]="batchIdFilter()"
+                (input)="setBatchIdFilter($event)"
+                (focus)="openBatchDropdown()"
+                (blur)="closeBatchDropdown()"
+                (keydown.escape)="closeBatchDropdown()"
+              />
+              @if (batchDropdownOpen() && filteredBatchIdOptions().length > 0) {
+                <ul class="transaction-batch-dropdown" id="transaction-batch-listbox" role="listbox">
+                  @for (id of filteredBatchIdOptions(); track id) {
+                    <li role="option">
+                      <button type="button" (mousedown)="$event.preventDefault()" (click)="selectBatchId(id)">{{ id }}</button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
             <!-- Status is only a coherent filter axis in PERIOD mode, where it's the sole
                  grouping applied. In BATCH mode `metric` already groups the rows (Selected/
                  Filtered/Excluded/Simulated/...), which is a different, overlapping taxonomy on

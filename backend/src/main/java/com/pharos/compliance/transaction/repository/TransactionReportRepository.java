@@ -157,9 +157,17 @@ public class TransactionReportRepository {
 
   @SqlQueryPurpose("Summarize transaction evidence across the selected reporting period")
   public PeriodAggregateProjection findPeriodAggregate(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId) {
     return periodEvidenceQueries.findPeriodAggregate(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
-        filterByReportGroup, reportGroupId);
+        filterByReportGroup, reportGroupId, batchId);
+  }
+
+  @SqlQueryPurpose("List every distinct batch ID in a period-report scope")
+  public List<String> findPeriodBatchIds(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+    Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId, "");
+    return periodEvidenceQueries.distinctBatchIds(scope);
   }
 
   /**
@@ -178,10 +186,10 @@ public class TransactionReportRepository {
    */
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
-      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,
+      String status, String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
-        filterByReportGroup, reportGroupId, "");
+        filterByReportGroup, reportGroupId, batchId);
     if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
       return periodEvidenceQueries.findExcludedEvidenceRecordsForBatchTotal(scope, search, sortDirection, size, offset, cursor);
     }
@@ -193,10 +201,10 @@ public class TransactionReportRepository {
 
   @SqlQueryPurpose("Count filtered transaction evidence records across the selected reporting period")
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
-      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String search, String outcome, String status,
-      String reason, boolean batchScopedExcluded) {
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,
+      String status, String reason, boolean batchScopedExcluded) {
     Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
-        filterByReportGroup, reportGroupId, "");
+        filterByReportGroup, reportGroupId, batchId);
     if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
       return periodEvidenceQueries.countExcludedEvidenceRecordsForBatchTotal(scope, search);
     }

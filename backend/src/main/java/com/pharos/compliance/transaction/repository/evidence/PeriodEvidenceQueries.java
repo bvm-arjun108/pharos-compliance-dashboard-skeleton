@@ -104,8 +104,9 @@ public class PeriodEvidenceQueries {
 
   @SqlQueryPurpose("Summarize transaction evidence across the selected reporting period")
   public PeriodAggregateProjection findPeriodAggregate(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
-      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, "");
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId) {
+    var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId,
+        batchId);
     Field<Integer> bsRptGrpId = requiredField(scope, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> bsBatchId = requiredField(scope, BATCH_ID_COLUMN, String.class);
     Field<String> bsRptGrpName = requiredField(scope, "rpt_grp_name", String.class);
@@ -119,6 +120,13 @@ public class PeriodEvidenceQueries {
       .fetchOptional(r -> new PeriodAggregateProjection(requiredLong(r, "batchCount"), requiredLong(r, "totalExcluded"),
           r.get(REPORT_GROUP_NAME_ALIAS, String.class)))
       .orElseThrow(() -> new IllegalStateException("Period aggregate returned no row"));
+  }
+
+  /** Backs a batch picker (typeahead) for the period report -- every distinct batch ID in scope,
+   *  ordered, not paginated (a reporting period's batch count is small enough to hand back whole). */
+  public List<String> distinctBatchIds(Table<?> scope) {
+    Field<String> bsBatchId = requiredField(scope, BATCH_ID_COLUMN, String.class);
+    return dsl.selectDistinct(bsBatchId).from(scope).orderBy(bsBatchId).fetch(bsBatchId);
   }
 
   /**

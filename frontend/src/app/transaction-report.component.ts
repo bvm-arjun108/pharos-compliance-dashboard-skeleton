@@ -1,6 +1,6 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, ParamMap, Router, RouterLink } from '@angular/router';
 
@@ -230,6 +230,19 @@ export class TransactionReportComponent implements OnInit {
 
   readonly reportGroupId = signal<number | null>(null);
   readonly batchId = signal('');
+  // Period mode only -- a substring filter against batch ID, distinct from `batchId` above (which
+  // identifies the single batch a BATCH-mode report is scoped to). batchIdOptions is every batch ID
+  // in the current period scope, fetched once per scope rather than per keystroke; the dropdown
+  // below narrows it client-side as the user types. A custom listbox rather than <input list> +
+  // <datalist> -- that native popup is unstyleable OS/browser chrome, not part of the page.
+  readonly batchIdFilter = signal('');
+  readonly batchIdOptions = signal<string[]>([]);
+  readonly batchDropdownOpen = signal(false);
+  readonly filteredBatchIdOptions = computed(() => {
+    const query = this.batchIdFilter().trim().toLowerCase();
+    return query ? this.batchIdOptions().filter(id => id.toLowerCase().includes(query)) : this.batchIdOptions();
+  });
+  private lastBatchIdOptionsScopeKey = '';
   readonly sequenceNumber = signal<number | null>(null);
   // Period mode only — the date range / country a KPI's total was computed over, when there is
   // no single batch to scope the report to.
@@ -269,6 +282,29 @@ export class TransactionReportComponent implements OnInit {
     this.status.set((event.target as HTMLSelectElement).value as TransactionStatus);
   }
 
+  setBatchIdFilter(event: Event): void {
+    this.batchIdFilter.set((event.target as HTMLInputElement).value);
+    this.batchDropdownOpen.set(true);
+  }
+
+  openBatchDropdown(): void {
+    this.batchDropdownOpen.set(true);
+  }
+
+  /** Delayed rather than immediate: an option button's own (click) fires after this input's blur,
+   *  so closing synchronously would unmount the button before the click is handled. The button's
+   *  own (mousedown) already prevents the blur that would otherwise trigger this on a mouse
+   *  selection; the delay here is the fallback for however else focus could leave (Tab, clicking
+   *  elsewhere). */
+  closeBatchDropdown(): void {
+    setTimeout(() => this.batchDropdownOpen.set(false), 150);
+  }
+
+  selectBatchId(id: string): void {
+    this.batchIdFilter.set(id);
+    this.batchDropdownOpen.set(false);
+  }
+
   /** Server-side sort, same as every other filter here — a page is only a small window into a
    *  much larger, independently-ordered result set (this report can back a table with millions
    *  of rows in production), so sorting can only ever be correct if it's applied before LIMIT/
@@ -285,12 +321,14 @@ export class TransactionReportComponent implements OnInit {
     this.updateRoute({
       search: this.search().trim() || null,
       status: this.status(),
+      periodBatchId: this.batchIdFilter().trim() || null,
       page: 0
     });
   }
 
   clearFilters(): void {
-    this.updateRoute({ search: null, status: 'ALL', page: 0 });
+    this.batchIdFilter.set('');
+    this.updateRoute({ search: null, status: 'ALL', periodBatchId: null, page: 0 });
   }
 
   previousPage(): void {
@@ -617,10 +655,13 @@ export class TransactionReportComponent implements OnInit {
    *  many batches the underlying KPI actually summed. See openExcludedTransactionsExplorer() in
    *  home.component.ts for where this is linked from. */
   private loadPeriodReport(): void {
+    this.maybeLoadBatchIdOptions();
+
     let params = new HttpParams()
       .set('fromDate', this.fromDate())
       .set('toDate', this.toDate())
       .set('country', this.country())
+      .set('batchId', this.batchIdFilter().trim())
       .set('search', this.search().trim())
       .set('status', this.status())
       .set('batchScopedExcluded', this.batchScopedExcluded())
@@ -650,6 +691,31 @@ export class TransactionReportComponent implements OnInit {
     });
   }
 
+  /** The batch picker's option list only depends on date range / country / report group, not on
+   *  search/status/page/sort -- refetching it on every filter change or page turn would be wasted
+   *  work and a flickering dropdown, so this is keyed on just that narrower scope and skipped when
+   *  unchanged. */
+  private maybeLoadBatchIdOptions(): void {
+    const scopeKey = `${this.fromDate()}|${this.toDate()}|${this.country()}|${this.reportGroupId() ?? 'ALL'}`;
+    if (scopeKey === this.lastBatchIdOptionsScopeKey) {
+      return;
+    }
+    this.lastBatchIdOptionsScopeKey = scopeKey;
+
+    let params = new HttpParams()
+      .set('fromDate', this.fromDate())
+      .set('toDate', this.toDate())
+      .set('country', this.country());
+    if (this.reportGroupId() !== null) {
+      params = params.set('reportGroupId', this.reportGroupId()!);
+    }
+
+    this.http.get<string[]>('/api/v1/transactions/period-report/batches', { params }).subscribe({
+      next: ids => this.batchIdOptions.set(ids),
+      error: () => this.batchIdOptions.set([])
+    });
+  }
+
   private readRouteState(params: ParamMap): void {
     const reportGroupId = Number(params.get('reportGroupId'));
     const sequenceNumber = Number(params.get('sequenceNumber'));
@@ -673,6 +739,7 @@ export class TransactionReportComponent implements OnInit {
     this.overviewOnly.set(params.get('view') === 'overview');
     this.returnToTransactionView.set(params.get('origin') === 'overview');
     this.batchScopedExcluded.set(params.get('batchScopedExcluded') === 'true');
+    this.batchIdFilter.set(params.get('periodBatchId')?.trim() ?? '');
 
     if (batchId && this.reportGroupId() !== null && this.sequenceNumber() !== null) {
       this.mode.set('BATCH');
