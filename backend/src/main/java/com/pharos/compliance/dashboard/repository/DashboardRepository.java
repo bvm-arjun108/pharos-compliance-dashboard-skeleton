@@ -421,13 +421,18 @@ public class DashboardRepository {
    * partitions the result into the four Transactions Overview numbers. This intentionally departs
    * from every other transaction count in this class: those all read {@code
    * report_transformation_reconciliation}'s batch-level aggregate columns, which cannot see
-   * individual transactions; this reads {@code record_transformation_journey}'s full history for
-   * every batch in scope, joined against {@code report_batch_info} to confirm a batch's report was
-   * actually generated (not merely that its transformation step succeeded) before counting a
-   * transaction as reported. Ported directly from a validated business-rule spec (see the
-   * definitions of Reported / Not Reported / Excluded By Design / Expected), not derived
-   * independently -- the {@code batch_generated} condition, the exact stage/status literals, and the
-   * bucket definitions below are intentionally unchanged from that source.
+   * individual transactions; this reads {@code record_transformation_journey}'s rows for every
+   * batch in {@code scope} (the caller's date/country/report-group window, via {@code
+   * batchScope}/{@code batchEvidence} below) -- NOT the transaction's entire all-time history
+   * across batches outside that window -- joined against {@code report_batch_info} to confirm a
+   * batch's report was actually generated (not merely that its transformation step succeeded)
+   * before counting a transaction as reported. "Ever" therefore means "at any point within this
+   * window," matching {@link com.pharos.compliance.transaction.repository.evidence.OverviewEvidenceQueries#reportingRoll}
+   * exactly, so this tile's count and its own drill-through evidence agree. Ported directly from a
+   * validated business-rule spec (see the definitions of Reported / Not Reported / Excluded By
+   * Design / Expected), not derived independently -- the {@code batch_generated} condition, the
+   * exact stage/status literals, and the bucket definitions below are intentionally unchanged from
+   * that source.
    */
   @SqlQueryPurpose("Transactions Overview > Selected / Expected / Excluded / Not Reported KPI cards > Aggregate transaction evidence")
   public TransactionOverviewProjection getTransactionOverview(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,

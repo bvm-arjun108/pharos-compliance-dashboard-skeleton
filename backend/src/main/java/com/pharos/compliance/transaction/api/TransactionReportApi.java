@@ -94,9 +94,11 @@ public interface TransactionReportApi {
       + "this date/country/report-group window and matches every FILTRATION/EXCLUDED journey row there (including simulated "
       + "exclusions) -- the same simple definition report_transformation_reconciliation.excluded_txn itself sums to, for "
       + "matching a batch-scoped 'total excluded' KPI (e.g. the Report Groups Requiring Attention table). When false "
-      + "(default), evidence instead answers 'has this transaction ever been excluded, anywhere in its journey history' -- "
-      + "matching the Transactions Overview page's own Excluded tile, which is a different, all-time definition. NOT_REPORTED "
-      + "always uses the all-time definition regardless of this flag.") @RequestParam(value = "batchScopedExcluded",
+      + "(default), evidence instead answers 'has this transaction ever been excluded, across every batch in this same "
+      + "date/country/report-group window' -- matching the Transactions Overview page's own Excluded tile, which is a "
+      + "different, distinct-transaction definition scoped to the window (not the transaction's all-time history). "
+      + "NOT_REPORTED always uses that window-scoped, distinct-transaction definition regardless of this flag.") @RequestParam(
+      value = "batchScopedExcluded",
       defaultValue = "false") boolean batchScopedExcluded,
       @RequestParam(value = "sortDirection", defaultValue = "DESC") TransactionSortDirection sortDirection,
       @RequestParam(value = "page", defaultValue = "0") @Min(0) int page,

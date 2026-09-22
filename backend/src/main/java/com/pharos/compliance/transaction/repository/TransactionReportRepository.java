@@ -50,7 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>{@link PeriodEvidenceQueries} -- every batch in a date range (Transactions Overview
  *       drilldowns) for every status except EXCLUDED/NOT_REPORTED.
  *   <li>{@link OverviewEvidenceQueries} -- EXCLUDED/NOT_REPORTED specifically, answered from a
- *       transaction's whole journey history rather than one batch's evidence rows; {@link
+ *       transaction's outcome across every batch in the caller's window rather than one batch's
+ *       evidence rows; {@link
  *       #findPeriodEvidenceRecords}/{@link #countPeriodEvidenceRecords} route to this instead of
  *       {@link PeriodEvidenceQueries} for those two statuses, exactly as before the split.
  * </ul>
@@ -171,14 +172,15 @@ public class TransactionReportRepository {
   }
 
   /**
-   * Routes EXCLUDED/NOT_REPORTED to {@link OverviewEvidenceQueries} (a transaction's whole journey
-   * history, matching the Transactions Overview dashboard tile's own "ever excluded"/"ever
-   * reported" definition) and every other status to {@link PeriodEvidenceQueries} (this period's
-   * batch evidence rows) -- see {@link OverviewEvidenceQueries}'s class Javadoc for why the two are
-   * deliberately not shared. {@code batchScopedExcluded} is the one exception: the Report Groups
-   * Requiring Attention table's own "Excluded" column is {@code SUM(excluded_txn)} over the exact
-   * same batch set this scope already resolves -- a fundamentally different, simpler definition
-   * than "ever excluded across a transaction's whole history" -- so a caller showing evidence for
+   * Routes EXCLUDED/NOT_REPORTED to {@link OverviewEvidenceQueries} (a transaction's outcome
+   * across every batch in this window, matching the Transactions Overview dashboard tile's own
+   * "ever excluded"/"ever reported" definition) and every other status to {@link
+   * PeriodEvidenceQueries} (this period's batch evidence rows) -- see {@link
+   * OverviewEvidenceQueries}'s class Javadoc for why the two are deliberately not shared. {@code
+   * batchScopedExcluded} is the one exception: the Report Groups Requiring Attention table's own
+   * "Excluded" column is {@code SUM(excluded_txn)} over the exact same batch set this scope
+   * already resolves -- a fundamentally different, simpler definition than "ever excluded across
+   * every batch in this window" -- so a caller showing evidence for
    * *that* number passes this flag to get {@link PeriodEvidenceQueries
    * #findExcludedEvidenceRecordsForBatchTotal} instead, which actually matches it. Ignored unless
    * status is EXCLUDED; NOT_REPORTED always uses the overview rollup, since it has no batch-scoped

@@ -60,16 +60,20 @@ import org.jooq.impl.SQLDataType;
 
 /**
  * Excluded/Not Reported, reached from the Transactions Overview dashboard tiles, are answered
- * from {@link #reportingRoll} -- the same "ever excluded"/"ever reported across full journey
- * history" definition the tile itself counted -- via {@link #reportingTarget} and {@link
- * #latestJourneyForTarget}, entirely independent of the per-batch evidence/merge pipeline every
- * other status still uses ({@link PeriodEvidenceQueries#evidenceForPeriod}/{@link
- * PeriodEvidenceQueries#filteredEvidenceForPeriod}). The two pipelines are deliberately not
- * shared: they answer genuinely different questions ("this batch's evidence rows" vs. "this
- * transaction's whole history"), and an earlier attempt to fold the roll-up into the per-batch
- * pipeline as an extra filter condition shipped a real bug -- a transaction reprocessed across
- * several batches surfaced once per batch instead of once, since the merge step groups by (batch,
- * identifier) while the roll-up is inherently per-identifier only.
+ * from {@link #reportingRoll} -- the same "ever excluded"/"ever reported" definition the tile
+ * itself counted -- via {@link #reportingTarget} and {@link #latestJourneyForTarget}, entirely
+ * independent of the per-batch evidence/merge pipeline every other status still uses ({@link
+ * PeriodEvidenceQueries#evidenceForPeriod}/{@link PeriodEvidenceQueries#filteredEvidenceForPeriod}).
+ * "Ever" here means "at any point across every batch in the caller's date/country/report-group
+ * window" (the same {@code batchScope} the period query already resolved) -- NOT a transaction's
+ * entire all-time lifetime across batches outside that window; {@code reportingRoll}'s join is
+ * restricted to exactly the batches {@code batchScope} contains. The two pipelines are
+ * deliberately not shared: they answer genuinely different questions ("this batch's evidence
+ * rows" vs. "this transaction's outcome across every batch in this window"), and an earlier
+ * attempt to fold the roll-up into the per-batch pipeline as an extra filter condition shipped a
+ * real bug -- a transaction reprocessed across several batches surfaced once per batch instead of
+ * once, since the merge step groups by (batch, identifier) while the roll-up is inherently
+ * per-identifier only.
  */
 public class OverviewEvidenceQueries {
   private final DSLContext dsl;

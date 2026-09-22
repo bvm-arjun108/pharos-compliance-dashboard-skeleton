@@ -224,7 +224,7 @@ export class TransactionReportComponent implements OnInit {
   readonly returnToTransactionView = signal(false);
   // True only for the Report Groups Requiring Attention table's "Excluded" column, whose own
   // number is SUM(excluded_txn) over these exact batches — a different, simpler definition than
-  // overviewOnly's "ever excluded across a transaction's whole history" rollup. Threaded straight
+  // overviewOnly's "ever excluded, across every batch in this window" rollup. Threaded straight
   // to the backend so evidence here actually reconciles with the number that was clicked.
   readonly batchScopedExcluded = signal(false);
 

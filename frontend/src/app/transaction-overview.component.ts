@@ -292,7 +292,7 @@ type ReportPeriod = DashboardReportPeriod;
               <span><i class="exclusion-gauge__legend-dot exclusion-gauge__legend-dot--high"></i>10%+ High</span>
             </div>
 
-            <small class="transaction-overview-note">Reported/excluded status derived from each transaction's full journey history, not batch-level aggregates</small>
+            <small class="transaction-overview-note">Excluded and Not Reported count each transaction once, based on its outcome across every batch in this date range — a different definition than the batch-level "Excluded" totals shown elsewhere (e.g. Report Groups Requiring Attention), which can legitimately show a different number</small>
           }
         </article>
         </div>
@@ -343,7 +343,7 @@ type ReportPeriod = DashboardReportPeriod;
                 </li>
               }
             </ul>
-            <small>Reason reflects why each transaction was excluded, based on its full processing history -- not necessarily its most recent status.</small>
+            <small>Reason reflects why each transaction was excluded, based on its journey across every batch in this date range -- not necessarily its most recent status.</small>
           }
         }
       </article>
@@ -393,7 +393,7 @@ type ReportPeriod = DashboardReportPeriod;
                 </li>
               }
             </ul>
-            <small>Reason reflects why each transaction hasn't been reported, based on its full processing history -- not necessarily its most recent status.</small>
+            <small>Reason reflects why each transaction hasn't been reported, based on its journey across every batch in this date range -- not necessarily its most recent status.</small>
           }
         }
         </article>
@@ -827,8 +827,8 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
   }
 
   /** `reason` narrows to one Top Exclusion Reasons legend row -- the raw (un-humanized) value from
-   *  ExclusionReasonResponse, matched server-side against the exact same full-journey-history
-   *  reason bucket TransactionReportRepository#reportingTarget computes, so the drill-through's row
+   *  ExclusionReasonResponse, matched server-side against the exact same window-scoped reason
+   *  bucket TransactionReportRepository#reportingTarget computes, so the drill-through's row
    *  count matches the legend's count exactly. */
   openExcludedTransactionsExplorer(reason?: string): void {
     const period = this.resolvePeriod();

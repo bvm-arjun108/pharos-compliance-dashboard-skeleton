@@ -72,8 +72,8 @@ import org.jooq.impl.SQLDataType;
 /**
  * Period-scoped transaction evidence: Transactions Overview drilldowns spanning every batch in a
  * reporting-period date range, for every status except EXCLUDED/NOT_REPORTED (those two are
- * answered from an entirely different "ever reported across full history" definition -- see
- * {@link OverviewEvidenceQueries}, and {@link com.pharos.compliance.transaction.repository.TransactionReportRepository}
+ * answered from an entirely different "ever reported, across every batch in this window"
+ * definition -- see {@link OverviewEvidenceQueries}, and {@link com.pharos.compliance.transaction.repository.TransactionReportRepository}
  * for the routing between the two). Structurally mirrors {@link BatchEvidenceQueries} one level up
  * the grain: scope is a set of batches instead of one, but the evidence-branch/filter/paginate
  * shape is the same.
@@ -296,9 +296,10 @@ public class PeriodEvidenceQueries {
    * Journey-only, scoped to exactly the batches {@code scope} covers -- the simple, direct
    * definition that actually matches how a "total excluded transactions" KPI computed as {@code
    * SUM(report_transformation_reconciliation.excluded_txn)} over the same batch set is itself
-   * defined, deliberately independent of {@link OverviewEvidenceQueries}'s "ever excluded across a
-   * transaction's whole history" rollup (that one matches a *different* KPI -- Transactions
-   * Overview's own Excluded tile, which really is an all-time, identity-deduplicated concept).
+   * defined, deliberately independent of {@link OverviewEvidenceQueries}'s "ever excluded, across
+   * every batch in the window" rollup (that one matches a *different* KPI -- Transactions
+   * Overview's own Excluded tile, which is a distinct-transaction, identity-deduplicated concept,
+   * scoped to the same window rather than to the transaction's all-time history).
    *
    * <p>Narrowed to {@link EvidenceColumns#VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS} specifically --
    * an earlier version of this method matched every FILTRATION/EXCLUDED row regardless of comment

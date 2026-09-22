@@ -715,9 +715,10 @@ export class HomeComponent implements OnInit {
         // status the user clicked has to be carried through explicitly.
         status: 'EXCLUDED',
         // This column is SUM(excluded_txn) over these exact batches, not the Transactions
-        // Overview page's "ever excluded across a transaction's whole history" definition —
+        // Overview page's "ever excluded, across every batch in this window" definition —
         // batchScopedExcluded picks the matching simple, batch-scoped evidence query instead of
-        // the all-time rollup, so what shows up here actually reconciles with the number clicked.
+        // the distinct-transaction rollup, so what shows up here actually reconciles with the
+        // number clicked.
         batchScopedExcluded: true
       }
     });
