@@ -91,11 +91,13 @@ public interface TransactionReportApi {
       + "comments); for status=NOT_REPORTED, the Not Reported Reasons category. Ignored for other status values", example = "Already "
       + "Reported In Prior Batch") @RequestParam(value = "reason", defaultValue = "") String reason,
       @Parameter(description = "Only meaningful for status=EXCLUDED. When true, evidence is scoped to exactly the batches in "
-      + "this date/country/report-group window and matches every FILTRATION/EXCLUDED journey row there (including simulated "
-      + "exclusions) -- the same simple definition report_transformation_reconciliation.excluded_txn itself sums to, for "
-      + "matching a batch-scoped 'total excluded' KPI (e.g. the Report Groups Requiring Attention table). When false "
-      + "(default), evidence instead answers 'has this transaction ever been excluded, across every batch in this same "
-      + "date/country/report-group window' -- matching the Transactions Overview page's own Excluded tile, which is a "
+      + "this date/country/report-group window and matches the FILTRATION/EXCLUDED journey rows commented "
+      + "EXCLUDED_BECAUSE_EXCLUSION_EXISTS there -- the same simple definition report_transformation_reconciliation.excluded_txn "
+      + "itself sums to (simulated and already-reported exclusions are carved out into txn_simulated / already_reported_count "
+      + "upstream, so they are out of scope here too), for matching a batch-scoped 'total excluded' KPI (e.g. the Report Groups "
+      + "Requiring Attention table). It is also the only combination for which aggregateCount is populated from that scalar. "
+      + "When false (default), evidence instead answers 'has this transaction ever been excluded, across every batch in this "
+      + "same date/country/report-group window' -- matching the Transactions Overview page's own Excluded tile, which is a "
       + "different, distinct-transaction definition scoped to the window (not the transaction's all-time history). "
       + "NOT_REPORTED always uses that window-scoped, distinct-transaction definition regardless of this flag.") @RequestParam(
       value = "batchScopedExcluded",

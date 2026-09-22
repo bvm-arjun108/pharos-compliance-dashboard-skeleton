@@ -223,10 +223,18 @@ public class ReportGroupConfigRepository {
             .countDistinct(DSL.upper(DSL.trim(countryCode)))
             .filterWhere(countryCode.isNotNull().and(DSL.trim(countryCode).ne("")))
             .as("representedCountries"),
-          DSL.count().filterWhere(DSL.lower(DSL.trim(reportTypeField)).eq("objective")).as("objectiveConfigurations"))
+          DSL.count().filterWhere(DSL.lower(DSL.trim(reportTypeField)).eq("objective")).as("objectiveConfigurations"),
+          // Same config-version grain as objectiveConfigurations above -- NOT
+          // totalConfigurations - objectiveConfigurations, which used to be how the frontend
+          // derived this number. That subtraction mixed two different units (totalConfigurations
+          // counts distinct report groups; objectiveConfigurations counts configuration versions)
+          // and could go negative whenever a report group had multiple Objective-type versions on
+          // file, which is exactly the "-9" this query now avoids by counting subjective versions
+          // directly instead of inferring them.
+          DSL.count().filterWhere(DSL.lower(DSL.trim(reportTypeField)).eq("subjective")).as("subjectiveConfigurations"))
       .from(filteredConfigs)
       .fetchOptional(r -> new ReportConfigSummaryProjection(requiredLong(r, "totalConfigurations"), requiredLong(r, "activeConfigurations"),
-          requiredLong(r, "representedCountries"), requiredLong(r, "objectiveConfigurations")))
+          requiredLong(r, "representedCountries"), requiredLong(r, "objectiveConfigurations"), requiredLong(r, "subjectiveConfigurations")))
       .orElseThrow(() -> new IllegalStateException("Report configuration summary aggregate returned no row"));
   }
 

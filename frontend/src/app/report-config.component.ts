@@ -22,6 +22,7 @@ interface ReportConfigSummary {
   activeConfigurations: number;
   representedCountries: number;
   objectiveConfigurations: number;
+  subjectiveConfigurations: number;
 }
 
 interface ReportConfigListItem {

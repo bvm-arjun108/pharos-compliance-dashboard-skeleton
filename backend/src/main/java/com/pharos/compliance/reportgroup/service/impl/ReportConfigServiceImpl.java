@@ -107,7 +107,7 @@ public class ReportConfigServiceImpl implements ReportConfigService {
 
   private ReportConfigSummaryResponse toSummary(ReportConfigSummaryProjection summary) {
     return new ReportConfigSummaryResponse(summary.totalConfigurations(), summary.activeConfigurations(), summary.representedCountries(),
-        summary.objectiveConfigurations());
+        summary.objectiveConfigurations(), summary.subjectiveConfigurations());
   }
 
   private ReportConfigListItemResponse toListItem(ReportConfigListProjection config) {

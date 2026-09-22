@@ -202,7 +202,22 @@ public class TransactionReportServiceImpl implements TransactionReportService {
           // viewing Success, where 37 is the unrelated excluded count). For every other
           // status, the matching record count IS the full picture, so it doubles as its
           // own aggregate.
-          long aggregateCount = status == TransactionStatus.EXCLUDED ? aggregate.totalExcluded() : matchingCount;
+          //
+          // batchScopedExcluded has to be part of the test, not just the status: it is the same flag
+          // TransactionReportRepository#countPeriodEvidenceRecords routes on, so it is the only case
+          // where matchingCount actually came from
+          // PeriodEvidenceQueries#countExcludedEvidenceRecordsForBatchTotal -- the one query defined
+          // to match SUM(excluded_txn). Without the flag the count comes from OverviewEvidenceQueries'
+          // per-identifier rollup instead ("ever excluded and never reported across every batch in
+          // this window"), which is a deliberately different question and legitimately returns a
+          // smaller number -- it deduplicates a transaction excluded in several batches down to one,
+          // and drops the ones that were excluded by one rule but still reported. Pairing that count
+          // with excluded_txn put a permanent "8,038 matching of 8,451 in reconciliation" on the
+          // Transactions Overview drilldown and made evidenceLevel/evidenceMessage report ~400
+          // transactions as missing evidence when they were never in that query's scope to begin
+          // with. The rollup has no reconciliation scalar that answers its question, so like every
+          // other non-batch-scoped status it is its own aggregate.
+          long aggregateCount = status == TransactionStatus.EXCLUDED && batchScopedExcluded ? aggregate.totalExcluded() : matchingCount;
           long availableRecordCount = matchingCount;
           TransactionEvidenceLevel evidenceLevel = evidenceLevel(aggregateCount, availableRecordCount);
           CountryDefinition countryDefinition = filterByReportGroup
