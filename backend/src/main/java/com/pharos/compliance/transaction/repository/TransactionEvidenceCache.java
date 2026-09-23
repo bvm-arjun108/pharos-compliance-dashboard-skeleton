@@ -2,7 +2,9 @@ package com.pharos.compliance.transaction.repository;
 
 import com.pharos.compliance.config.CacheConfiguration;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
+import com.pharos.compliance.transaction.repository.evidence.EvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
+import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
 import java.time.LocalDateTime;
@@ -65,7 +67,8 @@ public class TransactionEvidenceCache {
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,
       String status, String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     return repository.findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
-        reportGroupId, batchId, search, outcome, status, reason, batchScopedExcluded, sortDirection, size, offset, cursor);
+        reportGroupId, batchId, search, outcome, status, reason, batchScopedExcluded, sortDirection, size, offset, cursor,
+        EvidenceProjection.LIST);
   }
 
   @Cacheable(cacheNames = CacheConfiguration.PERIOD_TRANSACTION_EVIDENCE_COUNT)
@@ -81,5 +84,20 @@ public class TransactionEvidenceCache {
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
     return repository.findPeriodBatchIds(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
         reportGroupId);
+  }
+
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_DETAIL)
+  public Optional<TransactionEvidenceProjection> findBatchEvidenceDetail(int reportGroupId, String batchId, String identifier, String metric,
+      String source, String stage, String outcome, String status, String recordKey) {
+    return repository.findBatchEvidenceDetail(reportGroupId, batchId, identifier, metric, source, stage, outcome, status, recordKey);
+  }
+
+  @Cacheable(cacheNames = CacheConfiguration.TRANSACTION_EVIDENCE_DETAIL)
+  public Optional<TransactionEvidenceProjection> findPeriodEvidenceDetail(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String evidenceBatchId,
+      String identifier, String outcome, String status, String reason, boolean batchScopedExcluded, String batchIdFilter,
+      String recordKey) {
+    return repository.findPeriodEvidenceDetail(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+        reportGroupId, evidenceBatchId, identifier, outcome, status, reason, batchScopedExcluded, batchIdFilter, recordKey);
   }
 }

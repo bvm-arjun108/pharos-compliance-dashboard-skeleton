@@ -14,10 +14,12 @@ import org.jooq.Field;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.repository.evidence.BatchEvidenceQueries;
 import com.pharos.compliance.transaction.repository.evidence.EvidencePaginator;
+import com.pharos.compliance.transaction.repository.evidence.EvidenceProjection;
 import com.pharos.compliance.transaction.repository.evidence.OverviewEvidenceQueries;
 import com.pharos.compliance.transaction.repository.evidence.PeriodEvidenceQueries;
 import com.pharos.compliance.transaction.repository.evidence.RuleHitMatcher;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
+import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
 import java.time.LocalDateTime;
@@ -83,15 +85,13 @@ public class TransactionReportRepository {
     // the journey-derived count once; both are then plain column references, safe to reuse below.
     var journeyStats = TransformationFailureQueries.journeyStatsLateral(dsl, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID);
     Field<Boolean> journeyAvailable = requiredField(journeyStats, TransformationFailureQueries.JOURNEY_AVAILABLE_COLUMN, Boolean.class);
-    Field<Long> journeyFailed =
-        requiredField(journeyStats, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
+    Field<Long> journeyFailed = requiredField(journeyStats, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
     // Deliberately unaliased raw expression -- reused inside the CASE/comparison below; see
     // BatchExplorerRepository#getBatchDetails for why an already-.as()-aliased field can't be
     // reused a second time within the same SELECT list.
     Field<Long> reportedFailedRaw = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT);
     Field<Long> failed = DSL.when(journeyAvailable, journeyFailed).otherwise(reportedFailedRaw).as("failed");
-    Field<Boolean> failedMismatch =
-        DSL.condition(journeyAvailable).and(journeyFailed.ne(reportedFailedRaw)).as("failedMismatch");
+    Field<Boolean> failedMismatch = DSL.condition(journeyAvailable).and(journeyFailed.ne(reportedFailedRaw)).as("failedMismatch");
 
     return dsl
       .select(RECONCILIATION.RPT_GRP_ID.as("reportGroupId"), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
@@ -105,8 +105,7 @@ public class TransactionReportRepository {
             .as("attemptsFound"), DSL
             .coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0)
             .cast(SQLDataType.BIGINT)
-            .as("missingAttempts"),
-          DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).cast(SQLDataType.BIGINT).as("activityMissing"),
+            .as("missingAttempts"), DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).cast(SQLDataType.BIGINT).as("activityMissing"),
           DSL.coalesce(RECONCILIATION.EXPECTED_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("expectedEligible"),
           DSL.coalesce(RECONCILIATION.ACTUAL_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("actualEligible"),
           DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMED, 0).cast(SQLDataType.BIGINT).as("transformed"), failed,
@@ -138,16 +137,15 @@ public class TransactionReportRepository {
           requiredLong(r, "attemptsFound"), requiredLong(r, "missingAttempts"), requiredLong(r, "activityMissing"),
           requiredLong(r, "expectedEligible"), requiredLong(r, "actualEligible"), requiredLong(r, "transformed"), requiredLong(r, "failed"),
           requiredLong(r, "reportedFailed"), requiredBoolean(r, "failedMismatch"), requiredLong(r, "expectedReportable"),
-          requiredLong(r, "actualReportable"), requiredLong(r, "excluded"),
-          requiredLong(r, "simulated"), requiredLong(r, "alreadyReported"), requiredLong(r, "softDedup"),
-          requiredLong(r, "filtrationVariance"), requiredLong(r, "reconciliationVariance")));
+          requiredLong(r, "actualReportable"), requiredLong(r, "excluded"), requiredLong(r, "simulated"), requiredLong(r, "alreadyReported"),
+          requiredLong(r, "softDedup"), requiredLong(r, "filtrationVariance"), requiredLong(r, "reconciliationVariance")));
   }
 
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
   public EvidencePage findEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
       String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor) {
     return batchEvidenceQueries.findEvidenceRecords(reportGroupId, batchId, metric, search, source, stage, outcome, status, sortDirection,
-        size, offset, cursor);
+        size, offset, cursor, EvidenceProjection.LIST);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records for one batch")
@@ -186,19 +184,69 @@ public class TransactionReportRepository {
    * status is EXCLUDED; NOT_REPORTED always uses the overview rollup, since it has no batch-scoped
    * KPI to match in the first place.
    */
+  /**
+   * One transaction's full evidence for the detail request, produced by running the <em>same</em>
+   * pipeline and the <em>same</em> filters the list ran and then keeping the one matching row.
+   *
+   * <p>Rebuilding the union here instead was tried and was wrong: with the list's metric filter
+   * absent, a RULE_HIT source row re-entered the merge and outranked the JOURNEY row the list had
+   * shown, so the panel reported a different record key, amount precision and bucket/attempt than
+   * the row it was opened from. The panel is an expansion of a specific row, so it has to be
+   * derived the same way that row was.
+   *
+   * <p>This is the distinction the rule-hit starvation bug turned on, applied here: the union
+   * branch <em>may</em> be filtered, because it decides which row you are looking at; the rule-hit
+   * enrichment may <em>not</em>, because it describes the transaction. Going through
+   * {@code findEvidenceRecords} preserves both -- it already page-bounds the enrichment bridge to
+   * the rows it returns, independent of the filters.
+   */
+  public Optional<TransactionEvidenceProjection> findBatchEvidenceDetail(int reportGroupId, String batchId, String identifier, String metric,
+      String source, String stage, String outcome, String status, String recordKey) {
+    return exactMatch(batchEvidenceQueries
+          .findEvidenceRecords(reportGroupId, batchId, metric, "", source, stage, outcome, status, "DESC", 1, 0, null,
+              EvidenceProjection.detail(batchId, identifier, recordKey))
+          .records(), batchId, identifier);
+  }
+
+  /**
+   * The period-scoped counterpart, routed exactly as {@link #findPeriodEvidenceRecords} routes.
+   */
+  public Optional<TransactionEvidenceProjection> findPeriodEvidenceDetail(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String evidenceBatchId,
+      String identifier, String outcome, String status, String reason, boolean batchScopedExcluded, String batchIdFilter,
+      String recordKey) {
+    return exactMatch(findPeriodEvidenceRecords(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup,
+            reportGroupId, batchIdFilter, "", outcome, status, reason, batchScopedExcluded, "DESC", 1, 0, null,
+            EvidenceProjection.detail(evidenceBatchId, identifier, recordKey))
+          .records(), evidenceBatchId, identifier);
+  }
+
+  /**
+   * Defensive identity check after the pipeline applies exact identity predicates in SQL.
+   */
+  private static Optional<TransactionEvidenceProjection> exactMatch(List<TransactionEvidenceProjection> records, String evidenceBatchId,
+      String identifier) {
+    return records
+      .stream()
+      .filter(record -> identifier.equals(record.identifier()) && evidenceBatchId.equals(record.batchId()))
+      .findFirst();
+  }
+
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,
-      String status, String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      String status, String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor,
+      EvidenceProjection projection) {
     Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
         filterByReportGroup, reportGroupId, batchId);
     if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
-      return periodEvidenceQueries.findExcludedEvidenceRecordsForBatchTotal(scope, search, sortDirection, size, offset, cursor);
+      return periodEvidenceQueries.findExcludedEvidenceRecordsForBatchTotal(scope, search, sortDirection, size, offset, cursor, projection);
     }
     if (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status)) {
-      return overviewEvidenceQueries.findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset, cursor);
+      return overviewEvidenceQueries.findOverviewEvidenceRecords(scope, status, reason, search, outcome, sortDirection, size, offset, cursor,
+          projection);
     }
-    return periodEvidenceQueries.findEvidenceRecords(scope, search, outcome, status, sortDirection, size, offset, cursor);
+    return periodEvidenceQueries.findEvidenceRecords(scope, search, outcome, status, sortDirection, size, offset, cursor, projection);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records across the selected reporting period")

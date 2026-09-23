@@ -38,6 +38,10 @@ public class CacheConfiguration {
   public static final String PERIOD_TRANSACTION_EVIDENCE_COUNT = "periodTransactionEvidenceCount";
   public static final String PERIOD_TRANSACTION_EVIDENCE_RECORDS = "periodTransactionEvidenceRecords";
   public static final String PERIOD_TRANSACTION_BATCH_IDS = "periodTransactionBatchIds";
+  /**
+   * One expanded transaction. Small entries, and a viewer reopening the same row is the common case.
+   */
+  public static final String TRANSACTION_EVIDENCE_DETAIL = "transactionEvidenceDetail";
   public static final String COUNTRY_CATALOG = "countryCatalog";
 
   @Bean
@@ -49,7 +53,8 @@ public class CacheConfiguration {
         buildCache(PERIOD_TRANSACTION_AGGREGATE, 2_000, Duration.ofMinutes(2)),
         buildCache(PERIOD_TRANSACTION_EVIDENCE_COUNT, 2_000, Duration.ofMinutes(2)),
         buildCache(PERIOD_TRANSACTION_EVIDENCE_RECORDS, 500, Duration.ofMinutes(2)),
-        buildCache(PERIOD_TRANSACTION_BATCH_IDS, 2_000, Duration.ofMinutes(2)), buildCache(COUNTRY_CATALOG, 1, Duration.ofMinutes(5))));
+        buildCache(PERIOD_TRANSACTION_BATCH_IDS, 2_000, Duration.ofMinutes(2)),
+        buildCache(TRANSACTION_EVIDENCE_DETAIL, 2_000, Duration.ofMinutes(2)), buildCache(COUNTRY_CATALOG, 1, Duration.ofMinutes(5))));
     return manager;
   }
 

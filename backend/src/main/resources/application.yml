@@ -56,9 +56,15 @@ logging:
   include-application-name: false
   level:
     com.pharos.compliance: INFO
-    # DEBUG includes SQL, inlined bind values, and complete fetched database rows as pretty JSON.
-    # These may contain sensitive transaction data. Set JOOQ_SQL_LOG_LEVEL=OFF outside controlled debugging.
-    com.pharos.compliance.common.jooq.logging.PrettySqlExecuteListener: ${JOOQ_SQL_LOG_LEVEL:DEBUG}
+    # DEBUG includes SQL, inlined bind values, and complete fetched database rows as pretty JSON --
+    # that row dump carries real party names, dates of birth, phone numbers and ID numbers, and it
+    # is written on every page load whether or not anyone expands a row. Wherever logs are shipped
+    # (a file on the host, CloudWatch) that becomes a second copy of customer PII outside the
+    # database's access controls, so this defaults to OFF and must be opted into deliberately:
+    # JOOQ_SQL_LOG_LEVEL=DEBUG for local debugging only, never as a deployed default.
+    # Turning it off does not blind you operationally -- QueryPerformanceSummaryLogger still reports
+    # which queries ran, how long each took, and which crossed the slow threshold, with no row data.
+    com.pharos.compliance.common.jooq.logging.PrettySqlExecuteListener: ${JOOQ_SQL_LOG_LEVEL:OFF}
     com.zaxxer.hikari: WARN
     org.apache.catalina: WARN
     org.jooq.Constants: WARN

@@ -80,4 +80,48 @@ public class RuleHitMatcher {
       .where(ruleHitScope)
       .asTable(RULE_HIT_MATCHES);
   }
+
+  /**
+   * Enrichment lookup keyed by report group, batch and transaction; preserves identifier-first fallback.
+   */
+  public Table<?> scopedRuleHitMatches(Condition ruleHitScope, Table<?> journeyScoped) {
+    Field<Integer> group = requiredField(journeyScoped, "rpt_grp_id", Integer.class);
+    Field<String> batch = requiredField(journeyScoped, "batch_id", String.class);
+    Field<String> jIdentifier = requiredField(journeyScoped, IDENTIFIER, String.class);
+    Field<String> jMtcn = requiredField(journeyScoped, "mtcn", String.class);
+    Field<Long> jIdentifierBigint = requiredField(journeyScoped, IDENTIFIER_BIGINT, Long.class);
+
+    var byIdentifierLookup = dsl
+      .select(group, batch, jIdentifierBigint, DSL.min(jIdentifier).as(IDENTIFIER))
+      .from(journeyScoped)
+      .where(jIdentifierBigint.isNotNull())
+      .groupBy(group, batch, jIdentifierBigint)
+      .asTable("by_identifier_lookup");
+    var byMtcnLookup = dsl
+      .select(group, batch, jMtcn, DSL.min(jIdentifier).as(IDENTIFIER))
+      .from(journeyScoped)
+      .where(jMtcn.isNotNull())
+      .groupBy(group, batch, jMtcn)
+      .asTable("by_mtcn_lookup");
+
+    Field<Long> lIdentifierBigint = requiredField(byIdentifierLookup, IDENTIFIER_BIGINT, Long.class);
+    Field<String> lByIdentifier = requiredField(byIdentifierLookup, IDENTIFIER, String.class);
+    Field<String> lMtcn = requiredField(byMtcnLookup, "mtcn", String.class);
+    Field<String> lByMtcn = requiredField(byMtcnLookup, IDENTIFIER, String.class);
+
+    return dsl
+      .select(RULE_HIT_TABLE.fields())
+      .select(DSL.coalesce(lByIdentifier, lByMtcn).as(MATCHED_IDENTIFIER))
+      .from(RULE_HIT_TABLE)
+      .leftJoin(byIdentifierLookup)
+      .on(lIdentifierBigint.eq(RULE_HIT_TABLE.EXTERNAL_TXN_KEY))
+      .and(requiredField(byIdentifierLookup, "rpt_grp_id", Integer.class).eq(RULE_HIT_TABLE.RPT_GRP_ID))
+      .and(requiredField(byIdentifierLookup, "batch_id", String.class).eq(RULE_HIT_TABLE.EFILE_BATCH_ID))
+      .leftJoin(byMtcnLookup)
+      .on(lMtcn.eq(RULE_HIT_TABLE.MTCN))
+      .and(requiredField(byMtcnLookup, "rpt_grp_id", Integer.class).eq(RULE_HIT_TABLE.RPT_GRP_ID))
+      .and(requiredField(byMtcnLookup, "batch_id", String.class).eq(RULE_HIT_TABLE.EFILE_BATCH_ID))
+      .where(ruleHitScope)
+      .asTable(RULE_HIT_MATCHES);
+  }
 }

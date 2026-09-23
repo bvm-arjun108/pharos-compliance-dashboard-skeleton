@@ -256,13 +256,18 @@ public class OverviewEvidenceQueries {
    * whenever the requested status happens to route here.
    */
   public EvidencePage findOverviewEvidenceRecords(Table<?> batchScope, String status, String reason, String search, String outcome,
-      String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      String sortDirection, int size, long offset, EvidenceCursor cursor, EvidenceProjection projection) {
     var roll = reportingRoll(batchScope);
     var target = reportingTarget(roll, status, reason);
     var latest = latestJourneyForTarget(batchScope, target);
     var filtered = periodEvidenceQueries.filteredEvidenceForPeriod(latest, search, outcome, "ALL");
-    var ruleHitMatches = periodEvidenceQueries.ruleHitMatchesForPeriod(batchScope, status);
-    return paginator.pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+    // Enrichment-only on this path -- `latest` comes from latestJourneyForTarget, not from the
+    // three-source union, so nothing here consumes rule_hit as evidence rows. Passing the
+    // status-short-circuited table (this path's status is always EXCLUDED or NOT_REPORTED, so it
+    // was always the zero-row one) starved the Rule Hit Details panel without narrowing the list
+    // by even one row -- see ruleHitMatchesForPeriodEnrichment.
+    return paginator.pageEvidence(filtered, ids -> periodEvidenceQueries.ruleHitMatchesForPeriodEnrichment(batchScope, ids), sortDirection,
+        size, offset, cursor, projection);
   }
 
   public long countOverviewEvidenceRecords(Table<?> batchScope, String status, String reason, String search, String outcome) {

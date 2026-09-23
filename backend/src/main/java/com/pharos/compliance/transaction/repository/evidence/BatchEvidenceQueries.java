@@ -56,6 +56,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
@@ -102,7 +103,8 @@ public class BatchEvidenceQueries {
     if (!("ALL".equals(status) || VALUE_REPORTED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
       // rule_hit evidence's status can only ever be REPORTED/NOT_REPORTED, so any other requested
       // status matches zero rule_hit rows -- skip the identifier-lookup join entirely rather than
-      // run it for no reason.
+      // run it for no reason. Union branch only: the same reasoning is false for the "Rule Hit
+      // Details" enrichment, which is why that now has its own source below.
       return dsl
         .select(RULE_HIT_TABLE.fields())
         .select(DSL.cast(null, SQLDataType.CLOB).as(MATCHED_IDENTIFIER))
@@ -110,13 +112,32 @@ public class BatchEvidenceQueries {
         .where(DSL.falseCondition())
         .asTable(RULE_HIT_MATCHES);
     }
+    return ruleHitBridge(reportGroupId, batchId, DSL.trueCondition());
+  }
 
+  /**
+   * The enrichment counterpart to {@link #ruleHitMatchesForBatch}, with no status short-circuit --
+   * the batch-scoped mirror of {@link PeriodEvidenceQueries#ruleHitMatchesForPeriodEnrichment}, and
+   * for the same reason. The metric-keyed version of this defect is described above; the status
+   * filter this endpoint also accepts (the frontend sends one on every batch request) reached the
+   * enrichment through exactly the same shared table, so filtering the list to e.g. Success or
+   * Failed silently emptied every expanded row's Rule Hit Details.
+   *
+   * <p>Bounded to the page's own transactions -- see {@link PeriodEvidenceQueries#ruleHitMatchesForPeriodEnrichment}
+   * for why the unbounded form was worth removing from the per-page path.
+   */
+  public Table<?> ruleHitMatchesForBatchEnrichment(int reportGroupId, String batchId, Collection<String> pageIdentifiers) {
+    return ruleHitBridge(reportGroupId, batchId, JOURNEY.IDENTIFIER.in(pageIdentifiers));
+  }
+
+  private Table<?> ruleHitBridge(int reportGroupId, String batchId, Condition journeyRestriction) {
     Table<?> journeyScoped = dsl
       .select(JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
           DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(IDENTIFIER_BIGINT))
       .from(JOURNEY)
       .where(JOURNEY.RPT_GRP_ID.eq(reportGroupId))
       .and(JOURNEY.BATCH_ID.eq(batchId))
+      .and(journeyRestriction)
       .asTable("journey_scoped");
     // efile_batch_id, not rule_hit's own unrelated integer batch_id column -- the same field the
     // merge's own RULE_HIT branch already uses as that row's evidence_batch_id. Matching an
@@ -226,7 +247,6 @@ public class BatchEvidenceQueries {
     Field<String> upperStage = DSL.upper(DSL.coalesce(stage, ""));
     Field<String> upperStatus = DSL.upper(DSL.coalesce(status, ""));
     Field<String> upperComments = DSL.upper(DSL.coalesce(comments, ""));
-
     // Shared "journey row at stage X" scopes, factored out since several metrics below narrow one
     // of these two stages by a further outcome/comment condition -- reused the same way
     // missingAttemptCondition/failedCondition already were.
@@ -269,8 +289,8 @@ public class BatchEvidenceQueries {
     // has actually been generated. Established precedent for treating the two as equivalent
     // already exists in OverviewEvidenceQueries#reportingRoll's everReportedCondition. Reused by
     // both cases below.
-    Condition reportGenerationSuccess = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("REPORT_GENERATION")).and(upperStatus.eq(
-        "GENERATED"));
+    Condition reportGenerationSuccess =
+        evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("REPORT_GENERATION")).and(upperStatus.eq("GENERATED"));
     // "Eligible for transformation" is any transaction that reached the TRANSFORMATION stage at
     // all, whether it succeeded or failed there, plus the REPORT_GENERATION-recorded successes
     // above. Previously scoped identically to SELECTED/ATTEMPTS_FOUND (any journey row at all, no
@@ -279,8 +299,8 @@ public class BatchEvidenceQueries {
     // than having their own: the aggregate gap between them (reconciliation_error) isn't tied to
     // specific records -- see RECONCILIATION_VARIANCE, already isAggregateOnlyMetric for exactly
     // that reason -- so there's no finer-grained row-level distinction to draw between the two.
-    Condition eligibleForTransformationCondition = evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).or(
-        reportGenerationSuccess);
+    Condition eligibleForTransformationCondition =
+        evidenceSource.eq(SOURCE_JOURNEY).and(upperStage.eq("TRANSFORMATION")).or(reportGenerationSuccess);
     // Undercounted before reportGenerationSuccess was added here (confirmed against a real batch:
     // only 14 of 22 aggregate-reported transformed transactions had a matching
     // TRANSFORMATION/SUCCESS row -- the other 8 were recorded as REPORT_GENERATION/GENERATED).
@@ -318,11 +338,14 @@ public class BatchEvidenceQueries {
       // three know about, over-counting exactly the way the period-scoped equivalent of this
       // condition once did (see PeriodEvidenceQueries#filteredExcludedEvidenceForBatchTotal)
       // before it was narrowed to this same positive match.
-      case VALUE_EXCLUDED -> journeyAtFiltration.and(outcome.eq(VALUE_EXCLUDED)).and(upperComments.eq(
-          VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS));
+      case VALUE_EXCLUDED -> journeyAtFiltration
+        .and(outcome.eq(VALUE_EXCLUDED))
+        .and(upperComments.eq(VALUE_EXCLUDED_BECAUSE_EXCLUSION_EXISTS));
       case "SIMULATED" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_BECAUSE_SML"));
       case "ALREADY_REPORTED" -> journeyAtFiltration.and(upperComments.like("EXCLUDED_BECAUSE_ALREADY_REPORTED%"));
-      case "SOFT_DEDUP" -> journeyAtFiltration.and(upperComments.eq("EXCLUDED_SOFT_DEDUP").or(upperComments.like("EXCLUDED_REAPPEARING_%")));
+      case "SOFT_DEDUP" -> journeyAtFiltration.and(upperComments
+        .eq("EXCLUDED_SOFT_DEDUP")
+        .or(upperComments.like("EXCLUDED_REAPPEARING_%")));
       // Mirrors its own aggregate exactly (missingAttempts + activityMissing + excluded +
       // simulated + alreadyReported + softDedup): the FILTRATION-stage branch already catches
       // every SML/ALREADY_REPORTED/SOFT_DEDUP/generic-EXCLUDED journey row (all four live at that
@@ -391,11 +414,12 @@ public class BatchEvidenceQueries {
 
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
   public EvidencePage findEvidenceRecords(int reportGroupId, String batchId, String metric, String search, String source, String stage,
-      String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor) {
+      String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor, EvidenceProjection projection) {
     var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
     var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
-    return paginator.pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+    return paginator.pageEvidence(filtered, ids -> ruleHitMatchesForBatchEnrichment(reportGroupId, batchId, ids), sortDirection, size,
+        offset, cursor, projection);
   }
 
   @SqlQueryPurpose("Count filtered transaction evidence records for one batch")

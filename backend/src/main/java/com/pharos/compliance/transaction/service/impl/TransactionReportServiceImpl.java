@@ -1,6 +1,8 @@
 package com.pharos.compliance.transaction.service.impl;
 
 import com.pharos.compliance.common.exception.InvalidDateRangeException;
+import com.pharos.compliance.transaction.dto.TransactionEvidenceDetailResponse;
+import com.pharos.compliance.transaction.model.TransactionDetailScope;
 import com.pharos.compliance.common.exception.InvalidRequestException;
 import com.pharos.compliance.common.exception.ResourceNotFoundException;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
@@ -32,6 +34,7 @@ import com.pharos.compliance.transaction.service.TransactionReportService;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Function;
@@ -238,8 +241,10 @@ public class TransactionReportServiceImpl implements TransactionReportService {
         + response.evidenceLevel() + " | page=" + page + " | size=" + size + " | hasNextCursor=" + (response.nextCursor() != null));
   }
 
-  /** Backs a batch picker (typeahead) for the period report above -- same scope, no status/metric
-   *  filter, not paginated (a reporting period's batch count is small enough to hand back whole). */
+  /**
+   * Backs a batch picker (typeahead) for the period report above -- same scope, no status/metric
+   *  filter, not paginated (a reporting period's batch count is small enough to hand back whole).
+   */
   @Override
   public List<String> getPeriodReportBatchIds(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
     if (fromDate.isAfter(toDate)) {
@@ -311,13 +316,7 @@ public class TransactionReportServiceImpl implements TransactionReportService {
   private TransactionEvidenceRecordResponse toEvidenceRecord(TransactionEvidenceProjection row) {
     return new TransactionEvidenceRecordResponse(row.recordKey(), row.identifier(), row.mtcn(), row.batchId(),
         TransactionEvidenceSource.valueOf(row.evidenceSource()), row.stage(), row.status(), TransactionOutcome.valueOf(row.outcome()),
-        row.comments(), row.skipReason(), row.ruleId(), row.exclusionReason(), row.exclusionStrategy(), row.reportedBatchId(),
-        row.reportingTimestamp(), row.modifiedAt(), row.processingComplete(), row.currencyAmount(), row.currencyCode(),
-        row.transactionDate(), row.transactionSide(), row.txnSource(), row.activityType(), row.sendDate(), row.galacticId(), row.bucketId(),
-        row.attemptId(), row.senderName(), row.receiverName(), row.senderCity(), row.senderCountry(), row.senderPhone(),
-        row.senderDateOfBirth(), row.senderIdType(), row.senderIdNumber(), row.receiverCity(), row.receiverCountry(), row.receiverPhone(),
-        row.receiverDateOfBirth(), row.receiverIdType(), row.receiverIdNumber(), row.transactionStatus(), row.transactionSubStatus(),
-        row.ruleHitsJson());
+        row.comments(), row.skipReason(), row.exclusionReason(), row.reportedBatchId(), row.modifiedAt(), row.processingComplete());
   }
 
   /**
@@ -485,5 +484,57 @@ public class TransactionReportServiceImpl implements TransactionReportService {
           + " is available only as batch reconciliation evidence; Phase 1 has no authoritative transaction rows for this metric.";
       case NO_RECORDS -> "The batch has no transactions for this metric.";
     };
+  }
+
+  /**
+   * The on-demand detail request. Resolves by explicit {@link TransactionDetailScope} rather than by
+   * any status/metric filter, so the rule-hit enrichment cannot be narrowed by a list filter -- the
+   * defect that previously emptied the Rule Hit Details panel on every EXCLUDED drilldown.
+   */
+  @Override
+  public TransactionEvidenceDetailResponse getTransactionDetail(TransactionDetailScope scope, Integer reportGroupId, String batchId,
+      String identifier, LocalDate fromDate, LocalDate toDate, String country, TransactionMetric metric, TransactionEvidenceSource source,
+      TransactionStage stage, TransactionOutcome outcome, TransactionStatus status, String reason, boolean batchScopedExcluded,
+      String batchIdFilter, String recordKey) {
+    String normalizedIdentifier = identifier == null ? "" : identifier.trim();
+    if (normalizedIdentifier.isEmpty()) {
+      throw new InvalidRequestException("identifier is required");
+    }
+    Optional<TransactionEvidenceProjection> found;
+    if (scope == TransactionDetailScope.BATCH) {
+      if (reportGroupId == null) {
+        throw new InvalidRequestException("reportGroupId is required for scope=BATCH");
+      }
+      found = transactionEvidenceCache.findBatchEvidenceDetail(reportGroupId, batchId, normalizedIdentifier, metric.name(), source.name(),
+          stage.name(), outcome.name(), status.name(), recordKey);
+    } else {
+      if (fromDate == null || toDate == null) {
+        throw new InvalidRequestException("fromDate and toDate are required for scope=PERIOD");
+      }
+      if (fromDate.isAfter(toDate)) {
+        throw new InvalidDateRangeException("fromDate must be on or before toDate");
+      }
+      // Mirrors the list exactly: a period view scoped to "All report groups" resolves by country
+      // alone, so requiring a report group here would strand every row it returns.
+      String normalizedCountry = normalizeCountryCode(country);
+      CountryFilter countryFilter = resolvePeriodCountryFilter(countryCatalog.getSnapshot(), normalizedCountry, reportGroupId);
+      boolean filterByReportGroup = reportGroupId != null;
+      found = transactionEvidenceCache.findPeriodEvidenceDetail(fromDate.atStartOfDay(), toDate.plusDays(1).atStartOfDay(),
+          countryFilter.enabled(), countryFilter.reportGroupIds(), filterByReportGroup, filterByReportGroup ? reportGroupId : -1, batchId,
+          normalizedIdentifier, outcome.name(), status.name(), reason == null ? "" : reason.trim(), batchScopedExcluded,
+          batchIdFilter == null ? "" : batchIdFilter.trim(), recordKey);
+    }
+    return found
+      .map(this::toEvidenceDetail)
+      .orElseThrow(() -> new ResourceNotFoundException("No transaction evidence found for the supplied identifier and scope"));
+  }
+
+  private TransactionEvidenceDetailResponse toEvidenceDetail(TransactionEvidenceProjection r) {
+    return new TransactionEvidenceDetailResponse(r.recordKey(), r.identifier(), r.mtcn(), r.batchId(), r.senderName(), r.senderCity(),
+        r.senderCountry(), r.senderPhone(), r.senderDateOfBirth(), r.senderIdType(), r.senderIdNumber(), r.receiverName(), r.receiverCity(),
+        r.receiverCountry(), r.receiverPhone(), r.receiverDateOfBirth(), r.receiverIdType(), r.receiverIdNumber(), r.currencyAmount(),
+        r.currencyCode(), r.transactionDate(), r.sendDate(), r.transactionSide(), r.transactionStatus(), r.transactionSubStatus(),
+        r.comments(), r.skipReason(), r.ruleId(), r.exclusionReason(), r.exclusionStrategy(), r.reportingTimestamp(), r.txnSource(),
+        r.activityType(), r.galacticId(), r.bucketId(), r.attemptId(), r.ruleHitsJson());
   }
 }

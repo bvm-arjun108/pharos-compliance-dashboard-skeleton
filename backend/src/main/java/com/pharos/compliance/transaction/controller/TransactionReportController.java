@@ -1,5 +1,7 @@
 package com.pharos.compliance.transaction.controller;
 
+import com.pharos.compliance.transaction.dto.TransactionEvidenceDetailResponse;
+import com.pharos.compliance.transaction.model.TransactionDetailScope;
 import com.pharos.compliance.transaction.api.TransactionReportApi;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
@@ -50,5 +52,14 @@ public class TransactionReportController implements TransactionReportApi {
   @Override
   public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query) {
     return transactionReportService.searchTransactions(field, query);
+  }
+
+  @Override
+  public TransactionEvidenceDetailResponse getTransactionDetail(TransactionDetailScope scope, Integer reportGroupId, String batchId,
+      String identifier, LocalDate fromDate, LocalDate toDate, String country, TransactionMetric metric, TransactionEvidenceSource source,
+      TransactionStage stage, TransactionOutcome outcome, TransactionStatus status, String reason, boolean batchScopedExcluded,
+      String batchIdFilter, String recordKey) {
+    return transactionReportService.getTransactionDetail(scope, reportGroupId, batchId, identifier, fromDate, toDate, country, metric,
+        source, stage, outcome, status, reason, batchScopedExcluded, batchIdFilter, recordKey);
   }
 }

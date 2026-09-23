@@ -1,5 +1,15 @@
 ### Dashboard Analysis
 
+> **Reproducing the captured SQL in this folder**: the queries below were captured from the
+> `PrettySqlExecuteListener` debug log. That listener now defaults to `OFF`, because its output
+> includes fetched rows — party names, dates of birth, phone numbers, ID numbers — and on a
+> deployed host that becomes a second copy of customer PII outside the database's access controls.
+> Run with `JOOQ_SQL_LOG_LEVEL=DEBUG` locally when you need to capture queries again. Per-query
+> timings remain available at all times via `QueryPerformanceSummaryLogger`, which logs no row data.
+> The same concern applies one layer up: nginx's access log defaults to logging the full request
+> line, query string included, and several endpoints' query strings carry an identifier or MTCN —
+> see `TransactionReport.md`'s "On-demand detail" section for the fix there.
+
 ## 1. View
 
 ![img.png](img.png)

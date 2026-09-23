@@ -185,6 +185,78 @@ way as the batch-scoped version, just over a bigger `scope`.
 - **Repository**: `PeriodEvidenceQueries.evidenceForPeriod` → `filteredEvidenceForPeriod` → `findEvidenceRecords` / `countEvidenceRecords` (`com.pharos.compliance.transaction.repository.evidence.PeriodEvidenceQueries`)
 - **Frontend**: `transaction-report.component.ts` (`batchId` empty, `overviewOnly` false)
 
+## On-demand detail — `GET /api/v1/transactions/detail`
+
+*(Backs the expanded row. The list no longer carries these fields at all — the frontend fetches
+them when a row is opened, and caches them per row for the life of the current result set.)*
+
+### What the split changed, measured
+
+| | before | after |
+|---|---|---|
+| Fields per list row | 44 | 14 |
+| PII in the list payload | 10 party fields on every row | none |
+| List payload (100 rows) | ~130 KB | ~47 KB |
+| Excluded drilldown list, cold | ~205 ms | ~70 ms |
+| Opening one row (detail request) | 0 ms (already shipped) | ~3–12 ms |
+
+The list query no longer joins `reg_reportable_activity`, no longer computes the rule-hit rollup,
+and no longer builds the rule-hit bridge at all — `EvidenceProjection.LIST` skips the bridge
+because nothing in that projection reads it. That is why the list is now faster than it was even
+before the rule-hit correctness fix, rather than merely recovering the ground that fix cost. The
+detail request's own cost dropped further still once the rule-hit match narrowed to the exact
+batch — see the note at the end of the starvation-fix section below.
+
+### Plain English
+
+The expanded panel's fields — party names, dates of birth, phone numbers, ID numbers, amounts, and
+the rule-hit list — are read only when someone actually opens a transaction, so they're fetched only
+then, rather than for all 100 rows of every page load. That also makes access to personal data
+attributable to a specific request instead of to every page view.
+
+Three things it has to get right, all learned the hard way in this codebase:
+
+- **`scope` is required.** BATCH resolves rule hits inside one `efile_batch_id`; PERIOD resolves
+  them across every batch of the report group in the window. These are genuinely different
+  questions, so the caller passes the scope its row was listed under. `reportGroupId` follows the
+  same split: required for BATCH (a batch always belongs to one), optional for PERIOD, which can
+  legitimately span every report group in the window exactly as the list does — an earlier version
+  of this endpoint required it unconditionally, which silently broke every detail request from a
+  Transactions Overview view scoped to "All report groups" (the panel opened and rendered nothing,
+  with no error).
+- **It passes the list's own filters through, plus the exact `recordKey`.** The panel is an
+  expansion of a *specific row*, so it is built by running the same pipeline with the same filters
+  and keeping the matching row. Rebuilding the union without them was tried first and was wrong:
+  with the metric filter absent, a RULE_HIT source row re-entered the merge and outranked the
+  JOURNEY row the list had shown, so the panel reported a different record key, amount precision and
+  bucket/attempt than the row above it. `recordKey` (namespaced as
+  `SOURCE:reportGroupId:batchId:identifier`) is pushed into the query as an exact-match SQL
+  predicate before pagination runs, rather than fetching a handful of candidate rows and picking the
+  right one in application code — the latter was an earlier, weaker version of this same lookup and
+  could in principle have matched the wrong row for an identifier that also appeared as another
+  transaction's MTCN substring.
+- **A missing prerequisite fails loudly.** The frontend surfaces "Could not load details for this
+  transaction" with a Retry button rather than silently returning nothing — the exact bug the
+  optional-`reportGroupId` case above shipped as before the guard was fixed.
+
+Those filters narrow *which row* comes back; they never narrow its rule-hit enrichment — that
+distinction is the same one the starvation bug turned on, and going through the existing
+`findEvidenceRecords` preserves it automatically, since the enrichment bridge is page-bounded
+independently of the filters.
+
+Verified field-for-field against all three pipelines (batch `metric=TRANSFORMED`, batch
+`metric=ALL`, and the overview `status=EXCLUDED` drilldown, with and without `reportGroupId`):
+every field the panel renders, including `ruleHitsJson`, matches the list row exactly.
+
+### A note on query strings and logging
+
+This endpoint's query string carries `identifier` and `recordKey` on every request, and the list
+endpoints carry `search` (typically an MTCN) — all customer-linkable. That is why
+`JOOQ_SQL_LOG_LEVEL` defaults to `OFF` (see `Dashboard.md`), and it is also why the nginx configs
+(`deploy/nginx/pharos-dashboard.conf`, `frontend/nginx.conf`) now log a custom `pharos_no_query`
+format instead of the default `combined`, which would otherwise persist the full request line —
+query string and all — to the access log on every row a compliance analyst opens.
+
 ## 3. Overview Excluded / Not Reported drilldown
 
 *(Reached specifically from the Transactions Overview page's Excluded / Not Reported KPI cards or
@@ -205,6 +277,47 @@ attempt to make this drilldown share the union-and-merge pipeline caused a real 
 reprocessed across several batches showed up once per batch instead of once, since the merge step
 groups by `(batch, identifier)` while this rollup is deliberately per-identifier only, independent
 of which batch it came from.
+
+### Fixed bug — the Rule Hit Details panel was starved on every non-ALL status
+
+The `ruleHitMatches` table passed to `EvidencePaginator.pageEvidence` feeds **only** the "Rule Hit
+Details" enrichment — the union branch is built separately by the caller. But every caller used to
+pass the *same* table it had built for the union branch, and that one is deliberately
+short-circuited to zero rows (`where false`) for any status a RULE_HIT evidence row can't carry.
+
+On this drilldown that short-circuit always fired (its status is always EXCLUDED or NOT_REPORTED),
+so every expanded row rendered "No rule hits matched for this transaction" — directly beneath a
+subnote promising *"Every pharos.rule_hit record matched to this transaction's identifier,
+independent of this row's own evidence source."* The same defect hit the period list for
+SUCCESS/FAILED/ERROR/NOT_YET_REPORTED, the Report Groups Requiring Attention excluded drilldown,
+and the Batch Explorer list whenever its Status filter was set to anything but All/Reported.
+
+In a compliance tool that's a misleading-evidence bug, not a cosmetic one: an analyst could
+reasonably read it as "no rule ever fired on this transaction."
+
+The fix splits the two consumers — `ruleHitMatchesFor{Period,Batch}Enrichment` is status-independent
+(still scoped to the same report groups and batches), while the union branch keeps its
+short-circuit, so list membership and counts are provably unchanged. `RuleHitEnrichmentScopeTest`
+locks both halves in.
+
+Making the enrichment run where it previously didn't costs something, so the bridge is also now
+**page-bounded**: `pageEvidence` takes the bridge as a function and applies it only once Pass 1 has
+chosen the page, passing that page's identifiers in. Previously it was built across the whole
+window and then correlated against — on one real batch that meant materializing ~11,000 rows to
+answer a 25-row question, with a planner row-estimate off by ~50×, which is the kind of gap that
+silently flips to a nested loop under different statistics. Measured on the Excluded drilldown
+(US / report group 51, 307 batches in scope) at the time: ~85 ms before the correctness fix,
+~205 ms with it and the bridge unbounded, ~171 ms once page-bounded.
+
+That residual was the `rule_hit` scan itself: `PeriodEvidenceQueries#ruleHitMatchesForPeriodEnrichment`
+originally matched against every `rule_hit` row in the report group (`RULE_HIT.RPT_GRP_ID.in(...)`),
+narrowed only by the journey side. It has since been tightened to `RuleHitMatcher#scopedRuleHitMatches`,
+which matches on the exact `(rpt_grp_id, efile_batch_id)` pairs the batches in scope actually cover —
+the same per-batch discipline `BatchEvidenceQueries#ruleHitMatchesForBatch` already applied on the
+batch-scoped side. Once the detail request moved off the list path entirely (see the "On-demand
+detail" section above), this stopped being a per-page-load cost and became the detail request's own
+cost instead: opening one row now measures ~3–12 ms, most of it JIT/connection warm-up on the first
+call of a run.
 
 ### Fixed bug — `aggregateCount` was comparing this drilldown against the wrong scalar
 

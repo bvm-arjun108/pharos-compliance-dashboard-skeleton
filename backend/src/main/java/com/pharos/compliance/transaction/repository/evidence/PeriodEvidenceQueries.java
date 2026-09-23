@@ -62,7 +62,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Table;
@@ -105,8 +107,8 @@ public class PeriodEvidenceQueries {
   @SqlQueryPurpose("Summarize transaction evidence across the selected reporting period")
   public PeriodAggregateProjection findPeriodAggregate(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId) {
-    var scope = batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId,
-        batchId);
+    var scope =
+        batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, batchId);
     Field<Integer> bsRptGrpId = requiredField(scope, REPORT_GROUP_ID_COLUMN, Integer.class);
     Field<String> bsBatchId = requiredField(scope, BATCH_ID_COLUMN, String.class);
     Field<String> bsRptGrpName = requiredField(scope, "rpt_grp_name", String.class);
@@ -122,24 +124,30 @@ public class PeriodEvidenceQueries {
       .orElseThrow(() -> new IllegalStateException("Period aggregate returned no row"));
   }
 
-  /** Backs a batch picker (typeahead) for the period report -- every distinct batch ID in scope,
-   *  ordered, not paginated (a reporting period's batch count is small enough to hand back whole). */
+  /**
+   * Backs a batch picker (typeahead) for the period report -- every distinct batch ID in scope,
+   *  ordered, not paginated (a reporting period's batch count is small enough to hand back whole).
+   */
   public List<String> distinctBatchIds(Table<?> scope) {
     Field<String> bsBatchId = requiredField(scope, BATCH_ID_COLUMN, String.class);
     return dsl.selectDistinct(bsBatchId).from(scope).orderBy(bsBatchId).fetch(bsBatchId);
   }
 
   /**
-   * Unlike the batch-scoped version, NOT_REPORTED is deliberately excluded from this
+   * The <em>union branch's</em> rule_hit source only -- never the enrichment's, which must use
+   * {@link #ruleHitMatchesForPeriodEnrichment}. A RULE_HIT evidence row's status is always
+   * REPORTED/NOT_REPORTED, so for any other requested status {@link #filteredEvidenceForPeriod}
+   * would discard every row this produces; short-circuiting to zero rows skips the
+   * identifier-matching join rather than running it for rows that cannot survive the filter.
+   *
+   * <p>Unlike the batch-scoped version, NOT_REPORTED is deliberately excluded from this
    * short-circuit exemption: that status no longer reads rule_hit.is_reported at all (see
    * {@link OverviewEvidenceQueries#reportingTarget} -- it's answered from the journey-history
-   * ever_reported/ever_excluded roll-up instead), so running these correlated identifier-matching
-   * subqueries for it would only add cost without affecting the result -- and could double-count a
-   * transaction whose journey row and rule_hit row disagree on evidence_batch_id vs efile_batch_id.
+   * ever_reported/ever_excluded roll-up instead), so including those rows in the union would add
+   * cost without affecting the result -- and could double-count a transaction whose journey row
+   * and rule_hit row disagree on evidence_batch_id vs efile_batch_id.
    */
   public Table<?> ruleHitMatchesForPeriod(Table<?> batchScope, String status) {
-    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
     if (!("ALL".equals(status) || VALUE_REPORTED.equals(status))) {
       return dsl
         .select(RULE_HIT_TABLE.fields())
@@ -148,6 +156,60 @@ public class PeriodEvidenceQueries {
         .where(DSL.falseCondition())
         .asTable(RULE_HIT_MATCHES);
     }
+    return ruleHitBridge(batchScope);
+  }
+
+  /**
+   * The "Rule Hit Details" enrichment's rule_hit source: the same window-scoped identifier match as
+   * {@link #ruleHitMatchesForPeriod}, minus the status short-circuit. The enrichment answers a
+   * question about the <em>transaction</em> -- every rule_hit matched to its identifier inside this
+   * scope -- not about the row's own evidence source or the status the list happens to be filtered
+   * to, so a status filter must not narrow it.
+   *
+   * <p>Sharing the short-circuited table with the union branch was a real bug on this path: an
+   * EXCLUDED or NOT_REPORTED drilldown handed {@link EvidencePaginator#pageEvidence} the zero-row
+   * table, so every expanded row rendered "No rule hits matched for this transaction" -- for
+   * transactions that, viewed under ALL, showed real matches -- directly beneath a panel subnote
+   * promising "every pharos.rule_hit record matched to this transaction's identifier, independent
+   * of this row's own evidence source". {@link BatchEvidenceQueries#ruleHitMatchesForBatch} shipped
+   * the identical defect keyed on metric rather than status and was fixed the same way.
+   *
+   * <p>"Independent of status" never meant unscoped. This matches on the exact {@code (rpt_grp_id,
+   * efile_batch_id)} pairs {@code batchScope} resolves rather than on the report group as a whole,
+   * so a resubmitted transaction's rule_hit rows from another batch cannot be attributed here --
+   * the same per-batch rule {@link BatchEvidenceQueries#ruleHitMatchesForBatch} already applied. It
+   * is bounded further to {@code pageIdentifiers}: the transactions actually being rendered, which
+   * keeps the match a keyed lookup instead of something that scales with the window.
+   */
+  public Table<?> ruleHitMatchesForPeriodEnrichment(Table<?> batchScope, Collection<String> pageIdentifiers) {
+    Field<Integer> group = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> batch = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
+    var journeys = dsl
+      .select(JOURNEY.RPT_GRP_ID, JOURNEY.BATCH_ID, JOURNEY.IDENTIFIER, JOURNEY.MTCN,
+          DSL.when(matchesDigitsOnly(JOURNEY.IDENTIFIER), JOURNEY.IDENTIFIER.cast(SQLDataType.BIGINT)).as(IDENTIFIER_BIGINT))
+      .from(JOURNEY)
+      .join(batchScope)
+      .on(group.eq(JOURNEY.RPT_GRP_ID))
+      .and(batch.eq(JOURNEY.BATCH_ID))
+      .where(JOURNEY.IDENTIFIER.in(pageIdentifiers))
+      .asTable("journey_scoped");
+    Condition ruleScope = DSL.row(RULE_HIT_TABLE.RPT_GRP_ID, RULE_HIT_TABLE.EFILE_BATCH_ID).in(dsl.select(group, batch).from(batchScope));
+    return ruleHitMatcher.scopedRuleHitMatches(ruleScope, journeys);
+  }
+
+  /**
+   * The union branch's rule_hit-to-journey-identifier bridge: unrestricted by page, because it
+   * produces evidence rows that still have to be filtered, sorted and paginated, so it cannot be
+   * narrowed to a page that has not been chosen yet.
+   *
+   * <p>The enrichment deliberately does <em>not</em> come through here -- see {@link
+   * #ruleHitMatchesForPeriodEnrichment}, which is bounded to the rendered page and matched per
+   * batch. Building this unbounded form for the enrichment was measured at ~11k materialized rows
+   * to serve a 25-row question, with a planner estimate off by ~50x.
+   */
+  private Table<?> ruleHitBridge(Table<?> batchScope) {
+    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
 
     Table<?> journeyScoped = dsl
       .select(JOURNEY.IDENTIFIER.as(IDENTIFIER), JOURNEY.MTCN.as("mtcn"),
@@ -278,11 +340,12 @@ public class PeriodEvidenceQueries {
    * OverviewEvidenceQueries} instead.
    */
   public EvidencePage findEvidenceRecords(Table<?> scope, String search, String outcome, String status, String sortDirection, int size,
-      long offset, EvidenceCursor cursor) {
+      long offset, EvidenceCursor cursor, EvidenceProjection projection) {
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
     var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
-    return paginator.pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+    return paginator.pageEvidence(filtered, ids -> ruleHitMatchesForPeriodEnrichment(scope, ids), sortDirection, size, offset, cursor,
+        projection);
   }
 
   public long countEvidenceRecords(Table<?> scope, String search, String outcome, String status) {
@@ -330,14 +393,17 @@ public class PeriodEvidenceQueries {
       .asTable("filtered_excluded_evidence");
   }
 
-  /** Backs the "Excluded" total on the Report Groups Requiring Attention table -- see {@link
-   *  #filteredExcludedEvidenceForBatchTotal}. */
+  /**
+   * Backs the "Excluded" total on the Report Groups Requiring Attention table -- see {@link
+   *  #filteredExcludedEvidenceForBatchTotal}.
+   */
   public EvidencePage findExcludedEvidenceRecordsForBatchTotal(Table<?> scope, String search, String sortDirection, int size, long offset,
-      EvidenceCursor cursor) {
+      EvidenceCursor cursor, EvidenceProjection projection) {
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, VALUE_EXCLUDED);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
     var filtered = filteredExcludedEvidenceForBatchTotal(evidence, search);
-    return paginator.pageEvidence(filtered, ruleHitMatches, sortDirection, size, offset, cursor);
+    return paginator.pageEvidence(filtered, ids -> ruleHitMatchesForPeriodEnrichment(scope, ids), sortDirection, size, offset, cursor,
+        projection);
   }
 
   public long countExcludedEvidenceRecordsForBatchTotal(Table<?> scope, String search) {

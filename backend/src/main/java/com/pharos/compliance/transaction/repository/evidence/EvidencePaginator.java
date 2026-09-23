@@ -52,7 +52,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
@@ -206,6 +208,9 @@ public class EvidencePaginator {
     List<Field<?>> selectList = new ArrayList<>();
     selectList.add(rEvidenceBatchId);
     selectList.add(rIdentifier);
+    if (ranked.field("rpt_grp_id") != null) {
+      selectList.add(firstNonNullByRank(ranked, "rpt_grp_id", Integer.class, rSourceRank, rRecordKey));
+    }
     for (String column : MERGE_COLUMNS) {
       Class<?> type = mergeColumnType(column);
       selectList.add(firstNonNullByRank(ranked, column, type, rSourceRank, rRecordKey));
@@ -271,18 +276,44 @@ public class EvidencePaginator {
    * queries: cheap Pass 1 to pick the page's identifiers (paying the page window's cost, not the
    * whole result's), then Pass 2's full merge bounded to just those identifiers, then the existing
    * per-page rule_hit rollup.
+   *
+   * <p>{@code ruleHitBridge} feeds {@link #rollupRuleHits} and <strong>nothing else</strong> -- it
+   * is the "Rule Hit Details" enrichment source, never evidence rows (callers build the union
+   * branch themselves, before calling this). It must therefore be a status/metric-independent
+   * match: pass {@code ruleHitMatchesFor*Enrichment}, not the short-circuited table the union
+   * branch uses. Passing the latter is silent -- the page still renders, every expanded row just
+   * claims the transaction has no rule hits.
+   *
+   * <p>It arrives as a function rather than a table because the identifiers to bound it to are not
+   * known until Pass 1 has chosen the page. Building it eagerly across the whole window and then
+   * correlating was what made it the most expensive part of this query; applied here it is built
+   * once, already narrowed to the rows being rendered.
    */
-  public EvidencePage pageEvidence(Table<?> filtered, Table<?> ruleHitMatches, String sortDirection, int size, long offset,
-      EvidenceCursor cursor) {
+  public EvidencePage pageEvidence(Table<?> filtered, Function<Collection<String>, Table<?>> ruleHitBridge, String sortDirection, int size,
+      long offset, EvidenceCursor cursor, EvidenceProjection projection) {
     var ranked = rankedEvidence(filtered);
     var sortKeys = identifierSortKeys(ranked);
+    if (projection.identifier() != null) {
+      var exact = requiredField(sortKeys, IDENTIFIER, String.class)
+        .eq(projection.identifier())
+        .and(requiredField(sortKeys, EVIDENCE_BATCH_ID, String.class).eq(projection.batchId()));
+      if (projection.recordKey() != null && !projection.recordKey().isBlank()) {
+        exact = exact.and(requiredField(sortKeys, RECORD_KEY, String.class).eq(projection.recordKey()));
+      }
+      sortKeys = dsl.select(sortKeys.fields()).from(sortKeys).where(exact).asTable("exact_detail_keys");
+    }
     var keysWithPeek = fetchPageKeys(sortKeys, sortDirection, size, offset, cursor);
     var page = splitPage(keysWithPeek, size);
     if (page.keys().isEmpty()) {
       return new EvidencePage(List.of(), null);
     }
     var merged = mergeForPageKeys(ranked, page.keys());
-    return new EvidencePage(selectFinalPage(merged, ruleHitMatches, sortDirection), page.nextCursor());
+    if (!projection.details()) {
+      // Nothing in the list projection reads rule hits, so the bridge is not built at all here.
+      return new EvidencePage(selectListPage(merged, sortDirection), page.nextCursor());
+    }
+    List<String> pageIdentifiers = page.keys().stream().map(PageKey::identifier).distinct().toList();
+    return new EvidencePage(selectFinalPage(merged, ruleHitBridge.apply(pageIdentifiers), sortDirection), page.nextCursor());
   }
 
   /**
@@ -318,6 +349,42 @@ public class EvidencePaginator {
     return order;
   }
 
+  /**
+   * The columns the table renders, and nothing else. No {@code reg_reportable_activity} join and no
+   * rule-hit lateral, so a page load neither pays for them nor returns personal data for rows
+   * nobody opened -- the detail request fetches those per transaction instead.
+   */
+  @SqlQueryPurpose("Transaction list > Load the columns the table renders for the selected page identifiers")
+  private List<TransactionEvidenceProjection> selectListPage(Table<?> page, String sortDirection) {
+    return dsl
+      .select(requiredField(page, RECORD_KEY, String.class).as("recordKey"), requiredField(page, IDENTIFIER, String.class).as(IDENTIFIER),
+          requiredField(page, "mtcn", String.class).as("mtcn"), requiredField(page, EVIDENCE_BATCH_ID, String.class).as(BATCH_ID_ALIAS),
+          requiredField(page, EVIDENCE_SOURCE, String.class).as("evidenceSource"), requiredField(page, STAGE, String.class).as(STAGE),
+          requiredField(page, STATUS, String.class).as(STATUS), requiredField(page, OUTCOME, String.class).as(OUTCOME),
+          requiredField(page, COMMENTS, String.class).as(COMMENTS), requiredField(page, SKIP_REASON, String.class).as("skipReason"),
+          requiredField(page, EXCLUSION_REASON, String.class).as("exclusionReason"),
+          requiredField(page, REPORTED_BATCH_ID, String.class).as("reportedBatchId"),
+          requiredField(page, MODIFIED_AT, String.class).as("modifiedAt"),
+          requiredField(page, PROCESSING_COMPLETE, Boolean.class).as("processingComplete"))
+      .from(page)
+      .orderBy(
+          evidenceOrder(sortDirection, requiredField(page, SORT_TIMESTAMP, OffsetDateTime.class),
+              requiredField(page, RECORD_KEY, String.class)))
+      .fetch(EvidencePaginator::toListProjection);
+  }
+
+  /**
+   * Detail-only columns are absent from the list query, so they are null here by construction.
+   */
+  private static TransactionEvidenceProjection toListProjection(Record r) {
+    return new TransactionEvidenceProjection(r.get("recordKey", String.class), r.get(IDENTIFIER, String.class), r.get("mtcn", String.class),
+        r.get(BATCH_ID_ALIAS, String.class), r.get("evidenceSource", String.class), r.get(STAGE, String.class), r.get(STATUS, String.class),
+        r.get(OUTCOME, String.class), r.get(COMMENTS, String.class), r.get("skipReason", String.class), null,
+        r.get("exclusionReason", String.class), null, r.get("reportedBatchId", String.class), null, r.get("modifiedAt", String.class),
+        r.get("processingComplete", Boolean.class), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+        null, null, null, null, null, null, null, null, null, null, null, null);
+  }
+
   private org.jooq.SelectConditionStep<Record> selectEvidenceProjection(Table<?> page, Table<?> ruleHitMatches) {
     Field<String> pIdentifier = requiredField(page, IDENTIFIER, String.class);
     Field<String> pEvidenceSource = requiredField(page, EVIDENCE_SOURCE, String.class);
@@ -343,7 +410,7 @@ public class EvidencePaginator {
       .as("transactionDate");
     Field<String> sendDateOut = DSL.when(pEvidenceSource.eq(SOURCE_JOURNEY), RRA.GROUP_SEND_DATE).otherwise(pSendDate).as("sendDate");
 
-    var rollupRuleHits = rollupRuleHits(ruleHitMatches, pIdentifier);
+    var rollupRuleHits = rollupRuleHits(ruleHitMatches, pIdentifier, page.field("rpt_grp_id", Integer.class));
 
     return dsl
       .select(requiredField(page, RECORD_KEY, String.class).as("recordKey"), pIdentifier.as(IDENTIFIER),
@@ -380,7 +447,7 @@ public class EvidencePaginator {
   /**
    * {@code LEFT JOIN LATERAL (SELECT json_agg(json_build_object(...)) ...) rollup ON TRUE}.
    */
-  private Field<String> rollupRuleHits(Table<?> ruleHitMatches, Field<String> identifier) {
+  private Field<String> rollupRuleHits(Table<?> ruleHitMatches, Field<String> identifier, Field<Integer> reportGroupId) {
     Field<String> rhmMatchedIdentifier = requiredField(ruleHitMatches, MATCHED_IDENTIFIER, String.class);
     Field<String> rhmRuleId = requiredField(ruleHitMatches, RULE_ID_COLUMN, String.class);
     Field<Boolean> rhmIsReported = requiredField(ruleHitMatches, IS_REPORTED, Boolean.class);
@@ -399,7 +466,8 @@ public class EvidencePaginator {
           .as("rule_hits_json"))
         .from(ruleHitMatches)
         .where(rhmMatchedIdentifier.isNotNull())
-        .and(rhmMatchedIdentifier.eq(identifier)))
+        .and(rhmMatchedIdentifier.eq(identifier))
+        .and(reportGroupId == null ? DSL.trueCondition() : requiredField(ruleHitMatches, "rpt_grp_id", Integer.class).eq(reportGroupId)))
       .asTable("rollup");
 
     return DSL.field(dsl.select(requiredField(rollup, "rule_hits_json", String.class)).from(rollup));

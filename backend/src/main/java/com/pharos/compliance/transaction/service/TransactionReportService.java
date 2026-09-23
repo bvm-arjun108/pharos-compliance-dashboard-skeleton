@@ -1,5 +1,7 @@
 package com.pharos.compliance.transaction.service;
 
+import com.pharos.compliance.transaction.dto.TransactionEvidenceDetailResponse;
+import com.pharos.compliance.transaction.model.TransactionDetailScope;
 import com.pharos.compliance.transaction.dto.PeriodTransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionReportResponse;
 import com.pharos.compliance.transaction.dto.TransactionSearchResponse;
@@ -23,6 +25,11 @@ public interface TransactionReportService {
       TransactionSortDirection sortDirection, int page, int size, String cursor);
 
   List<String> getPeriodReportBatchIds(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId);
+
+  TransactionEvidenceDetailResponse getTransactionDetail(TransactionDetailScope scope, Integer reportGroupId, String batchId,
+      String identifier, LocalDate fromDate, LocalDate toDate, String country, TransactionMetric metric, TransactionEvidenceSource source,
+      TransactionStage stage, TransactionOutcome outcome, TransactionStatus status, String reason, boolean batchScopedExcluded,
+      String batchIdFilter, String recordKey);
 
   TransactionSearchResponse searchTransactions(TransactionSearchField field, String query);
 }

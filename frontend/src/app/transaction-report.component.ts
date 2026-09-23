@@ -83,39 +83,50 @@ interface TransactionEvidenceRecord {
   outcome: Exclude<TransactionOutcome, 'ALL'>;
   comments: string | null;
   skipReason: string | null;
-  ruleId: string | null;
   exclusionReason: string | null;
-  exclusionStrategy: string | null;
   reportedBatchId: string | null;
-  reportingTimestamp: string | null;
   modifiedAt: string | null;
   processingComplete: boolean | null;
-  currencyAmount: number | null;
-  currencyCode: string | null;
-  transactionDate: string | null;
-  transactionSide: string | null;
-  txnSource: string | null;
-  activityType: string | null;
-  sendDate: string | null;
-  galacticId: string | null;
-  bucketId: number | null;
-  attemptId: number | null;
+}
+
+/** Fetched per transaction when its row is expanded -- see GET /api/v1/transactions/detail. */
+interface TransactionEvidenceDetail {
+  recordKey: string;
+  identifier: string;
+  mtcn: string | null;
+  batchId: string | null;
   senderName: string | null;
-  receiverName: string | null;
   senderCity: string | null;
   senderCountry: string | null;
   senderPhone: string | null;
   senderDateOfBirth: string | null;
   senderIdType: string | null;
   senderIdNumber: string | null;
+  receiverName: string | null;
   receiverCity: string | null;
   receiverCountry: string | null;
   receiverPhone: string | null;
   receiverDateOfBirth: string | null;
   receiverIdType: string | null;
   receiverIdNumber: string | null;
+  currencyAmount: number | null;
+  currencyCode: string | null;
+  transactionDate: string | null;
+  sendDate: string | null;
+  transactionSide: string | null;
   transactionStatus: string | null;
   transactionSubStatus: string | null;
+  comments: string | null;
+  skipReason: string | null;
+  ruleId: string | null;
+  exclusionReason: string | null;
+  exclusionStrategy: string | null;
+  reportingTimestamp: string | null;
+  txnSource: string | null;
+  activityType: string | null;
+  galacticId: string | null;
+  bucketId: number | null;
+  attemptId: number | null;
   ruleHitsJson: string | null;
 }
 
@@ -261,6 +272,14 @@ export class TransactionReportComponent implements OnInit {
   readonly page = signal(0);
   readonly size = signal(25);
   readonly expandedRecordKey = signal<string | null>(null);
+  // Only one row is ever open, but keep a per-row map so reopening a row within the same view does
+  // not refetch. Cleared whenever the underlying list is reloaded, so a filter or scope change can
+  // never show a detail resolved under the previous one.
+  readonly detailCache = signal<Record<string, TransactionEvidenceDetail>>({});
+  readonly detailLoadingKey = signal<string | null>(null);
+  readonly detailErrorKey = signal<string | null>(null);
+  private detailGeneration = 0;
+  private readonly pendingDetails = new Set<string>();
 
   ngOnInit(): void {
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
@@ -497,11 +516,11 @@ export class TransactionReportComponent implements OnInit {
   /** Same shape as recordDetail, but scoped strictly to record.skipReason (not the
    *  exclusionReason/comments fallback chain) — used for the expanded "Skip reason" field so it
    *  renders the underlying exception JSON as readable text instead of the raw payload. */
-  skipReasonDetail(record: TransactionEvidenceRecord): EvidenceDetail {
-    if (!record.skipReason) {
+  skipReasonDetail(detail: TransactionEvidenceDetail | null): EvidenceDetail {
+    if (!detail?.skipReason) {
       return { primary: 'Not available', extras: [] };
     }
-    const issues = this.parseIssueList(record.skipReason);
+    const issues = this.parseIssueList(detail.skipReason);
     if (issues) {
       const [first, ...rest] = issues;
       const extras: string[] = [];
@@ -511,7 +530,7 @@ export class TransactionReportComponent implements OnInit {
       if (rest.length > 0) { extras.push(`+${rest.length} more issue${rest.length > 1 ? 's' : ''}`); }
       return { primary: first.message, extras };
     }
-    return { primary: this.humanizeIfCode(record.skipReason), extras: [] };
+    return { primary: this.humanizeIfCode(detail.skipReason), extras: [] };
   }
 
   /** Converts a SCREAMING_SNAKE_CASE / mixed(PAREN) code into "Screaming Snake Case (Paren)". */
@@ -536,24 +555,103 @@ export class TransactionReportComponent implements OnInit {
       .join(' ');
   }
 
-  ruleIdsDisplay(record: TransactionEvidenceRecord): string {
-    if (record.ruleId) {
-      return record.ruleId;
+  ruleIdsDisplay(detail: TransactionEvidenceDetail | null): string {
+    if (detail?.ruleId) {
+      return detail.ruleId;
     }
-    const ids = [...new Set(this.ruleHits(record).map(hit => hit.ruleId).filter((id): id is string => !!id))];
+    const ids = [...new Set(this.ruleHits(detail).map(hit => hit.ruleId).filter((id): id is string => !!id))];
     return ids.length > 0 ? ids.join(', ') : 'Not available';
   }
 
-  toggleExpanded(recordKey: string): void {
-    this.expandedRecordKey.set(this.expandedRecordKey() === recordKey ? null : recordKey);
+  toggleExpanded(record: TransactionEvidenceRecord): void {
+    const closing = this.expandedRecordKey() === record.recordKey;
+    this.expandedRecordKey.set(closing ? null : record.recordKey);
+    if (!closing) {
+      this.loadDetail(record);
+    }
   }
 
-  ruleHits(record: TransactionEvidenceRecord): RuleHitSummary[] {
-    if (!record.ruleHitsJson) {
+  detailFor(record: TransactionEvidenceRecord): TransactionEvidenceDetail | null {
+    return this.detailCache()[record.recordKey] ?? null;
+  }
+
+  /**
+   * Personal data lives behind this call rather than in the list response, so opening a row is the
+   * action that reads it. Cached per row for the life of the current result set; `loadTransactions`
+   * clears the cache, so a detail resolved under one filter/scope can never be shown under another.
+   */
+  loadDetail(record: TransactionEvidenceRecord): void {
+    if (this.detailCache()[record.recordKey]) {
+      return;
+    }
+    if (this.pendingDetails.has(record.recordKey)) {
+      this.detailLoadingKey.set(record.recordKey);
+      return;
+    }
+    const reportGroupId = this.reportGroupId();
+    // A period view can legitimately span every report group, so only the batch view genuinely
+    // needs one. Anything else missing is surfaced as an error rather than returned from silently:
+    // a guard that just bails renders an empty panel with no explanation, which is how this
+    // shipped broken the first time.
+    if (!record.batchId || (this.mode() === 'BATCH' && reportGroupId === null)) {
+      this.detailLoadingKey.set(null);
+      this.detailErrorKey.set(record.recordKey);
+      return;
+    }
+    this.detailErrorKey.set(null);
+    this.detailLoadingKey.set(record.recordKey);
+
+    let params = new HttpParams()
+      .set('scope', this.mode() === 'BATCH' ? 'BATCH' : 'PERIOD')
+      .set('batchId', record.batchId)
+      .set('identifier', record.identifier)
+      .set('recordKey', record.recordKey);
+    if (reportGroupId !== null) {
+      params = params.set('reportGroupId', reportGroupId);
+    }
+    if (this.mode() === 'BATCH') {
+      // The same filters the list ran under: the panel expands a specific row, so it has to be
+      // resolved the same way that row was.
+      params = params
+        .set('metric', this.metric())
+        .set('source', this.source())
+        .set('status', this.status());
+    } else {
+      params = params
+        .set('fromDate', this.fromDate())
+        .set('toDate', this.toDate())
+        .set('country', this.country())
+        .set('status', this.status())
+        .set('reason', this.reason())
+        .set('batchScopedExcluded', this.batchScopedExcluded())
+        .set('batchIdFilter', this.batchIdFilter().trim());
+    }
+
+    const generation = this.detailGeneration;
+    this.pendingDetails.add(record.recordKey);
+    this.http.get<TransactionEvidenceDetail>('/api/v1/transactions/detail', { params })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: detail => {
+        if (generation !== this.detailGeneration) { return; }
+        this.pendingDetails.delete(record.recordKey);
+        this.detailCache.update(cache => ({ ...cache, [record.recordKey]: detail }));
+        if (this.detailLoadingKey() === record.recordKey) { this.detailLoadingKey.set(null); }
+      },
+      error: () => {
+        if (generation !== this.detailGeneration) { return; }
+        this.pendingDetails.delete(record.recordKey);
+        if (this.detailLoadingKey() === record.recordKey) { this.detailLoadingKey.set(null); }
+        if (this.expandedRecordKey() === record.recordKey) { this.detailErrorKey.set(record.recordKey); }
+      }
+    });
+  }
+
+  ruleHits(detail: TransactionEvidenceDetail | null): RuleHitSummary[] {
+    if (!detail?.ruleHitsJson) {
       return [];
     }
     try {
-      const parsed = JSON.parse(record.ruleHitsJson);
+      const parsed = JSON.parse(detail.ruleHitsJson);
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
@@ -601,16 +699,24 @@ export class TransactionReportComponent implements OnInit {
     });
   }
 
-  formatCurrency(record: TransactionEvidenceRecord): string {
-    if (record.currencyAmount === null) {
+  formatCurrency(detail: TransactionEvidenceDetail | null): string {
+    if (!detail || detail.currencyAmount === null) {
       return 'Not available';
     }
-    return record.currencyCode
-      ? `${record.currencyCode} ${record.currencyAmount.toLocaleString()}`
-      : record.currencyAmount.toLocaleString();
+    return detail.currencyCode
+      ? `${detail.currencyCode} ${detail.currencyAmount.toLocaleString()}`
+      : detail.currencyAmount.toLocaleString();
   }
 
   private loadReport(): void {
+    this.detailGeneration++;
+    this.pendingDetails.clear();
+    // A new result set invalidates every cached detail: the filters or scope that resolved them may
+    // have changed, and a panel must never describe a row under different conditions than the list.
+    this.detailCache.set({});
+    this.detailLoadingKey.set(null);
+    this.detailErrorKey.set(null);
+    this.expandedRecordKey.set(null);
     this.loading.set(true);
     this.error.set(null);
     this.report.set(null);

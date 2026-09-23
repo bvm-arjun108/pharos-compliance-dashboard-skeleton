@@ -407,3 +407,31 @@
   .transaction-toolbar .transaction-apply,
   .transaction-toolbar .transaction-clear { flex-basis: 100%; width: 100%; }
 }
+
+.transaction-detail-status {
+  margin: 0;
+  padding: 18px 4px;
+  font-size: 0.85rem;
+  color: #5f6360;
+}
+
+.transaction-detail-status--error {
+  color: #8a2f2f;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-retry {
+  border: 1px solid #d8d4cc;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 14px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.detail-retry:hover {
+  background: #f6f4f0;
+}
