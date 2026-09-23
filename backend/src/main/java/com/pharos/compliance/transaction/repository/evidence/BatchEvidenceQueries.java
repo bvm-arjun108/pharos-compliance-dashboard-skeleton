@@ -13,6 +13,9 @@ import static com.pharos.compliance.transaction.repository.evidence.EvidenceColu
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.EXCLUSION_REASON;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.EXCLUSION_STRATEGY;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.GALACTIC_ID;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.BATCH_INFO;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.REPORT_GENERATION_COMPLETED;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.BATCH_GENERATED_COLUMN;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.IDENTIFIER;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.IDENTIFIER_BIGINT;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.JOURNEY;
@@ -393,14 +396,46 @@ public class BatchEvidenceQueries {
       .asTable("metric_scoped");
   }
 
-  public Table<?> filteredEvidenceForBatch(Table<?> evidence, String metric, String search, String source, String stage, String outcome,
-      String status) {
+  public Table<?> filteredEvidenceForBatch(Table<?> evidence, int reportGroupId, String batchId, String metric, String search,
+      String source, String stage, String outcome, String status) {
     var scoped = metricScoped(evidence, metric, source);
     Field<String> identifier = requiredField(scoped, IDENTIFIER, String.class);
     Field<String> mtcn = requiredField(scoped, "mtcn", String.class);
     Field<String> stageField = requiredField(scoped, STAGE, String.class);
     Field<String> outcomeField = requiredField(scoped, OUTCOME, String.class);
     Field<String> statusField = requiredField(scoped, STATUS, String.class);
+    Field<String> evidenceSource = requiredField(scoped, EVIDENCE_SOURCE, String.class);
+    Field<String> upperStatus = DSL.upper(DSL.coalesce(statusField, ""));
+
+    // Same fix as PeriodEvidenceQueries#filteredEvidenceForPeriod, mirrored here: status=REPORTED
+    // must also match REPORT_GENERATION/GENERATED journey rows (see reportGenerationSuccess above,
+    // which already treats the two as equivalent for the metric filter -- this filter just never
+    // got the same treatment), not only rows a matching rule_hit row happened to relabel REPORTED.
+    // A bare TRANSFORMATION/SUCCESS row also counts, but -- exactly as in the period-scoped
+    // version, and for the same reason -- only when this one batch's own report was actually
+    // generated; a single-batch EXISTS check is enough here since, unlike the period path, there is
+    // only ever one batch to ask about.
+    Condition batchGeneratedCondition = DSL.exists(dsl
+      .selectOne()
+      .from(BATCH_INFO)
+      .where(BATCH_INFO.RPT_GRP_ID.eq(reportGroupId))
+      .and(BATCH_INFO.BATCH_ID.eq(batchId))
+      .and(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL"))));
+    Condition statusCondition = "ALL".equals(status)
+        ? DSL.trueCondition()
+        : VALUE_REPORTED.equals(status)
+          ? upperStatus
+            .eq(status)
+            .or(evidenceSource
+              .eq(SOURCE_JOURNEY)
+              .and(DSL.upper(DSL.coalesce(stageField, "")).eq("REPORT_GENERATION"))
+              .and(upperStatus.eq("GENERATED")))
+            .or(evidenceSource
+              .eq(SOURCE_JOURNEY)
+              .and(DSL.upper(DSL.coalesce(stageField, "")).eq("TRANSFORMATION"))
+              .and(upperStatus.eq("SUCCESS"))
+              .and(batchGeneratedCondition))
+          : upperStatus.eq(status);
 
     return dsl
       .select(scoped.fields())
@@ -408,7 +443,7 @@ public class BatchEvidenceQueries {
       .where("ALL".equals(stage) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(stageField, "")).eq(stage))
       .and(searchScope(search, identifier, mtcn))
       .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
-      .and("ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status))
+      .and(statusCondition)
       .asTable("filtered_evidence");
   }
 
@@ -417,7 +452,7 @@ public class BatchEvidenceQueries {
       String outcome, String status, String sortDirection, int size, long offset, EvidenceCursor cursor, EvidenceProjection projection) {
     var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
-    var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
+    var filtered = filteredEvidenceForBatch(evidence, reportGroupId, batchId, metric, search, source, stage, outcome, status);
     return paginator.pageEvidence(filtered, ids -> ruleHitMatchesForBatchEnrichment(reportGroupId, batchId, ids), sortDirection, size,
         offset, cursor, projection);
   }
@@ -427,7 +462,7 @@ public class BatchEvidenceQueries {
       String outcome, String status) {
     var ruleHitMatches = ruleHitMatchesForBatch(reportGroupId, batchId, status);
     var evidence = evidenceForBatch(reportGroupId, batchId, ruleHitMatches);
-    var filtered = filteredEvidenceForBatch(evidence, metric, search, source, stage, outcome, status);
+    var filtered = filteredEvidenceForBatch(evidence, reportGroupId, batchId, metric, search, source, stage, outcome, status);
     return paginator.countDistinctIdentifiers(filtered);
   }
 }

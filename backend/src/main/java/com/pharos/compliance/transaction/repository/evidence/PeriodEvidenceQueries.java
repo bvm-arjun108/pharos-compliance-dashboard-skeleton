@@ -16,6 +16,9 @@ import static com.pharos.compliance.transaction.repository.evidence.EvidenceColu
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.EXCLUSION_REASON;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.EXCLUSION_STRATEGY;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.GALACTIC_ID;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.BATCH_INFO;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.REPORT_GENERATION_COMPLETED;
+import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.BATCH_GENERATED_COLUMN;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.IDENTIFIER;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.IDENTIFIER_BIGINT;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.JOURNEY;
@@ -319,18 +322,84 @@ public class PeriodEvidenceQueries {
     return journeyBranch.unionAll(exclusionBranch).unionAll(ruleHitBranch).asTable("evidence");
   }
 
-  public Table<?> filteredEvidenceForPeriod(Table<?> evidence, String search, String outcome, String status) {
+  public Table<?> filteredEvidenceForPeriod(Table<?> evidence, Table<?> batchScope, String search, String outcome, String status) {
     Field<String> identifier = requiredField(evidence, IDENTIFIER, String.class);
     Field<String> mtcn = requiredField(evidence, "mtcn", String.class);
     Field<String> outcomeField = requiredField(evidence, OUTCOME, String.class);
     Field<String> statusField = requiredField(evidence, STATUS, String.class);
+    Field<String> evidenceSource = requiredField(evidence, EVIDENCE_SOURCE, String.class);
+    Field<String> stageField = requiredField(evidence, STAGE, String.class);
+    Field<String> upperStatus = DSL.upper(DSL.coalesce(statusField, ""));
+
+    if (!VALUE_REPORTED.equals(status)) {
+      return dsl
+        .select(evidence.fields())
+        .from(evidence)
+        .where(searchScope(search, identifier, mtcn))
+        .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
+        .and("ALL".equals(status) ? DSL.trueCondition() : upperStatus.eq(status))
+        .asTable("filtered_evidence");
+    }
+
+    // status=REPORTED must also match a JOURNEY row recorded as REPORT_GENERATION/GENERATED, not
+    // only a literal "REPORTED" status -- the latter only ever appears on a RULE_HIT-sourced row
+    // (synthesized from rule_hit.is_reported), so a reported transaction with no matching rule_hit
+    // row had no way to pass this filter at all. GENERATED is this codebase's own established
+    // "reported" convention (see everReportedCondition below and
+    // BatchEvidenceQueries#reportGenerationSuccess) -- confirmed missing here against real data: a
+    // single day's evidence undercounted the reconciliation aggregate's actual_reportable_txn by
+    // roughly a third to a half wherever journey coverage existed at all.
+    //
+    // A bare TRANSFORMATION/SUCCESS row also counts, but only when that row's own batch actually
+    // generated its report -- the same condition OverviewEvidenceQueries#reportingRoll's
+    // everReportedCondition already applies to the Transactions Overview tiles, mirrored here so
+    // this drilldown agrees with them. Without the batch_generated check, a transaction merely
+    // transformed in a batch whose report generation later failed would count as reported when it
+    // is really just sitting there, still waiting -- confirmed against a real batch where
+    // actual_reportable_txn itself still included those transactions (that scalar is a
+    // transformation-stage count, not a report-generation-confirmed one) while everReportedCondition
+    // correctly excludes them; matching actual_reportable_txn exactly would require treating that
+    // scalar as authoritative for "reported," which OverviewEvidenceQueries deliberately does not.
+    Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> bsBatchId = requiredField(batchScope, BATCH_ID_COLUMN, String.class);
+    var batchGenerated = dsl
+      .select(bsRptGrpId, bsBatchId,
+          DSL
+            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
+            .as(BATCH_GENERATED_COLUMN))
+      .from(batchScope)
+      .leftJoin(BATCH_INFO)
+      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
+      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
+      .asTable("reported_filter_batch_generated");
+
+    Field<Integer> evidenceRptGrpId = requiredField(evidence, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> evidenceBatchId = requiredField(evidence, EVIDENCE_BATCH_ID, String.class);
+    Field<Integer> bgRptGrpId = requiredField(batchGenerated, REPORT_GROUP_ID_COLUMN, Integer.class);
+    Field<String> bgBatchId = requiredField(batchGenerated, BATCH_ID_COLUMN, String.class);
+    Field<Boolean> bgGenerated = requiredField(batchGenerated, BATCH_GENERATED_COLUMN, Boolean.class);
+
+    Condition reportedCondition = upperStatus
+      .eq(status)
+      .or(evidenceSource
+        .eq(SOURCE_JOURNEY)
+        .and(DSL.upper(DSL.coalesce(stageField, "")).eq("REPORT_GENERATION"))
+        .and(upperStatus.eq("GENERATED")))
+      .or(evidenceSource
+        .eq(SOURCE_JOURNEY)
+        .and(DSL.upper(DSL.coalesce(stageField, "")).eq("TRANSFORMATION"))
+        .and(upperStatus.eq("SUCCESS"))
+        .and(bgGenerated.isTrue()));
 
     return dsl
       .select(evidence.fields())
       .from(evidence)
+      .leftJoin(batchGenerated)
+      .on(bgRptGrpId.eq(evidenceRptGrpId))
+      .and(bgBatchId.eq(evidenceBatchId))
       .where(searchScope(search, identifier, mtcn))
       .and("ALL".equals(outcome) ? DSL.trueCondition() : outcomeField.eq(outcome))
-      .and("ALL".equals(status) ? DSL.trueCondition() : DSL.upper(DSL.coalesce(statusField, "")).eq(status))
+      .and(reportedCondition)
       .asTable("filtered_evidence");
   }
 
@@ -343,7 +412,7 @@ public class PeriodEvidenceQueries {
       long offset, EvidenceCursor cursor, EvidenceProjection projection) {
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
+    var filtered = filteredEvidenceForPeriod(evidence, scope, search, outcome, status);
     return paginator.pageEvidence(filtered, ids -> ruleHitMatchesForPeriodEnrichment(scope, ids), sortDirection, size, offset, cursor,
         projection);
   }
@@ -351,7 +420,7 @@ public class PeriodEvidenceQueries {
   public long countEvidenceRecords(Table<?> scope, String search, String outcome, String status) {
     var ruleHitMatches = ruleHitMatchesForPeriod(scope, status);
     var evidence = evidenceForPeriod(scope, ruleHitMatches);
-    var filtered = filteredEvidenceForPeriod(evidence, search, outcome, status);
+    var filtered = filteredEvidenceForPeriod(evidence, scope, search, outcome, status);
     return paginator.countDistinctIdentifiers(filtered);
   }
 

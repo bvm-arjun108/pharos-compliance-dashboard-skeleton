@@ -179,6 +179,66 @@ once up front (`batchScope`) and then reused by all three branches so they all a
 batches are "in." Everything else — the priority merge, the pagination — works exactly the same
 way as the batch-scoped version, just over a bigger `scope`.
 
+### Fixed bug — `status=REPORTED` missed every transaction recorded as `REPORT_GENERATION`/`GENERATED`
+
+Reached by clicking a day's bar on the Transactions Overview page's "Daily Transaction Totals"
+heatmap or its line-chart equivalent (`openPeriodTransactionExplorer` in
+`transaction-overview.component.ts`, `status=REPORTED`/`status=EXCLUDED`). The heatmap cell's own
+number is `SUM(report_transformation_reconciliation.actual_reportable_txn)` for that day (see
+`Dashboard.md`'s "Transactions Overview trend" query); clicking it opens this evidence pipeline
+filtered to the matching status, and the two are supposed to describe the same population.
+
+For Excluded they did. For Reported they were off by roughly a third to well over half on every
+single day and report group checked against real mock data — e.g. one day showed 262 on the
+heatmap and 170 in the evidence list. The cause: `filteredEvidenceForPeriod`'s `status` filter
+compared the merged row's raw `status` column literally against the requested value. A RULE_HIT
+row that reached this pipeline carries a synthesized `status` of `REPORTED`/`NOT_REPORTED`, but a
+JOURNEY row never does — a genuinely reported transaction whose only evidence is its own journey
+log carries `stage=REPORT_GENERATION, status=GENERATED`, which is a different literal string. So
+`status=REPORTED` only ever matched transactions that happened to also have a matching RULE_HIT
+row; every transaction reported without ever triggering a compliance rule had no way to pass the
+filter at all.
+
+`GENERATED` as "reported" is not a new convention introduced for this fix — it is this codebase's
+own, already-established definition, used in three other places that all had to agree with each
+other but never with this filter: `DashboardRepository`/`OverviewEvidenceQueries`'s
+`everReportedCondition`, and `BatchEvidenceQueries`'s own `reportGenerationSuccess` (used by the
+batch-scoped `metric` filter, but never extended to either pipeline's `status` filter). The fix
+mirrors that same condition into both `PeriodEvidenceQueries#filteredEvidenceForPeriod` and
+`BatchEvidenceQueries#filteredEvidenceForBatch`: `status=REPORTED` now also matches a JOURNEY row
+at `stage=REPORT_GENERATION, status=GENERATED`.
+
+**Update — the `SUCCESS`-in-generated-batch half is now also covered.** The filter no longer stops
+at `GENERATED`: a bare `TRANSFORMATION/SUCCESS` row now also counts as reported, but only when that
+row's own batch actually generated its report (`report_batch_info.compiler_status`/`report_status`)
+— completing `everReportedCondition`'s full definition rather than half of it. A `SUCCESS` row in a
+batch whose report generation *failed* still does not count: it is merely transformed and still
+waiting, not reported. Confirmed against a real case: 18 `TRANSFORMATION/SUCCESS` identifiers in a
+batch with `compiler_status='Report Generation Failed'` are correctly excluded; including them
+unconditionally would have manufactured 18 false "reported" rows. The period path joins a small
+per-batch `report_batch_info` lookup into the filter (mirroring the same join `OverviewEvidenceQueries#reportingRoll`
+already uses); the batch path, scoped to one batch, uses a single correlated `EXISTS` instead.
+
+On this project's own mock data, completing this half changed **zero** counts anywhere tested: every
+`TRANSFORMATION/SUCCESS` transaction in a generated batch already has a matching `rule_hit` row
+(confirmed with a direct query across the entire dataset — 0 counter-examples), so the plain
+literal-`REPORTED` branch was already reaching all of them by coincidence. The completed condition
+is still correct and still necessary — production data has no reason to guarantee that same 1:1
+coverage, and this is the codebase's own established definition of "reported," not a new one.
+
+**What the remaining gap actually is.** The single-digit-percent residual against the heatmap
+(`SUM(actual_reportable_txn)`) on every normal day is not a further filter-coverage bug — it is a
+real definitional difference, and it's now been directly proven, not just asserted: for the batch
+above (`actual_reportable_txn = 18`, `compiler_status = 'Report Generation Failed'`), the
+reconciliation scalar counted those 18 transactions anyway. `actual_reportable_txn` is a
+**transformation-stage** output count that does not shrink when report generation later fails;
+`everReportedCondition` is a **report-generation-confirmed** count that deliberately excludes them.
+Matching the heatmap number exactly would mean treating "successfully transformed" as "reported,"
+which is a different, looser question than the one this filter now correctly answers — the same
+"don't force two different questions to agree" principle this project has applied everywhere else.
+Whether the *chart itself* should be relabeled to make that distinction visible (e.g. "Transformer
+output" vs "Reported") is a real, separate product question this fix does not decide.
+
 ### Code Flow — Period-scoped evidence
 
 - **API**: `GET /api/v1/transactions/period-report` — `TransactionReportApi.getPeriodTransactionReport` (`com.pharos.compliance.transaction.api.TransactionReportApi`)

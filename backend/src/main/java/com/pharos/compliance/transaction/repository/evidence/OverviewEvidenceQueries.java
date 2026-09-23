@@ -260,7 +260,7 @@ public class OverviewEvidenceQueries {
     var roll = reportingRoll(batchScope);
     var target = reportingTarget(roll, status, reason);
     var latest = latestJourneyForTarget(batchScope, target);
-    var filtered = periodEvidenceQueries.filteredEvidenceForPeriod(latest, search, outcome, "ALL");
+    var filtered = periodEvidenceQueries.filteredEvidenceForPeriod(latest, batchScope, search, outcome, "ALL");
     // Enrichment-only on this path -- `latest` comes from latestJourneyForTarget, not from the
     // three-source union, so nothing here consumes rule_hit as evidence rows. Passing the
     // status-short-circuited table (this path's status is always EXCLUDED or NOT_REPORTED, so it
@@ -277,7 +277,7 @@ public class OverviewEvidenceQueries {
       return dsl.selectCount().from(target).fetchOne(0, Long.class);
     }
     var latest = latestJourneyForTarget(batchScope, target);
-    var filtered = periodEvidenceQueries.filteredEvidenceForPeriod(latest, search, outcome, "ALL");
+    var filtered = periodEvidenceQueries.filteredEvidenceForPeriod(latest, batchScope, search, outcome, "ALL");
     return paginator.countDistinctIdentifiers(filtered);
   }
 }
