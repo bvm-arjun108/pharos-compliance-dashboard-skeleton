@@ -209,6 +209,13 @@ public class PeriodEvidenceQueries {
    * #ruleHitMatchesForPeriodEnrichment}, which is bounded to the rendered page and matched per
    * batch. Building this unbounded form for the enrichment was measured at ~11k materialized rows
    * to serve a 25-row question, with a planner estimate off by ~50x.
+   *
+   * <p>"Unrestricted by page" is not "unrestricted by batch". These rows carry
+   * efile_batch_id as their evidence_batch_id, and the paginator counts distinct
+   * (evidence_batch_id, identifier) pairs. Restricting only the report group lets a rule hit
+   * from an out-of-window batch add both a listed row and a counted pair whenever its
+   * identifier matches an in-window journey. Both ALL and REPORTED therefore need the
+   * exact (rpt_grp_id, efile_batch_id) pairs supplied by batchScope.
    */
   private Table<?> ruleHitBridge(Table<?> batchScope) {
     Field<Integer> bsRptGrpId = requiredField(batchScope, REPORT_GROUP_ID_COLUMN, Integer.class);
@@ -223,7 +230,8 @@ public class PeriodEvidenceQueries {
       .and(bsBatchId.eq(JOURNEY.BATCH_ID))
       .asTable("journey_scoped");
 
-    return ruleHitMatcher.ruleHitMatches(RULE_HIT_TABLE.RPT_GRP_ID.in(dsl.selectDistinct(bsRptGrpId).from(batchScope)), journeyScoped);
+    Condition ruleScope = DSL.row(RULE_HIT_TABLE.RPT_GRP_ID, RULE_HIT_TABLE.EFILE_BATCH_ID).in(dsl.select(bsRptGrpId, bsBatchId).from(batchScope));
+    return ruleHitMatcher.ruleHitMatches(ruleScope, journeyScoped);
   }
 
   public Table<?> evidenceForPeriod(Table<?> batchScope, Table<?> ruleHitMatches) {

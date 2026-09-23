@@ -160,6 +160,20 @@ class RuleHitEnrichmentScopeTest {
         "(\"pharos\".\"rule_hit\".\"rpt_grp_id\", \"pharos\".\"rule_hit\".\"efile_batch_id\") in"), sql);
   }
 
+  /**
+   * Union rows are counted as well as displayed: a rule hit from outside the selected
+   * group/batch pairs must not add another evidence-batch/identifier pair to the result.
+   */
+  @Test
+  void periodUnionBranchScopesRuleHitsToTheWindowsOwnBatches() {
+    for (String status : List.of("ALL", "REPORTED")) {
+      String sql = declarationOf(periodEvidenceQueries.ruleHitMatchesForPeriod(scope(), status));
+      assertTrue(sql.contains("(\"pharos\".\"rule_hit\".\"rpt_grp_id\", \"pharos\".\"rule_hit\".\"efile_batch_id\") in"),
+          "period union branch for status=" + status + " must scope rule hits to the window's own (group, batch) pairs, "
+              + "not to the report group as a whole, but rendered: " + sql);
+    }
+  }
+
   private EvidenceProjection projectionOf(EvidencePaginator paginator) {
     ArgumentCaptor<EvidenceProjection> mode = ArgumentCaptor.forClass(EvidenceProjection.class);
     verify(paginator).pageEvidence(any(), any(), anyString(), anyInt(), anyLong(), any(), mode.capture());

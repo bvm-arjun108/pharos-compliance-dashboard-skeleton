@@ -224,7 +224,7 @@ public class DashboardRepository {
               MISSING_ATTEMPT_BATCHES_COLUMN),
           countDistinctTupleFiltered(activityMissingGtZero, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO).as(
               ACTIVITY_MISSING_BATCHES_COLUMN),
-          DSL.coalesce(DSL.sum(RECONCILIATION.ACTUAL_REPORTABLE_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(
+          DSL.coalesce(DSL.sum(RECONCILIATION.ACTIVITY_TRANSFORMED), DSL.inline(java.math.BigDecimal.ZERO)).as(
               TOTAL_REPORTED_TRANSACTIONS_COLUMN),
           DSL.coalesce(DSL.sum(RECONCILIATION.EXCLUDED_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
       .from(RECONCILIATION)
@@ -383,6 +383,9 @@ public class DashboardRepository {
    * totals per bucket. See {@link #getBatchHealthTrend}'s Javadoc for why this is a separate
    * query rather than the two totals riding along on that one.
    */
+  // Reported totals use activity_transformed, not actual_reportable_txn, which can
+  // include failed transformation attempts. Keep expected/actual reconciliation variance
+  // calculations on their existing fields; this change concerns the displayed reported totals.
   @SqlQueryPurpose("Transactions Overview > Trend heatmap/line charts > Load reported and excluded transaction totals")
   public List<TransactionVolumeTrendProjection> getTransactionVolumeTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
@@ -393,7 +396,7 @@ public class DashboardRepository {
 
     var periodMetrics = dsl
       .select(trendPeriods.periodStartExpr().as(PERIOD_START_COLUMN),
-          DSL.coalesce(DSL.sum(RECONCILIATION.ACTUAL_REPORTABLE_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(
+          DSL.coalesce(DSL.sum(RECONCILIATION.ACTIVITY_TRANSFORMED), DSL.inline(java.math.BigDecimal.ZERO)).as(
               TOTAL_REPORTED_TRANSACTIONS_COLUMN),
           DSL.coalesce(DSL.sum(RECONCILIATION.EXCLUDED_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
       .from(RECONCILIATION)
