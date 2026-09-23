@@ -881,6 +881,7 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
         country: this.country(),
         reportGroupId: this.selectedReportGroupIdOrNull(),
         status: metricFocus,
+        ...(metricFocus === 'EXCLUDED' ? { batchScopedExcluded: true } : {}),
         // Distinct from `view: 'overview'` (openExcludedTransactionsExplorer/
         // openNotReportedTransactionsExplorer) -- that flag also restricts the report's status
         // dropdown to EXCLUDED/NOT_REPORTED, which is wrong here since a REPORTED total still needs
