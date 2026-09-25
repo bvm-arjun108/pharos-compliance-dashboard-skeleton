@@ -88,9 +88,7 @@ com.pharos.compliance
 │   ├── exception      Application exceptions
 │   ├── jdbc           Hand-written SQL support: SqlFragment composition, .sql resource loading,
 │   │                  the tracing NamedParameterJdbcTemplate wrapper, shared query fragments
-│   ├── jooq           Query-tracing/purpose annotations and performance metrics (package name is
-│   │                  a holdover from the jOOQ-based implementation these replaced; no jOOQ
-│   │                  dependency remains here)
+│   ├── metrics        Per-request database query timing and performance summaries
 │   └── tracing        Trace/span propagation and request logging
 ├── config             Database, cache, OpenAPI, and application configuration
 ├── dashboard          Operational overview, KPIs, trends, and report-group priority

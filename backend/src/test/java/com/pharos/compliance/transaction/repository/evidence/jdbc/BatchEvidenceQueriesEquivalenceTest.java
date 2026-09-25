@@ -4,10 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
 import com.pharos.compliance.testsupport.PostgresIntegrationTest;
+import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.repository.evidence.EvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -189,6 +192,37 @@ class BatchEvidenceQueriesEquivalenceTest extends PostgresIntegrationTest {
           .stream()
           .noneMatch(r -> r.identifier().equals(firstPage.records().get(0).identifier())),
         "the second page must not repeat the first page's transaction");
+  }
+
+  @Test
+  void cursorPaginationIncludesEveryNullTimestampRowInBothDirections() {
+    jdbcTemplate.update("update pharos.record_transformation_journey set modified_timestamp = null "
+        + "where rpt_grp_id = :groupId and batch_id = :batchId and identifier in ('910003', '910004')",
+        new MapSqlParameterSource().addValue("groupId", GROUP).addValue("batchId", BATCH));
+
+    for (String direction : List.of("ASC", "DESC")) {
+      Set<String> identifiers = walkEveryCursorPage(direction);
+      assertEquals(5, identifiers.size(), "every distinct evidence row must remain reachable in " + direction + " order");
+      assertTrue(identifiers.contains("910003"), "the first null-timestamp row was skipped in " + direction + " order");
+      assertTrue(identifiers.contains("910004"), "the second null-timestamp row was skipped in " + direction + " order");
+    }
+  }
+
+  private Set<String> walkEveryCursorPage(String direction) {
+    Set<String> identifiers = new HashSet<>();
+    EvidenceCursor cursor = null;
+    for (int pageNumber = 0; pageNumber < 10; pageNumber++) {
+      EvidencePage page =
+          queries.findEvidenceRecords(GROUP, BATCH, "ALL", "", "ALL", "ALL", "ALL", "ALL", direction, 1, 0, cursor, EvidenceProjection.LIST);
+      page
+        .records()
+        .forEach(record -> identifiers.add(record.identifier()));
+      if (page.nextCursor() == null) {
+        return identifiers;
+      }
+      cursor = EvidenceCursor.decode(page.nextCursor());
+    }
+    throw new AssertionError("cursor pagination did not terminate in " + direction + " order");
   }
 
   @Test

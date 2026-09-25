@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-lc",
+        "export PATH=/Users/arjunsharma/.nvm/versions/node/v24.19.0/bin:$PATH && cd frontend && npm start"
+      ],
+      "port": 4200
+    }
+  ]
+}

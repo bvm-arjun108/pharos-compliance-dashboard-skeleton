@@ -65,10 +65,8 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- Real-PostgreSQL execution tests for the jOOQ -> Spring JDBC migration: the existing
-             suite proves query shape (rendered SQL/bind values) but never execution semantics
-             against an actual database, a real gap given the migration's "100% same resultset"
-             bar. Versions come from spring-boot-starter-parent's dependency management. -->
+        <!-- Repository SQL execution tests use a real ephemeral PostgreSQL instance. Versions
+             come from spring-boot-starter-parent's dependency management. -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -91,7 +89,7 @@
                 <!-- Testcontainers-based tests (tagged "integration", see PostgresIntegrationTest)
                      need a Docker daemon and are slower than the rest of the suite, so routine
                      `mvn test` skips them. The -Pintegration-test profile below re-includes them
-                     for CI and for each jOOQ-to-JDBC migration phase's merge gate. -->
+                     for a CI database-query merge gate. -->
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
@@ -147,7 +145,7 @@
             <!-- Runs the Testcontainers-tagged "integration" tests excluded by default (see the
                  surefire plugin config above). Requires a Docker daemon. Mandatory at every
                  jOOQ-to-JDBC migration phase's merge gate; not part of the routine local
-                 `mvn test` inner loop. -->
+                 `mvn test` inner loop. CI should invoke this profile explicitly. -->
             <id>integration-test</id>
             <build>
                 <plugins>

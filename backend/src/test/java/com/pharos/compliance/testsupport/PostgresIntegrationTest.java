@@ -16,9 +16,7 @@ import org.testcontainers.utility.MountableFile;
 
 /**
  * Base class for tests that need to run hand-written SQL against a real PostgreSQL instance,
- * rather than only rendering it -- the gap the existing jOOQ-era test suite leaves (it proves SQL
- * shape and bind values, never execution semantics), and the thing this jOOQ-to-JDBC migration's
- * "100% same resultset" bar actually requires proof of.
+ * rather than only inspecting query text and bind values.
  *
  * <p>One container per test class (Testcontainers starts it once in {@code @BeforeAll} via the
  * {@code @Container} field and reuses it for every {@code @Test} in the class). Schema is seeded
@@ -29,9 +27,8 @@ import org.testcontainers.utility.MountableFile;
  * {@code psql} (not Testcontainers' JDBC-based script runner, which cannot execute the dump's
  * own psql-only "restrict"/"unrestrict" meta-commands).
  *
- * <p>No Spring {@code ApplicationContext} is started here -- this stays a plain JDBC connection so
- * these tests are fast and independent of jOOQ autoconfiguration, whether or not the repository
- * under test has been migrated yet.
+ * <p>No Spring {@code ApplicationContext} is started here; the fixture uses a plain JDBC
+ * connection so repository SQL tests remain focused and fast.
  */
 @Testcontainers
 @Tag("integration")

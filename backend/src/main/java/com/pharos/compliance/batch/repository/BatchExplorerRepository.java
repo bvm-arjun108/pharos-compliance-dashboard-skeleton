@@ -19,8 +19,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Migrated from jOOQ to hand-written parameterized SQL (Phase 3 of the jOOQ-to-JDBC migration);
- * every query below preserves the original's logic, filters, ordering and result shape exactly.
+ * Batch Explorer summary, queue and selected-batch queries.
  */
 @Repository
 @Transactional(readOnly = true)

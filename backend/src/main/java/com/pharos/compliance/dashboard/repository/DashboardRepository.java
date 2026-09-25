@@ -23,10 +23,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Migrated from jOOQ to hand-written parameterized SQL (Phase 4 of the jOOQ-to-JDBC migration);
- * every query below preserves the original's logic, filters, ordering and result shape exactly.
- * First consumer to switch to {@link TransformationFailureQueries}'s JDBC-side version -- {@code
- * TransactionReportRepository} (Phase 6g) is the only remaining jOOQ consumer of the old one.
+ * Batch and transaction dashboard queries, implemented as parameterized PostgreSQL resources.
  */
 @Repository
 @Transactional(readOnly = true)

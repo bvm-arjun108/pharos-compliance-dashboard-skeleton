@@ -3,6 +3,7 @@ package com.pharos.compliance.transaction.repository.evidence.jdbc;
 import com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
 import com.pharos.compliance.common.jdbc.sql.SqlFragment;
 import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
+import com.pharos.compliance.common.jdbc.sql.SqlSortDirection;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
 import com.pharos.compliance.transaction.repository.evidence.EvidenceColumns;
 import com.pharos.compliance.transaction.repository.evidence.EvidenceProjection;
@@ -45,91 +46,10 @@ public class EvidencePaginator {
       (rs, rowNum) -> new PageKey(rs.getString("evidence_batch_id"), rs.getString("identifier"),
           rs.getObject("sort_ts", OffsetDateTime.class), rs.getString("record_key"));
   private static final RowMapper<TransactionEvidenceProjection> LIST_ROW_MAPPER =
-      (rs, rowNum) -> new TransactionEvidenceProjection(rs
-            // recordKey
-            .getString("recordKey"), rs
-            // identifier
-            .getString("identifier"), rs
-            // mtcn
-            .getString("mtcn"), rs
-            // batchId
-            .getString("batchId"), rs
-            // evidenceSource
-            .getString("evidenceSource"), rs
-            // stage
-            .getString("stage"), rs
-            // status
-            .getString("status"), rs
-            // outcome
-            .getString("outcome"), rs
-            // comments
-            .getString("comments"), rs
-            // skipReason
-            .getString("skipReason"),
-          // ruleId (detail-only)
-          null, rs
-            // exclusionReason
-            .getString("exclusionReason"),
-          // exclusionStrategy (detail-only)
-          null, rs
-            // reportedBatchId
-            .getString("reportedBatchId"),
-          // reportingTimestamp (detail-only)
-          null, rs
-            // modifiedAt
-            .getString("modifiedAt"),
-          // processingComplete
-          (Boolean) rs.getObject("processingComplete"),
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // currencyAmount..receiverName (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // senderCity..receiverCity (detail-only)
-          null,
-          // receiverCountry..receiverIdNumber (detail-only)
-          null,
-          // receiverCountry..receiverIdNumber (detail-only)
-          null,
-          // receiverCountry..receiverIdNumber (detail-only)
-          null,
-          // receiverCountry..receiverIdNumber (detail-only)
-          null,
-          // receiverCountry..receiverIdNumber (detail-only)
-          null,
-          // receiverCountry..receiverIdNumber (detail-only)
-          null, null, null,
-          // transactionStatus, transactionSubStatus, ruleHitsJson (detail-only)
-          null);
+      (rs, rowNum) -> TransactionEvidenceProjection.list(rs.getString("recordKey"), rs.getString("identifier"), rs.getString("mtcn"),
+          rs.getString("batchId"), rs.getString("evidenceSource"), rs.getString("stage"), rs.getString("status"), rs.getString("outcome"),
+          rs.getString("comments"), rs.getString("skipReason"), rs.getString("exclusionReason"), rs.getString("reportedBatchId"),
+          rs.getString("modifiedAt"), (Boolean) rs.getObject("processingComplete"));
   private static final RowMapper<TransactionEvidenceProjection> DETAIL_ROW_MAPPER =
       (rs, rowNum) -> {
     Double currencyAmount = (Double) rs.getObject("currencyAmount");
@@ -158,9 +78,8 @@ public class EvidencePaginator {
 
   private record EvidencePageKeys(List<PageKey> keys, String nextCursor) {}
 
-  private static String orderBy(String sortDirection, String prefix) {
-    boolean ascending = "ASC".equals(sortDirection);
-    return ascending
+  private static String orderBy(SqlSortDirection sortDirection, String prefix) {
+    return sortDirection == SqlSortDirection.ASC
         ? prefix + "sort_ts asc nulls last, " + prefix + "record_key asc"
         : prefix + "sort_ts desc nulls last, " + prefix + "record_key asc";
   }
@@ -219,6 +138,7 @@ public class EvidencePaginator {
   public EvidencePage pageEvidence(List<SqlFragment> filteredCtes, boolean carriesReportGroupId,
       Function<Collection<String>, SqlFragment> ruleHitBridge, String sortDirection, int size, long offset, EvidenceCursor cursor,
       EvidenceProjection projection) {
+    SqlSortDirection resolvedSortDirection = SqlSortDirection.from(sortDirection);
     SqlFragment rankedCte = SqlFragment.of(sql.load(RANKED_EVIDENCE_SQL)).asCte("ranked_evidence");
 
     String sortKeysSql = "select evidence_batch_id, identifier,\n  "
@@ -245,7 +165,6 @@ public class EvidencePaginator {
       sortKeysSource = "exact_detail_keys";
     }
 
-    boolean ascending = "ASC".equals(sortDirection);
     Map<String, Object> fetchParams = new HashMap<>();
     StringBuilder fetchWhere = new StringBuilder();
     if (cursor != null) {
@@ -254,12 +173,16 @@ public class EvidencePaginator {
       // ROW(sortTs, recordKey) comparison (which applies the same direction to both columns)
       // silently drops rows tied on sort_ts but sorted after the cursor by the ascending tiebreak
       // whenever the requested direction is DESC.
-      String cmp = ascending ? ">" : "<";
-      fetchWhere
-        .append("where (sort_ts ")
-        .append(cmp)
-        .append(" :cursorSortTs or (sort_ts = :cursorSortTs and record_key > :cursorRecordKey))\n");
-      fetchParams.put("cursorSortTs", cursor.sortTs());
+      if (cursor.sortTs() == null) {
+        fetchWhere.append("where sort_ts is null and record_key > :cursorRecordKey\n");
+      } else {
+        String cmp = resolvedSortDirection == SqlSortDirection.ASC ? ">" : "<";
+        fetchWhere
+          .append("where (sort_ts ")
+          .append(cmp)
+          .append(" :cursorSortTs or (sort_ts = :cursorSortTs and record_key > :cursorRecordKey) or sort_ts is null)\n");
+        fetchParams.put("cursorSortTs", cursor.sortTs());
+      }
       fetchParams.put("cursorRecordKey", cursor.recordKey());
     }
     fetchParams.put("fetchLimit", size + 1);
@@ -268,7 +191,7 @@ public class EvidencePaginator {
       .append("\n")
       .append(fetchWhere)
       .append("order by ")
-      .append(orderBy(sortDirection, ""))
+      .append(orderBy(resolvedSortDirection, ""))
       .append("\nlimit :fetchLimit");
     if (cursor == null) {
       fetchSql.append(" offset :fetchOffset");
@@ -290,7 +213,7 @@ public class EvidencePaginator {
 
     if (!projection.details()) {
       // Nothing in the list projection reads rule hits, so the bridge is not built at all here.
-      String listSql = sql.load(SELECT_LIST_PAGE_SQL).replace("%%ORDER_BY%%", orderBy(sortDirection, "m."));
+      String listSql = sql.load(SELECT_LIST_PAGE_SQL).replace("%%ORDER_BY%%", orderBy(resolvedSortDirection, "m."));
       SqlFragment combined = SqlFragment.combine(mergeCtes, SqlFragment.of(listSql));
       List<TransactionEvidenceProjection> records = jdbc.query(combined.sql(), combined.parameterSource(), LIST_ROW_MAPPER);
       return new EvidencePage(records, page.nextCursor());
@@ -305,7 +228,7 @@ public class EvidencePaginator {
     String detailSql = sql
       .load(SELECT_DETAIL_PAGE_SQL)
       .replace("%%REPORT_GROUP_FILTER%%", reportGroupFilter)
-      .replace("%%ORDER_BY%%", orderBy(sortDirection, "m."));
+      .replace("%%ORDER_BY%%", orderBy(resolvedSortDirection, "m."));
     SqlFragment combined = SqlFragment.combine(detailCtes, SqlFragment.of(detailSql));
     List<TransactionEvidenceProjection> records = jdbc.query(combined.sql(), combined.parameterSource(), DETAIL_ROW_MAPPER);
     return new EvidencePage(records, page.nextCursor());

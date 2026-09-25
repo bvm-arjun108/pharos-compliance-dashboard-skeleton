@@ -127,21 +127,6 @@ public class TransactionReportRepository {
   }
 
   /**
-   * Routes EXCLUDED/NOT_REPORTED to {@link OverviewEvidenceQueries} (a transaction's outcome
-   * across every batch in this window, matching the Transactions Overview dashboard tile's own
-   * "ever excluded"/"ever reported" definition) and every other status to {@link
-   * PeriodEvidenceQueries} (this period's batch evidence rows) -- see {@link
-   * OverviewEvidenceQueries}'s class Javadoc for why the two are deliberately not shared. {@code
-   * batchScopedExcluded} is the one exception: the Report Groups Requiring Attention table's own
-   * "Excluded" column is {@code SUM(excluded_txn)} over the exact same batch set this scope
-   * already resolves -- a fundamentally different, simpler definition than "ever excluded across
-   * every batch in this window" -- so a caller showing evidence for
-   * *that* number passes this flag to get {@link PeriodEvidenceQueries
-   * #findExcludedEvidenceRecordsForBatchTotal} instead, which actually matches it. Ignored unless
-   * status is EXCLUDED; NOT_REPORTED always uses the overview rollup, since it has no batch-scoped
-   * KPI to match in the first place.
-   */
-  /**
    * One transaction's full evidence for the detail request, produced by running the <em>same</em>
    * pipeline and the <em>same</em> filters the list ran and then keeping the one matching row.
    *
@@ -189,6 +174,16 @@ public class TransactionReportRepository {
       .findFirst();
   }
 
+  /**
+   * Routes EXCLUDED/NOT_REPORTED to {@link OverviewEvidenceQueries} (a transaction's outcome
+   * across every batch in this window, matching the Transactions Overview dashboard tile's own
+   * "ever excluded"/"ever reported" definition) and every other status to {@link
+   * PeriodEvidenceQueries} (this period's batch evidence rows). {@code batchScopedExcluded} is the
+   * one exception: the Report Groups Requiring Attention table's Excluded column is {@code
+   * SUM(excluded_txn)} over its exact batch set, so that drilldown uses {@link
+   * PeriodEvidenceQueries#findExcludedEvidenceRecordsForBatchTotal}. The flag is ignored for every
+   * status except EXCLUDED.
+   */
   @SqlQueryPurpose("Load paginated transaction evidence across the selected reporting period")
   public EvidencePage findPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,

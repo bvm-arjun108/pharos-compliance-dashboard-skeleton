@@ -26,11 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
  * confirmed against real data that it's numeric in every row, so a query that doesn't parse as a
  * number matches nothing rather than falling back to a raw string comparison against identifier.
  *
- * <p>Migrated from jOOQ to hand-written parameterized SQL (Phase 5 of the jOOQ-to-JDBC migration);
- * every query below preserves the original's logic, filters, ordering and result shape exactly --
- * including the correlated-scalar-subquery lookup of each match's report group name/country
- * (deliberately not rewritten to a join or a shared ranking CTE: the result set here is a handful
- * of search matches, not a batch's worth of rows, so the per-row subquery cost is negligible).
+ * <p>The report-group name and country use correlated scalar lookups deliberately: the result is a
+ * handful of search matches, so a ranking CTE would add more machinery without changing the
+ * result.
  */
 @Repository
 @Transactional(readOnly = true)

@@ -32,10 +32,6 @@ import org.springframework.transaction.annotation.Transactional;
  * countries/report types matters) still rank rows by {@code rpt_grp_id} and keep rank 1, ordered
  * newest-modified first (falling back to newest-created, then highest version numbers, for rows
  * with tied or null timestamps).
- *
- * <p>Migrated from jOOQ to hand-written parameterized SQL (Phase 1 of the jOOQ-to-JDBC migration);
- * every query below preserves the original's logic, filters, ordering and result shape exactly --
- * see the migration plan for the verification this was checked against.
  */
 @Repository
 @Transactional(readOnly = true)

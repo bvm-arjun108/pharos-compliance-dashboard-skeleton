@@ -1,14 +1,6 @@
 package com.pharos.compliance.transaction.repository.evidence.jdbc;
 
-/**
- * Fully-qualified table names replacing {@code
- * com.pharos.compliance.transaction.repository.evidence.EvidenceColumns}'s jOOQ generated-table
- * object constants (e.g. {@code EvidenceColumns.RECONCILIATION}), for the hand-written SQL
- * evidence-pipeline classes as they migrate off jOOQ (Phase 6 of the jOOQ-to-JDBC migration).
- * {@code EvidenceColumns}'s own column-name String constants (e.g. {@code
- * EvidenceColumns.IDENTIFIER}) and {@code MERGE_COLUMNS} list have no jOOQ dependency already and
- * are reused directly by both jOOQ-based and JDBC-based code without needing a copy here.
- */
+/** Fully-qualified table names shared by the transaction-evidence SQL builders. */
 public final class EvidenceTables {
   public static final String RECONCILIATION = "pharos.report_transformation_reconciliation";
   public static final String JOURNEY = "pharos.record_transformation_journey";

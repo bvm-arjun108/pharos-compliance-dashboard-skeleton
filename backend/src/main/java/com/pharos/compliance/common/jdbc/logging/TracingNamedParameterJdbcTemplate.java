@@ -4,13 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.pharos.compliance.common.metrics.QueryPerformanceTracker;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -23,8 +17,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 /**
- * Wraps {@link NamedParameterJdbcTemplate} so every JDBC-migrated repository is timed and traced
- * exactly the way jOOQ-backed repositories are today via {@code PrettySqlExecuteListener} --
+ * Wraps {@link NamedParameterJdbcTemplate} so every repository query is timed and traced through
  * the same {@link QueryPerformanceTracker#recordQuery} call (gated only by {@link
  * QueryPerformanceTracker#isRequestActive()}, independent of log level), the same {@link
  * SqlQueryPurposeResolver}/{@link SqlUiSectionResolver} resolution, and the same DEBUG-gated
@@ -54,13 +47,12 @@ public class TracingNamedParameterJdbcTemplate {
   }
 
   /**
-   * Maps every row with {@code rowMapper} -- the direct replacement for a jOOQ {@code
-   * dsl.select(...).fetch(mapper)}.
+   * Maps every row with {@code rowMapper}.
    */
   public <T> List<T> query(String sql, MapSqlParameterSource params, RowMapper<T> rowMapper) {
     return traced(sql, params, () -> {
-      List<Map<String, Object>> captured = LOGGER.isDebugEnabled() ? new ArrayList<>() : null;
-      List<T> results = delegate.query(sql, params, debugCapturing(rowMapper, captured));
+      List<T> results = delegate.query(sql, params, rowMapper);
+      Object captured = LOGGER.isDebugEnabled() ? results : null;
       return new Executed<>(results, results.size(), captured);
     });
   }
@@ -68,8 +60,7 @@ public class TracingNamedParameterJdbcTemplate {
   /**
    * At most one row expected -- the replacement for jOOQ's {@code fetchOptional(mapper)}.
    *
-   * @throws IncorrectResultSizeDataAccessException if more than one row matches, mirroring jOOQ's
-   *     own {@code TooManyRowsException} on {@code fetchOptional}.
+   * @throws IncorrectResultSizeDataAccessException if more than one row matches.
    */
   public <T> Optional<T> queryForOptional(String sql, MapSqlParameterSource params, RowMapper<T> rowMapper) {
     List<T> results = query(sql, params, rowMapper);
@@ -80,37 +71,17 @@ public class TracingNamedParameterJdbcTemplate {
   }
 
   /**
-   * A single scalar column, e.g. {@code SELECT count(*)} -- the replacement for jOOQ's {@code
-   * fetchOne(0, Type.class)}.
+   * A single scalar column, e.g. {@code SELECT count(*)}.
    */
   public <T> T queryForScalar(String sql, MapSqlParameterSource params, Class<T> requiredType) {
     return traced(sql, params, () -> {
       T result = delegate.queryForObject(sql, params, requiredType);
-      List<Map<String, Object>> captured = LOGGER.isDebugEnabled() ? List.of(Map.of("value", String.valueOf(result))) : null;
+      Object captured = LOGGER.isDebugEnabled() ? List.of(java.util.Map.of("value", String.valueOf(result))) : null;
       return new Executed<>(result, 1, captured);
     });
   }
 
-  private <T> RowMapper<T> debugCapturing(RowMapper<T> real, List<Map<String, Object>> captured) {
-    if (captured == null) {
-      return real;
-    }
-    return (rs, rowNum) -> {
-      captured.add(rowToMap(rs));
-      return real.mapRow(rs, rowNum);
-    };
-  }
-
-  private static Map<String, Object> rowToMap(ResultSet rs) throws SQLException {
-    ResultSetMetaData meta = rs.getMetaData();
-    Map<String, Object> row = new LinkedHashMap<>();
-    for (int i = 1; i <= meta.getColumnCount(); i++) {
-      row.put(meta.getColumnLabel(i), rs.getObject(i));
-    }
-    return row;
-  }
-
-  private record Executed<T>(T value, int rows, List<Map<String, Object>> capturedRows) {}
+  private record Executed<T>(T value, int rows, Object capturedResult) {}
 
   private <T> T traced(String sql, MapSqlParameterSource params, SqlSupplier<Executed<T>> execution) {
     boolean tracking = queryPerformanceTracker.isRequestActive();
@@ -147,7 +118,7 @@ public class TracingNamedParameterJdbcTemplate {
         } else {
           LOGGER.debug("SQL query completed — {} | operation={} | affectedRows={} | duration={}ms", purpose, OPERATION, executed.rows(),
               durationNanos / 1_000_000);
-          logResult(uiSection, purpose, queryId, executed.capturedRows());
+          logResult(uiSection, purpose, queryId, executed.rows(), executed.capturedResult());
         }
       }
     }
@@ -157,14 +128,14 @@ public class TracingNamedParameterJdbcTemplate {
     return execution.get().value();
   }
 
-  private void logResult(String uiSection, String purpose, String queryId, List<Map<String, Object>> rows) {
-    if (rows == null) {
+  private void logResult(String uiSection, String purpose, String queryId, int returnedRows, Object result) {
+    if (result == null) {
       return;
     }
     try {
-      String json = objectMapper.writeValueAsString(rows);
+      String json = objectMapper.writeValueAsString(result);
       LOGGER.debug("SQL result | uiSection={} | purpose={} | queryId={} | returnedRows={} | format=JSON\n{}", uiSection, purpose, queryId,
-          rows.size(), json);
+          returnedRows, json);
     } catch (RuntimeException | JsonProcessingException e) {
       // Diagnostic serialization must not change a successful database response.
       LOGGER.debug("SQL result could not be formatted | uiSection={} | queryId={}", uiSection, queryId);
