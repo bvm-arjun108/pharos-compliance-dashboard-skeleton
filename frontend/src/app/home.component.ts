@@ -314,7 +314,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
         @if (dashboardDetails(); as details) {
           <div class="chart-summary">
             <div class="chart-legend" aria-label="Chart legend">
-              <span><i class="legend-swatch legend-swatch--success"></i>Successful</span>
+              <span><i class="legend-swatch legend-swatch--success"></i>No attention needed</span>
               <span><i class="legend-swatch legend-swatch--attention"></i>Needs attention</span>
             </div>
             <strong>{{ overallAttentionRate(details) | number:'1.0-0' }}% attention rate</strong>
@@ -344,7 +344,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                     @for (period of details.batchHealthTrend; track period.periodStart) {
                       <div
                         class="daily-column"
-                        [attr.title]="period.periodStart + ' to ' + period.periodEnd + ': ' + period.batchesRan + ' ran, ' + period.successfulBatches + ' successful, ' + period.batchesNeedingAttention + ' needing attention'"
+                        [attr.title]="period.periodStart + ' to ' + period.periodEnd + ': ' + period.batchesRan + ' ran, ' + period.successfulBatches + ' not needing attention, ' + period.batchesNeedingAttention + ' needing attention'"
                       >
                         <div class="daily-bar-area">
                           @if (period.batchesRan === 0) {
@@ -368,7 +368,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                                 class="daily-segment daily-segment--success"
                                 [style.height.%]="trendSegmentHeight(period.successfulBatches, period.batchesRan)"
                                 [disabled]="period.successfulBatches === 0"
-                                [attr.aria-label]="'View ' + period.successfulBatches + ' successful batches on ' + period.periodStart"
+                                [attr.aria-label]="'View ' + period.successfulBatches + ' batches not needing attention on ' + period.periodStart"
                                 (click)="openPeriodExplorer(period, 'SUCCESSFUL')"
                               >
                                 @if (showTrendSegmentLabel(period.successfulBatches, details.batchHealthTrend)) {
@@ -383,7 +383,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                             type="button"
                             class="daily-success-count"
                             [disabled]="period.successfulBatches === 0"
-                            [attr.aria-label]="'View ' + period.successfulBatches + ' successful batches on ' + period.periodStart"
+                            [attr.aria-label]="'View ' + period.successfulBatches + ' batches not needing attention on ' + period.periodStart"
                             (click)="openPeriodExplorer(period, 'SUCCESSFUL')"
                           >{{ period.successfulBatches }}</button>
                           <button
@@ -443,7 +443,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                       <button type="button" class="sort-header" (click)="setAttentionSort('batchesRan')">Ran{{ attentionSortIndicator('batchesRan') }}</button>
                     </th>
                     <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('successfulBatches')">
-                      <button type="button" class="sort-header" (click)="setAttentionSort('successfulBatches')">Successful{{ attentionSortIndicator('successfulBatches') }}</button>
+                      <button type="button" class="sort-header" (click)="setAttentionSort('successfulBatches')">No Attention{{ attentionSortIndicator('successfulBatches') }}</button>
                     </th>
                     <th scope="col" class="number-cell" [attr.aria-sort]="attentionAriaSort('batchesNeedingAttention')">
                       <button type="button" class="sort-header" (click)="setAttentionSort('batchesNeedingAttention')">Attention{{ attentionSortIndicator('batchesNeedingAttention') }}</button>
@@ -490,7 +490,7 @@ type ExplorerMetricFocus = 'DEFAULT' | 'REPORTED' | 'EXCLUDED';
                       </td>
                       <td class="number-cell">
                         @if (group.successfulBatches > 0) {
-                          <button type="button" class="table-metric-link metric-pill metric-pill--success" (click)="openReportGroupExplorer(group, 'SUCCESSFUL')" [attr.aria-label]="'View ' + group.successfulBatches + ' successful batches'">{{ group.successfulBatches | number:'1.0-0' }}</button>
+                          <button type="button" class="table-metric-link metric-pill metric-pill--success" (click)="openReportGroupExplorer(group, 'SUCCESSFUL')" [attr.aria-label]="'View ' + group.successfulBatches + ' batches not needing attention'">{{ group.successfulBatches | number:'1.0-0' }}</button>
                         } @else {
                           <span class="metric-pill metric-pill--success metric-pill--zero">0</span>
                         }
@@ -895,7 +895,7 @@ export class HomeComponent implements OnInit {
 
   trendDescription(granularity: TrendGranularity): string {
     const bucket = granularity.toLowerCase();
-    return `Completed batches grouped ${bucket} and split into successful and attention outcomes.`;
+    return `Completed batches grouped ${bucket} and split by whether operator attention is needed.`;
   }
 
   trendDateFormat(granularity: TrendGranularity): string {

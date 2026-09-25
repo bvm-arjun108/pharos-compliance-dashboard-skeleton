@@ -31,6 +31,9 @@ public class BatchExplorerRepository {
   private static final String BATCH_DETAILS_SQL = "sql/batch/batch-details.sql";
   private static final RowMapper<BatchSummaryProjection> SUMMARY_ROW_MAPPER =
       (rs, rowNum) -> new BatchSummaryProjection(rs.getLong("allBatches"), rs.getLong("successfulBatches"), rs.getLong("attentionBatches"),
+          rs.getLong("activityMissingBatches"), rs.getLong("missingAttemptBatches"), rs.getLong("transformationBatches"),
+          rs.getLong("duplicateTransactionBatches"), rs.getLong("exclusionBatches"), rs.getLong("simulatedTransactionBatches"),
+          rs.getLong("softDedupBatches"),
           rs.getString("reportGroupName"));
   private static final RowMapper<BatchQueueProjection> QUEUE_ROW_MAPPER =
       (rs, rowNum) -> new BatchQueueProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"), rs.getString("batchId"),

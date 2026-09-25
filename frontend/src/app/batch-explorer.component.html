@@ -12,11 +12,7 @@
   <header class="explorer-heading">
     <div>
       <h1>{{ explorerTitle() }}</h1>
-      @if (response(); as result) {
-        <p>{{ result.matchingBatches | number:'1.0-0' }} of {{ result.summary.allBatches | number:'1.0-0' }} batches match the current selection</p>
-      } @else {
-        <p>Prioritize, preview, and investigate batch execution results.</p>
-      }
+      <p>Prioritize, preview, and investigate batch execution results.</p>
     </div>
     <div class="context-chip">
       <span aria-hidden="true">◎</span>
@@ -89,7 +85,7 @@
           <h2 id="batch-queue-heading">Batch work queue</h2>
         </div>
         @if (response(); as result) {
-          <span>{{ result.matchingBatches | number:'1.0-0' }}</span>
+          <span class="queue-result-count">{{ result.matchingBatches | number:'1.0-0' }} {{ result.matchingBatches === 1 ? 'batch' : 'batches' }}</span>
         }
       </div>
 
@@ -99,12 +95,55 @@
             All <span>{{ result.summary.allBatches }}</span>
           </button>
           <button type="button" role="tab" [class.active]="status() === 'SUCCESSFUL'" [attr.aria-selected]="status() === 'SUCCESSFUL'" (click)="selectStatus('SUCCESSFUL')">
-            Successful <span>{{ result.summary.successfulBatches }}</span>
+            No Attention <span>{{ result.summary.successfulBatches }}</span>
           </button>
           <button type="button" role="tab" class="attention-tab" [class.active]="status() === 'ATTENTION'" [attr.aria-selected]="status() === 'ATTENTION'" (click)="selectStatus('ATTENTION')">
             Attention <span>{{ result.summary.attentionBatches }}</span>
           </button>
         </div>
+
+        @if (showAttentionReasons()) {
+          <div class="batch-reasons batch-reasons--attention" aria-label="Filter attention batches by reason">
+            <span>Attention reason</span>
+            <div class="batch-reason-options">
+              <button type="button" [class.active]="issueType() === 'ALL'" (click)="selectAttentionReason('ALL')">
+                All <b>{{ result.summary.attentionBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'ACTIVITY_MISSING'" (click)="selectAttentionReason('ACTIVITY_MISSING')">
+                Activity Missing <b>{{ result.summary.activityMissingBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'MISSING_ATTEMPTS'" (click)="selectAttentionReason('MISSING_ATTEMPTS')">
+                Attempts Missing <b>{{ result.summary.missingAttemptBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'TRANSFORMATION'" (click)="selectAttentionReason('TRANSFORMATION')">
+                Transformation Skipped <b>{{ result.summary.transformationBatches }}</b>
+              </button>
+            </div>
+            <p>A batch may appear under more than one attention reason.</p>
+          </div>
+        } @else if (showNoAttentionSignals()) {
+          <div class="batch-reasons batch-reasons--no-attention" aria-label="Filter batches not needing attention by signal">
+            <span>Informational signals</span>
+            <div class="batch-reason-options">
+              <button type="button" [class.active]="issueType() === 'ALL'" (click)="selectNoAttentionSignal('ALL')">
+                All <b>{{ result.summary.successfulBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'DUPLICATE_TRANSFORMATION'" (click)="selectNoAttentionSignal('DUPLICATE_TRANSFORMATION')">
+                Duplicate Transactions <b>{{ result.summary.duplicateTransactionBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'EXCLUSION'" (click)="selectNoAttentionSignal('EXCLUSION')">
+                Exclusion Reason <b>{{ result.summary.exclusionBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'SIMULATED'" (click)="selectNoAttentionSignal('SIMULATED')">
+                SML / Simulated <b>{{ result.summary.simulatedTransactionBatches }}</b>
+              </button>
+              <button type="button" [class.active]="issueType() === 'SOFT_DEDUP'" (click)="selectNoAttentionSignal('SOFT_DEDUP')">
+                Soft Dedup Dropped <b>{{ result.summary.softDedupBatches }}</b>
+              </button>
+            </div>
+            <p>A batch may appear under more than one informational signal.</p>
+          </div>
+        }
       }
 
       <div class="queue-list">
@@ -126,7 +165,7 @@
               >
                 <span class="queue-status-icon" aria-hidden="true">{{ batch.status === 'SUCCESSFUL' ? '✓' : '!' }}</span>
                 <span class="queue-item__content">
-                  <span class="queue-item__status">{{ batch.status === 'SUCCESSFUL' ? 'Successful' : 'Needs attention' }}</span>
+                  <span class="queue-item__status">{{ batch.status === 'SUCCESSFUL' ? 'No attention needed' : 'Needs attention' }}</span>
                   <strong>{{ batch.batchId }}</strong>
                   <small>{{ batch.reportGroupName || 'Report group ' + batch.reportGroupId }} · {{ batch.countryName }}</small>
                   <span class="queue-item__meta">
@@ -173,7 +212,7 @@
                 {{ details.reportGroupName || 'Report group ' + details.reportGroupId }}
               </button>
               <span class="status-pill" [class.status-pill--success]="details.status === 'SUCCESSFUL'">
-                {{ details.status === 'SUCCESSFUL' ? 'Successful' : 'Needs attention' }}
+                {{ details.status === 'SUCCESSFUL' ? 'No attention needed' : 'Needs attention' }}
               </span>
             </div>
             <p class="preview-subtitle">{{ details.countryName }} · {{ reportPeriodLabel(details) }}</p>

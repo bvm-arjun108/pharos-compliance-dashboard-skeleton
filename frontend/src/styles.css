@@ -1,5 +1,6 @@
 :root {
   --failure-red: #c4474f;
+  --app-header-height: 172px;
   /* Single source of truth for the page grid. The header bar, the view nav and
      main all share these so their content sits on one vertical line at every
      width -- change the cap here, not in the three rules below. */
@@ -58,8 +59,8 @@ button, select { cursor: pointer; }
   border-bottom: 4px solid #ffdd00;
 }
 
+.system-nav,
 .view-nav {
-  height: 58px;
   overflow-x: auto;
   color: #272722;
   background: #fff;
@@ -67,8 +68,17 @@ button, select { cursor: pointer; }
   scrollbar-width: none;
 }
 
+.system-nav { height: 38px; }
+
+.view-nav {
+  height: 46px;
+  background: #f8f7f3;
+}
+
+.system-nav::-webkit-scrollbar,
 .view-nav::-webkit-scrollbar { display: none; }
 
+.system-nav__inner,
 .view-nav__inner {
   display: flex;
   width: min(var(--page-max), 100%);
@@ -77,6 +87,42 @@ button, select { cursor: pointer; }
   padding: 0 var(--page-pad);
   align-items: stretch;
   gap: 34px;
+}
+
+.system-nav a {
+  position: relative;
+  display: inline-flex;
+  height: 100%;
+  padding: 0 4px;
+  align-items: center;
+  color: #5d5c56;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.system-nav a::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  background: transparent;
+  content: '';
+}
+
+.system-nav a:hover,
+.system-nav a.active {
+  color: #111;
+}
+
+.system-nav a.active::after { background: #ffdd00; }
+
+.view-nav__inner {
+  padding-left: calc(var(--page-pad) + 16px);
 }
 
 .view-nav a {
@@ -121,17 +167,8 @@ button, select { cursor: pointer; }
   display: flex;
   min-width: 0;
   padding-left: 28px;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
   border-left: 1px solid #4b4b4b;
-}
-
-.product-title span {
-  color: #ffdd00;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .18em;
-  text-transform: uppercase;
 }
 
 .product-title strong {
@@ -1444,9 +1481,12 @@ button.metric-value,
 }
 
 @media (max-width: 700px) {
+  :root { --app-header-height: 160px; }
   .header-primary { height: 76px; padding-inline: 20px; gap: 16px; }
-  .view-nav { height: 54px; }
-  .view-nav__inner { padding-inline: 20px; gap: 24px; }
+  .system-nav { height: 36px; }
+  .view-nav { height: 48px; }
+  .system-nav__inner { padding-inline: 20px; }
+  .view-nav__inner { padding-right: 20px; padding-left: 32px; gap: 24px; }
   .brand { width: 108px; height: 54px; }
   .brand img { width: 106px; }
   .product-title { padding-left: 16px; }

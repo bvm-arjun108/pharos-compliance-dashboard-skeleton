@@ -116,7 +116,9 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
       .toList();
     long matchingBatches = queue.isEmpty() ? 0 : queue.getFirst().matchingCount();
     return new BatchExplorerResponse(new BatchExplorerSummaryResponse(summary.allBatches(), summary.successfulBatches(),
-            summary.attentionBatches()), batches, matchingBatches, page, size, fromDate, toDate, status, issueType, batchId, country,
+            summary.attentionBatches(), summary.activityMissingBatches(), summary.missingAttemptBatches(), summary.transformationBatches(),
+            summary.duplicateTransactionBatches(), summary.exclusionBatches(), summary.simulatedTransactionBatches(),
+            summary.softDedupBatches()), batches, matchingBatches, page, size, fromDate, toDate, status, issueType, batchId, country,
         reportGroupId, reportGroupId == null ? null : summary.reportGroupName(), metricFocus);
   }
 

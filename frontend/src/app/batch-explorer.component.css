@@ -4,7 +4,7 @@
 
 .batch-explorer-page {
   margin: -38px -40px -72px;
-  min-height: calc(100vh - 146px);
+  min-height: calc(100vh - var(--app-header-height));
   padding: 22px clamp(20px, 2.5vw, 40px) 36px;
   color: #252522;
   background: #f4f3ef;
@@ -271,16 +271,19 @@
   letter-spacing: -.02em;
 }
 
-.queue-heading > span {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  color: #151515;
-  background: #ffdd00;
-  border-radius: 50%;
-  font-size: 11px;
+.queue-heading > .queue-result-count {
+  display: inline-flex;
+  min-height: 28px;
+  padding: 0 10px;
+  align-items: center;
+  justify-content: center;
+  color: #5f5e58;
+  background: #f1f0eb;
+  border: 1px solid #dddbd3;
+  border-radius: 999px;
+  font-size: 10px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .queue-tabs {
@@ -334,6 +337,68 @@
 
 .queue-tabs .attention-tab.active::after {
   background: #b3474e;
+}
+
+.batch-reasons {
+  padding: 11px 18px 12px;
+  background: #faf9f5;
+  border-bottom: 1px solid #e3e1d9;
+}
+
+.batch-reasons > span {
+  display: block;
+  margin-bottom: 7px;
+  color: #77746b;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.batch-reason-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.batch-reason-options button {
+  min-height: 27px;
+  padding: 4px 8px;
+  color: #5f5e58;
+  background: #fff;
+  border: 1px solid #d8d6ce;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.batch-reason-options button:hover,
+.batch-reason-options button:focus-visible {
+  color: #292925;
+  border-color: #aaa79e;
+}
+
+.batch-reasons--attention .batch-reason-options button.active {
+  color: #743d43;
+  background: #f6e7e9;
+  border-color: #d8aeb3;
+}
+
+.batch-reasons--no-attention .batch-reason-options button.active {
+  color: #356449;
+  background: #e9f3ed;
+  border-color: #afd0bb;
+}
+
+.batch-reason-options b {
+  margin-left: 3px;
+  color: inherit;
+}
+
+.batch-reasons p {
+  margin: 7px 0 0;
+  color: #8b8980;
+  font-size: 8px;
 }
 
 .queue-list {

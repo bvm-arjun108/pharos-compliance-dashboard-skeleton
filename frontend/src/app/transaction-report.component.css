@@ -2,7 +2,7 @@
 
 .transaction-report-page {
   margin: -38px -40px -72px;
-  min-height: calc(100vh - 146px);
+  min-height: calc(100vh - var(--app-header-height));
   padding: 22px clamp(20px, 2.5vw, 42px) 48px;
   color: #252522;
   background: #f4f3ef;

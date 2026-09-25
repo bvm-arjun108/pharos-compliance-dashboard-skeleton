@@ -17,7 +17,6 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
           />
         </a>
         <div class="product-title">
-          <span>Pharos</span>
           <strong>Compliance Operations</strong>
         </div>
         <div class="environment-badge" aria-label="Current environment: Local">
@@ -26,7 +25,13 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
         </div>
       </div>
 
-      <nav class="view-nav" aria-label="Dashboard views">
+      <nav class="system-nav" aria-label="Compliance systems">
+        <div class="system-nav__inner">
+          <a class="active" routerLink="/batches" aria-current="page">Pharos</a>
+        </div>
+      </nav>
+
+      <nav class="view-nav" aria-label="Pharos views">
         <div class="view-nav__inner">
           <a routerLink="/batches" routerLinkActive="active">Batch View</a>
           <a routerLink="/transaction-view" routerLinkActive="active">Transaction View</a>

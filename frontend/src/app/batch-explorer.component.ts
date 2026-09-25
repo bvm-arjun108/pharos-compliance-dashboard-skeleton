@@ -51,6 +51,13 @@ interface BatchExplorerSummary {
   allBatches: number;
   successfulBatches: number;
   attentionBatches: number;
+  activityMissingBatches: number;
+  missingAttemptBatches: number;
+  transformationBatches: number;
+  duplicateTransactionBatches: number;
+  exclusionBatches: number;
+  simulatedTransactionBatches: number;
+  softDedupBatches: number;
 }
 
 interface BatchQueueItem {
@@ -288,8 +295,34 @@ export class BatchExplorerComponent implements OnInit {
   }
 
   selectStatus(status: BatchStatus): void {
-    const issueType = status === 'SUCCESSFUL' ? 'ALL' : this.issueType();
-    this.updateRoute({ status, issueType, page: 0 });
+    this.updateRoute({ status, issueType: 'ALL', metricFocus: 'DEFAULT', page: 0 });
+  }
+
+  selectAttentionReason(issueType: 'ALL' | 'ACTIVITY_MISSING' | 'MISSING_ATTEMPTS' | 'TRANSFORMATION'): void {
+    this.updateRoute({ status: 'ATTENTION', issueType, metricFocus: 'DEFAULT', page: 0 });
+  }
+
+  showAttentionReasons(): boolean {
+    return (
+      this.status() === 'ATTENTION' ||
+      this.issueType() === 'ACTIVITY_MISSING' ||
+      this.issueType() === 'MISSING_ATTEMPTS' ||
+      this.issueType() === 'TRANSFORMATION'
+    );
+  }
+
+  selectNoAttentionSignal(issueType: 'ALL' | 'DUPLICATE_TRANSFORMATION' | 'EXCLUSION' | 'SIMULATED' | 'SOFT_DEDUP'): void {
+    this.updateRoute({ status: 'SUCCESSFUL', issueType, metricFocus: 'DEFAULT', page: 0 });
+  }
+
+  showNoAttentionSignals(): boolean {
+    return (
+      this.status() === 'SUCCESSFUL' ||
+      this.issueType() === 'DUPLICATE_TRANSFORMATION' ||
+      this.issueType() === 'EXCLUSION' ||
+      this.issueType() === 'SIMULATED' ||
+      this.issueType() === 'SOFT_DEDUP'
+    );
   }
 
   selectBatch(batch: BatchQueueItem): void {
@@ -354,7 +387,7 @@ export class BatchExplorerComponent implements OnInit {
       return `${this.issueLabel(this.issueType())} Batches`;
     }
     if (this.status() === 'SUCCESSFUL') {
-      return 'Successful Batches';
+      return 'Batches Not Needing Attention';
     }
     if (this.status() === 'ATTENTION') {
       return 'Batches Needing Attention';
@@ -381,7 +414,7 @@ export class BatchExplorerComponent implements OnInit {
       return `${this.issueLabel(this.issueType())} evidence`;
     }
     if (this.status() === 'SUCCESSFUL') {
-      return 'Successful batches';
+      return 'Batches not needing attention';
     }
     if (this.status() === 'ATTENTION') {
       return 'Batches needing attention';

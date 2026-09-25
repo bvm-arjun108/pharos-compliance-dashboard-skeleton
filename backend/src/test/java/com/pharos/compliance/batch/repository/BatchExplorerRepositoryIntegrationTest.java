@@ -108,6 +108,13 @@ class BatchExplorerRepositoryIntegrationTest extends PostgresIntegrationTest {
     assertEquals(3, summary.allBatches());
     assertEquals(1, summary.successfulBatches(), "only BATCH-B has zero total issues");
     assertEquals(2, summary.attentionBatches(), "BATCH-A (corrected failures) and BATCH-C (other issues)");
+    assertEquals(1, summary.activityMissingBatches());
+    assertEquals(1, summary.missingAttemptBatches());
+    assertEquals(1, summary.transformationBatches());
+    assertEquals(0, summary.duplicateTransactionBatches(), "BATCH-C has duplicates but is an attention batch");
+    assertEquals(0, summary.exclusionBatches(), "BATCH-C has exclusions but is an attention batch");
+    assertEquals(0, summary.simulatedTransactionBatches());
+    assertEquals(0, summary.softDedupBatches());
     assertEquals("Test Group 8001", summary.reportGroupName());
   }
 
