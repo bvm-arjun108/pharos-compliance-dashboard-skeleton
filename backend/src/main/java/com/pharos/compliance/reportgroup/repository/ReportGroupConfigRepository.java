@@ -1,26 +1,24 @@
 package com.pharos.compliance.reportgroup.repository;
 
-import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
+import com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
+import com.pharos.compliance.common.jdbc.sql.SqlFragment;
+import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
+import com.pharos.compliance.common.jdbc.logging.SqlQueryPurpose;
 import com.pharos.compliance.reportgroup.repository.projection.CountryMappingProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportConfigDetailsProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportConfigListProjection;
+import com.pharos.compliance.reportgroup.repository.projection.ReportConfigSummaryProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportGroupOptionProjection;
 import com.pharos.compliance.reportgroup.repository.projection.ReportTypeProjection;
-import com.pharos.compliance.reportgroup.repository.projection.ReportConfigSummaryProjection;
-import com.pharos.compliance.reportgroup.repository.projection.ReportConfigListProjection;
-import com.pharos.compliance.reportgroup.repository.projection.ReportConfigDetailsProjection;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
-import static com.pharos.compliance.jooq.tables.ReportGroupConfig.REPORT_GROUP_CONFIG;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
-import org.jooq.DSLContext;
-import org.jooq.Field;
-import org.jooq.Record;
-import org.jooq.Table;
-import org.jooq.impl.DSL;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,31 +32,52 @@ import org.springframework.transaction.annotation.Transactional;
  * countries/report types matters) still rank rows by {@code rpt_grp_id} and keep rank 1, ordered
  * newest-modified first (falling back to newest-created, then highest version numbers, for rows
  * with tied or null timestamps).
+ *
+ * <p>Migrated from jOOQ to hand-written parameterized SQL (Phase 1 of the jOOQ-to-JDBC migration);
+ * every query below preserves the original's logic, filters, ordering and result shape exactly --
+ * see the migration plan for the verification this was checked against.
  */
 @Repository
 @Transactional(readOnly = true)
 public class ReportGroupConfigRepository {
-  private static final String ACTIVE_ALIAS = "active";
-  private static final String CONFIG_RANK_COLUMN = "config_rank";
-  private static final String COUNTRY_CODE_ALIAS = "countryCode";
-  private static final String COUNTRY_NAME_ALIAS = "countryName";
-  private static final String DATABASE_LOOKUP_ENABLED_ALIAS = "databaseLookupEnabled";
-  private static final String CONFIG_ACTIVE_FLAG_COLUMN = "config_active_flag";
-  private static final String MAPPING_SERVICE_NAME_ALIAS = "mappingServiceName";
-  private static final String MODIFIED_AT_ALIAS = "modifiedAt";
-  private static final String PARTIAL_REPORT_ALIAS = "partialReport";
-  private static final String RANKED_CONFIGS_TABLE = "ranked_configs";
-  private static final String REGION_NAME_ALIAS = "regionName";
-  private static final String REPORT_GROUP_ID_ALIAS = "reportGroupId";
-  private static final String REPORT_GROUP_NAME_ALIAS = "reportGroupName";
-  private static final String REPORT_SELECTION_VERSION_ID_ALIAS = "reportSelectionVersionId";
-  private static final String REPORT_TYPE_ALIAS = "reportType";
-  private static final String TRANSFORMER_VERSION_ID_ALIAS = "transformerVersionId";
-  private static final com.pharos.compliance.jooq.tables.ReportGroupConfig CONFIG = REPORT_GROUP_CONFIG;
-  private final DSLContext dsl;
+  private static final String RANKED_CONFIGS_SQL = "sql/reportgroup/ranked-configs.sql";
+  private static final String FILTERED_CONFIGS_BASE_SQL = "sql/reportgroup/filtered-configs-base.sql";
+  private static final RowMapper<CountryMappingProjection> COUNTRY_MAPPING_ROW_MAPPER =
+      (rs, rowNum) -> new CountryMappingProjection(rs.getString("countryCode"), rs.getString("countryName"), rs.getInt("reportGroupId"));
+  private static final RowMapper<ReportGroupOptionProjection> REPORT_GROUP_OPTION_ROW_MAPPER =
+      (rs, rowNum) -> new ReportGroupOptionProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"),
+          rs.getString("countryCode"));
+  private static final RowMapper<ReportTypeProjection> REPORT_TYPE_ROW_MAPPER =
+      (rs, rowNum) -> new ReportTypeProjection(rs.getString("reportType"));
+  private static final RowMapper<ReportConfigSummaryProjection> SUMMARY_ROW_MAPPER =
+      (rs, rowNum) -> new ReportConfigSummaryProjection(rs.getLong("totalConfigurations"), rs.getLong("activeConfigurations"),
+          rs.getLong("representedCountries"), rs.getLong("objectiveConfigurations"), rs.getLong("subjectiveConfigurations"));
+  private static final RowMapper<ReportConfigListProjection> LIST_ROW_MAPPER =
+      (rs, rowNum) -> new ReportConfigListProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"),
+          rs.getInt("reportSelectionVersionId"), rs.getString("transformerVersionId"), rs.getString("countryCode"),
+          rs.getString("countryName"), rs.getString("regionName"), rs.getString("reportType"), rs.getBoolean("active"),
+          rs.getBoolean("partialReport"), rs.getBoolean("databaseLookupEnabled"), rs.getString("mappingServiceName"),
+          toInstant(rs.getObject("modifiedAt", OffsetDateTime.class)));
+  private static final RowMapper<ReportConfigDetailsProjection> DETAILS_ROW_MAPPER =
+      (rs, rowNum) -> new ReportConfigDetailsProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"),
+          rs.getString("businessGroupName"), rs.getString("countryCode"), rs.getString("countryName"),
+          rs.getString("threeLetterCountryCode"), rs.getString("regionCode"), rs.getString("regionName"), rs.getString("reportCurrency"),
+          rs.getString("reportType"), rs.getBoolean("active"), rs.getInt("reportSelectionVersionId"), rs.getString("transformerVersionId"),
+          toInstant(rs.getObject("createdAt", OffsetDateTime.class)), toInstant(rs.getObject("modifiedAt", OffsetDateTime.class)),
+          rs.getBoolean("databaseLookupEnabled"), rs.getBoolean("blankReport"), rs.getBoolean("nonTransactionalReport"),
+          rs.getBoolean("partialReport"), (Integer) rs.getObject("reportPeriod"), rs.getString("additionalData"),
+          rs.getString("mappingProjectKey"), rs.getString("mappingServiceName"), rs.getString("acknowledgementDocumentSubtype"),
+          rs.getString("outputFileDocumentSubtype"), rs.getString("submissionDocumentSubtype"), rs.getString("transformerConfig"),
+          rs.getString("inboundRuleId"), rs.getString("outboundRuleId"), rs.getString("reportSelection"),
+          rs.getString("reportableActivityColumns"), rs.getString("ruleHitColumns"), rs.getString("exclusionStrategy"),
+          rs.getString("exclusionReason"), rs.getString("columnToCompare"), rs.getString("manipulationStrategyMetadata"),
+          rs.getString("reconciliationStrategyMetadata"));
+  private final TracingNamedParameterJdbcTemplate jdbc;
+  private final SqlResourceLoader sql;
 
-  public ReportGroupConfigRepository(DSLContext dsl) {
-    this.dsl = dsl;
+  public ReportGroupConfigRepository(TracingNamedParameterJdbcTemplate jdbc, SqlResourceLoader sql) {
+    this.jdbc = jdbc;
+    this.sql = sql;
   }
 
   private static Instant toInstant(OffsetDateTime value) {
@@ -66,47 +85,26 @@ public class ReportGroupConfigRepository {
   }
 
   /**
-   * The "latest version per report group" ranking shared by every query in this class: {@code
-   * ROW_NUMBER() OVER (PARTITION BY rpt_grp_id ORDER BY modified_timestamp DESC NULLS LAST,
-   * created_timestamp DESC NULLS LAST, rpt_selection_version_id DESC, transformer_version_id
-   * DESC)}.
+   * The "latest version per report group" ranking shared by {@link #findCountryMappings}, {@link
+   * #findReportGroupOptions} and {@link #findReportTypes}: {@code ROW_NUMBER() OVER (PARTITION BY
+   * rpt_grp_id ORDER BY modified_timestamp DESC NULLS LAST, created_timestamp DESC NULLS LAST,
+   * rpt_selection_version_id DESC, transformer_version_id DESC)}, loaded once from {@code
+   * ranked-configs.sql} and spliced into each caller's own query as the {@code ranked_configs} CTE
+   * -- the hand-written equivalent of the jOOQ derived table all three used to share.
    */
-  private static Field<Integer> latestConfigRank() {
-    return DSL
-      .rowNumber()
-      .over(DSL
-        .partitionBy(CONFIG.RPT_GRP_ID)
-        .orderBy(CONFIG.MODIFIED_TIMESTAMP.desc().nullsLast(), CONFIG.CREATED_TIMESTAMP.desc().nullsLast(),
-            CONFIG.RPT_SELECTION_VERSION_ID.desc(), CONFIG.TRANSFORMER_VERSION_ID.desc()))
-      .as(CONFIG_RANK_COLUMN);
+  private SqlFragment rankedConfigsCte() {
+    return SqlFragment.of(sql.load(RANKED_CONFIGS_SQL)).asCte("ranked_configs");
   }
 
   @SqlQueryPurpose("Load the latest country-to-report-group mappings")
   public List<CountryMappingProjection> findCountryMappings() {
-    Table<Record> rankedConfigs = dsl.select(CONFIG.asterisk(), latestConfigRank()).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
-
-    Field<String> countryCode = requiredField(rankedConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
-    Field<String> countryName = requiredField(rankedConfigs, CONFIG.COUNTRY_NAME.getName(), String.class);
-    Field<Integer> reportGroupId = requiredField(rankedConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
-    Field<Integer> configRank = requiredField(rankedConfigs, CONFIG_RANK_COLUMN, Integer.class);
-
-    var countryCodeOut = DSL.upper(DSL.trim(countryCode)).as(COUNTRY_CODE_ALIAS);
-    var countryNameOut =
-        DSL.coalesce(DSL.nullif(DSL.trim(countryName), DSL.inline("")), DSL.upper(DSL.trim(countryCode))).as(COUNTRY_NAME_ALIAS);
-    var reportGroupIdOut = reportGroupId.as(REPORT_GROUP_ID_ALIAS);
-
-    return dsl
-      .select(countryCodeOut, countryNameOut, reportGroupIdOut)
-      .from(rankedConfigs)
-      .where(configRank.eq(1))
-      .and(countryCode.isNotNull())
-      .and(DSL.trim(countryCode).ne(""))
-      .orderBy(countryNameOut, countryCodeOut, reportGroupIdOut)
-      .fetch(r -> new CountryMappingProjection(r.get(countryCodeOut), r.get(countryNameOut), requiredInt(r, reportGroupIdOut)));
+    SqlFragment combined =
+        SqlFragment.combine(List.of(rankedConfigsCte()), SqlFragment.of(sql.load("sql/reportgroup/find-country-mappings.sql")));
+    return jdbc.query(combined.sql(), combined.parameterSource(), COUNTRY_MAPPING_ROW_MAPPER);
   }
 
   /**
-   * One row per report group (its latest version, same {@link #latestConfigRank} ranking as {@link
+   * One row per report group (its latest version, same {@link #rankedConfigsCte} ranking as {@link
    * #findCountryMappings}) for populating report-group filter dropdowns on Batch View, Batch
    * Explorer, and Transactions Overview -- those three pages used to each independently call
    * {@link #findReportConfigs} (every historical version of every report group, every column) and
@@ -119,42 +117,16 @@ public class ReportGroupConfigRepository {
    */
   @SqlQueryPurpose("Load the latest report-group options for filter dropdowns")
   public List<ReportGroupOptionProjection> findReportGroupOptions() {
-    Table<Record> rankedConfigs = dsl.select(CONFIG.asterisk(), latestConfigRank()).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
-
-    Field<Integer> reportGroupId = requiredField(rankedConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> reportGroupName = requiredField(rankedConfigs, CONFIG.RPT_GRP_NAME.getName(), String.class);
-    Field<String> countryCode = requiredField(rankedConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
-    Field<Integer> configRank = requiredField(rankedConfigs, CONFIG_RANK_COLUMN, Integer.class);
-
-    var reportGroupIdOut = reportGroupId.as(REPORT_GROUP_ID_ALIAS);
-    var reportGroupNameOut = reportGroupName.as(REPORT_GROUP_NAME_ALIAS);
-    var countryCodeOut = DSL.upper(DSL.trim(countryCode)).as(COUNTRY_CODE_ALIAS);
-
-    return dsl
-      .select(reportGroupIdOut, reportGroupNameOut, countryCodeOut)
-      .from(rankedConfigs)
-      .where(configRank.eq(1))
-      .orderBy(reportGroupNameOut.nullsLast(), reportGroupIdOut)
-      .fetch(r -> new ReportGroupOptionProjection(requiredInt(r, reportGroupIdOut), r.get(reportGroupNameOut), r.get(countryCodeOut)));
+    SqlFragment combined =
+        SqlFragment.combine(List.of(rankedConfigsCte()), SqlFragment.of(sql.load("sql/reportgroup/find-report-group-options.sql")));
+    return jdbc.query(combined.sql(), combined.parameterSource(), REPORT_GROUP_OPTION_ROW_MAPPER);
   }
 
   @SqlQueryPurpose("Load the configured regulatory report types")
   public List<ReportTypeProjection> findReportTypes() {
-    var rankedConfigs = dsl.select(CONFIG.REG_RPT_TYPE, latestConfigRank()).from(CONFIG).asTable(RANKED_CONFIGS_TABLE);
-
-    Field<String> reportType = requiredField(rankedConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
-    Field<Integer> configRank = requiredField(rankedConfigs, CONFIG_RANK_COLUMN, Integer.class);
-
-    var reportTypeOut = DSL.trim(reportType).as(REPORT_TYPE_ALIAS);
-
-    return dsl
-      .selectDistinct(reportTypeOut)
-      .from(rankedConfigs)
-      .where(configRank.eq(1))
-      .and(reportType.isNotNull())
-      .and(DSL.trim(reportType).ne(""))
-      .orderBy(reportTypeOut)
-      .fetch(r -> new ReportTypeProjection(r.get(reportTypeOut)));
+    SqlFragment combined =
+        SqlFragment.combine(List.of(rankedConfigsCte()), SqlFragment.of(sql.load("sql/reportgroup/find-report-types.sql")));
+    return jdbc.query(combined.sql(), combined.parameterSource(), REPORT_TYPE_ROW_MAPPER);
   }
 
   /**
@@ -168,174 +140,68 @@ public class ReportGroupConfigRepository {
    * one of them; {@link #getSummary} does its own {@code COUNT(DISTINCT rpt_grp_id)} where it
    * specifically wants the group count rather than the version count.
    *
-   * <p>Previously this also deduped to {@code ROW_NUMBER() ... = 1} (latest version only) before
-   * either caller saw a row, and separately computed {@code BOOL_AND(rpt_config_active_flag)}
-   * across every version ever, not just the one shown -- both hid real data: a report group with
-   * two versions showed as one row, and a live, active version could report "Inactive" solely
-   * because some earlier, since-superseded version had been deactivated when it was replaced (an
-   * expected, unremarkable event in that version's own history).
+   * <p>The WHERE conditions below are appended as fixed, parameterless-or-bound-parameter SQL
+   * fragments chosen by a Java switch/branch -- exactly the jOOQ version's {@code
+   * DSL.trueCondition()}/{@code DSL.falseCondition()} branching, just rendered as SQL text instead
+   * of jOOQ {@code Condition} objects. The caller's raw strings are never concatenated into the SQL
+   * itself: {@code country}/{@code reportType} only ever reach the query as bound named parameters,
+   * and {@code status} only ever selects which of four fixed literal fragments is appended.
    */
-  private Table<Record> filteredConfigs(String country, String status, String reportType, Integer reportGroupId) {
-    Field<Boolean> configActiveFlag = DSL.coalesce(CONFIG.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false)).as(CONFIG_ACTIVE_FLAG_COLUMN);
+  private SqlFragment filteredConfigsFragment(String country, String status, String reportType, Integer reportGroupId) {
+    StringBuilder body = new StringBuilder(sql.load(FILTERED_CONFIGS_BASE_SQL));
+    Map<String, Object> params = new HashMap<>();
 
-    Table<Record> configs = dsl.select(CONFIG.asterisk(), configActiveFlag).from(CONFIG).asTable("configs_with_active_flag");
+    if (!"ALL".equals(country)) {
+      body.append("\n  and upper(trim(country_code)) = :country");
+      params.put("country", country);
+    }
 
-    Field<String> countryCode = requiredField(configs, CONFIG.COUNTRY_CODE.getName(), String.class);
-    Field<String> reportTypeField = requiredField(configs, CONFIG.REG_RPT_TYPE.getName(), String.class);
-    Field<Integer> reportGroupIdField = requiredField(configs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
-    Field<Boolean> configActiveFlagField = requiredField(configs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
+    body.append(
+        switch (status) {
+          case "ALL" -> "";
+          case "ACTIVE" -> "\n  and coalesce(rpt_config_active_flag, false) = true";
+          // Field<Boolean> has no isNotTrue() in jOOQ; "= false" here is the same "IS NOT TRUE"
+          // equivalent for all three truth values, including NULL, that the original used.
+          case "INACTIVE" -> "\n  and coalesce(rpt_config_active_flag, false) = false";
+          default -> "\n  and 1 = 0";
+        });
 
-    return dsl
-      .select(configs.fields())
-      .from(configs)
-      .where("ALL".equals(country) ? DSL.trueCondition() : DSL.upper(DSL.trim(countryCode)).eq(country))
-      .and(
-          switch (status) {
-            case "ALL" -> DSL.trueCondition();
-            case "ACTIVE" -> configActiveFlagField.isTrue();
-            // Field<Boolean> has no isNotTrue(); DSL.not(x.isTrue()) is the exact equivalent of
-            // "IS NOT TRUE" for all three truth values, including NULL.
-            case "INACTIVE" -> DSL.not(configActiveFlagField.isTrue());
-            default -> DSL.falseCondition();
-          })
-      .and(
-          "ALL".equals(reportType) ? DSL.trueCondition() : DSL
-            .lower(DSL.trim(reportTypeField))
-            .eq(reportType.toLowerCase(java.util.Locale.ROOT)))
-      .and(reportGroupId == null ? DSL.trueCondition() : reportGroupIdField.eq(reportGroupId))
-      .asTable("filtered_configs");
+    if (!"ALL".equals(reportType)) {
+      body.append("\n  and lower(trim(reg_rpt_type)) = :reportType");
+      params.put("reportType", reportType.toLowerCase(Locale.ROOT));
+    }
+
+    if (reportGroupId != null) {
+      body.append("\n  and rpt_grp_id = :reportGroupId");
+      params.put("reportGroupId", reportGroupId);
+    }
+
+    return SqlFragment.of(body.toString(), params);
   }
 
   @SqlQueryPurpose("Summarize report-group configurations matching the selected filters")
   public ReportConfigSummaryProjection getSummary(String country, String status, String reportType, Integer reportGroupId) {
-    Table<Record> filteredConfigs = filteredConfigs(country, status, reportType, reportGroupId);
-
-    Field<Integer> reportGroupIdField = requiredField(filteredConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
-    Field<Boolean> configActiveFlag = requiredField(filteredConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
-    Field<String> countryCode = requiredField(filteredConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
-    Field<String> reportTypeField = requiredField(filteredConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
-
-    return dsl
-      // counts once here, even though findReportConfigs lists both versions as separate entries.
-      .select(DSL.countDistinct(reportGroupIdField).as("totalConfigurations"),
-          DSL.count().filterWhere(configActiveFlag.isTrue()).as("activeConfigurations"),
-          DSL
-            .countDistinct(DSL.upper(DSL.trim(countryCode)))
-            .filterWhere(countryCode.isNotNull().and(DSL.trim(countryCode).ne("")))
-            .as("representedCountries"),
-          DSL.count().filterWhere(DSL.lower(DSL.trim(reportTypeField)).eq("objective")).as("objectiveConfigurations"),
-          // Same config-version grain as objectiveConfigurations above -- NOT
-          // totalConfigurations - objectiveConfigurations, which used to be how the frontend
-          // derived this number. That subtraction mixed two different units (totalConfigurations
-          // counts distinct report groups; objectiveConfigurations counts configuration versions)
-          // and could go negative whenever a report group had multiple Objective-type versions on
-          // file, which is exactly the "-9" this query now avoids by counting subjective versions
-          // directly instead of inferring them.
-          DSL.count().filterWhere(DSL.lower(DSL.trim(reportTypeField)).eq("subjective")).as("subjectiveConfigurations"))
-      .from(filteredConfigs)
-      .fetchOptional(r -> new ReportConfigSummaryProjection(requiredLong(r, "totalConfigurations"), requiredLong(r, "activeConfigurations"),
-          requiredLong(r, "representedCountries"), requiredLong(r, "objectiveConfigurations"), requiredLong(r, "subjectiveConfigurations")))
+    SqlFragment cte = filteredConfigsFragment(country, status, reportType, reportGroupId).asCte("filtered_configs");
+    SqlFragment combined = SqlFragment.combine(List.of(cte), SqlFragment.of(sql.load("sql/reportgroup/get-summary.sql")));
+    return jdbc
+      .queryForOptional(combined.sql(), combined.parameterSource(), SUMMARY_ROW_MAPPER)
       .orElseThrow(() -> new IllegalStateException("Report configuration summary aggregate returned no row"));
   }
 
   @SqlQueryPurpose("Load report-group configurations matching the selected filters")
   public List<ReportConfigListProjection> findReportConfigs(String country, String status, String reportType, Integer reportGroupId) {
-    Table<Record> filteredConfigs = filteredConfigs(country, status, reportType, reportGroupId);
-
-    Field<Integer> reportGroupIdField = requiredField(filteredConfigs, CONFIG.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> reportGroupName = requiredField(filteredConfigs, CONFIG.RPT_GRP_NAME.getName(), String.class);
-    Field<Integer> reportSelectionVersionId = requiredField(filteredConfigs, CONFIG.RPT_SELECTION_VERSION_ID.getName(), Integer.class);
-    Field<String> transformerVersionId = requiredField(filteredConfigs, CONFIG.TRANSFORMER_VERSION_ID.getName(), String.class);
-    Field<String> countryCode = requiredField(filteredConfigs, CONFIG.COUNTRY_CODE.getName(), String.class);
-    Field<String> countryName = requiredField(filteredConfigs, CONFIG.COUNTRY_NAME.getName(), String.class);
-    Field<String> regionName = requiredField(filteredConfigs, CONFIG.REGION_NAME.getName(), String.class);
-    Field<String> reportTypeField = requiredField(filteredConfigs, CONFIG.REG_RPT_TYPE.getName(), String.class);
-    Field<Boolean> configActiveFlag = requiredField(filteredConfigs, CONFIG_ACTIVE_FLAG_COLUMN, Boolean.class);
-    Field<Boolean> isPartialReport = requiredField(filteredConfigs, CONFIG.IS_PARTIAL_REPORT.getName(), Boolean.class);
-    Field<Boolean> dbLookupEnabled = requiredField(filteredConfigs, CONFIG.DB_LOOKUP_ENABLED.getName(), Boolean.class);
-    Field<String> mappingServiceName = requiredField(filteredConfigs, CONFIG.MAPPING_SERVICE_NAME.getName(), String.class);
-    Field<java.time.OffsetDateTime> modifiedAt =
-        requiredField(filteredConfigs, CONFIG.MODIFIED_TIMESTAMP.getName(), java.time.OffsetDateTime.class);
-
-    var countryCodeOut = DSL.upper(DSL.trim(countryCode)).as(COUNTRY_CODE_ALIAS);
-    var countryNameOut =
-        DSL.coalesce(DSL.nullif(DSL.trim(countryName), DSL.inline("")), DSL.upper(DSL.trim(countryCode))).as(COUNTRY_NAME_ALIAS);
-    var reportGroupNameOut = reportGroupName.as(REPORT_GROUP_NAME_ALIAS);
-
-    return dsl
-      .select(reportGroupIdField.as(REPORT_GROUP_ID_ALIAS), reportGroupNameOut,
-          reportSelectionVersionId.as(REPORT_SELECTION_VERSION_ID_ALIAS), transformerVersionId.as(TRANSFORMER_VERSION_ID_ALIAS),
-          countryCodeOut, countryNameOut, regionName.as(REGION_NAME_ALIAS), reportTypeField.as(REPORT_TYPE_ALIAS),
-          DSL.coalesce(configActiveFlag, DSL.inline(false)).as(ACTIVE_ALIAS),
-          DSL.coalesce(isPartialReport, DSL.inline(false)).as(PARTIAL_REPORT_ALIAS),
-          DSL.coalesce(dbLookupEnabled, DSL.inline(false)).as(DATABASE_LOOKUP_ENABLED_ALIAS),
-          mappingServiceName.as(MAPPING_SERVICE_NAME_ALIAS), modifiedAt.as(MODIFIED_AT_ALIAS))
-      .from(filteredConfigs)
-      // unrelated groups; newest version first within each group.
-      .orderBy(countryNameOut.nullsLast(), reportGroupNameOut.nullsLast(), reportGroupIdField, reportSelectionVersionId.desc(),
-          transformerVersionId.desc())
-      .fetch(r -> new ReportConfigListProjection(requiredInt(r, REPORT_GROUP_ID_ALIAS), r.get(REPORT_GROUP_NAME_ALIAS, String.class),
-          requiredInt(r, REPORT_SELECTION_VERSION_ID_ALIAS), r.get(TRANSFORMER_VERSION_ID_ALIAS, String.class),
-          r.get(COUNTRY_CODE_ALIAS, String.class), r.get(COUNTRY_NAME_ALIAS, String.class), r.get(REGION_NAME_ALIAS, String.class),
-          r.get(REPORT_TYPE_ALIAS, String.class), requiredBoolean(r, ACTIVE_ALIAS), requiredBoolean(r, PARTIAL_REPORT_ALIAS),
-          requiredBoolean(r, DATABASE_LOOKUP_ENABLED_ALIAS), r.get(MAPPING_SERVICE_NAME_ALIAS, String.class),
-          toInstant(r.get(MODIFIED_AT_ALIAS, OffsetDateTime.class))));
+    SqlFragment cte = filteredConfigsFragment(country, status, reportType, reportGroupId).asCte("filtered_configs");
+    SqlFragment combined = SqlFragment.combine(List.of(cte), SqlFragment.of(sql.load("sql/reportgroup/find-report-configs.sql")));
+    return jdbc.query(combined.sql(), combined.parameterSource(), LIST_ROW_MAPPER);
   }
 
   @SqlQueryPurpose("Load one report-group configuration version and its strategy metadata")
   public Optional<ReportConfigDetailsProjection> findReportConfigDetails(int reportGroupId, int reportSelectionVersionId,
       String transformerVersionId) {
-    // This exact version's own flag -- not BOOL_AND across every version the report group has ever
-    // had (see filteredLatestConfigs' doc comment for why that group-wide aggregate is wrong: a
-    // long-since-superseded old version being deactivated when it was replaced is normal, and
-    // shouldn't make a currently-active version report itself as "Inactive").
-    Field<Boolean> active = DSL.coalesce(CONFIG.RPT_CONFIG_ACTIVE_FLAG, DSL.inline(false)).as(ACTIVE_ALIAS);
-
-    var countryCodeOut = DSL.upper(DSL.trim(CONFIG.COUNTRY_CODE)).as(COUNTRY_CODE_ALIAS);
-    var countryNameOut = DSL
-      .coalesce(DSL.nullif(DSL.trim(CONFIG.COUNTRY_NAME), DSL.inline("")), DSL.upper(DSL.trim(CONFIG.COUNTRY_CODE)))
-      .as(COUNTRY_NAME_ALIAS);
-
-    return dsl
-      .select(CONFIG.RPT_GRP_ID.as(REPORT_GROUP_ID_ALIAS), CONFIG.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
-          CONFIG.BIZGRP_NAME.as("businessGroupName"), countryCodeOut, countryNameOut,
-          CONFIG.THREE_LETTER_COUNTRY_CODE.as("threeLetterCountryCode"), CONFIG.REGION_CODE.as("regionCode"),
-          CONFIG.REGION_NAME.as(REGION_NAME_ALIAS), CONFIG.REPORT_CURRENCY.as("reportCurrency"), CONFIG.REG_RPT_TYPE.as(REPORT_TYPE_ALIAS),
-          active, CONFIG.RPT_SELECTION_VERSION_ID.as(REPORT_SELECTION_VERSION_ID_ALIAS),
-          CONFIG.TRANSFORMER_VERSION_ID.as(TRANSFORMER_VERSION_ID_ALIAS), CONFIG.CREATED_TIMESTAMP.as("createdAt"),
-          CONFIG.MODIFIED_TIMESTAMP.as(MODIFIED_AT_ALIAS),
-          DSL.coalesce(CONFIG.DB_LOOKUP_ENABLED, DSL.inline(false)).as(DATABASE_LOOKUP_ENABLED_ALIAS),
-          DSL.coalesce(CONFIG.IS_BLANK_REPORT, DSL.inline(false)).as("blankReport"),
-          DSL.coalesce(CONFIG.IS_NON_TRANSACTIONAL_REPORT, DSL.inline(false)).as("nonTransactionalReport"),
-          DSL.coalesce(CONFIG.IS_PARTIAL_REPORT, DSL.inline(false)).as(PARTIAL_REPORT_ALIAS), CONFIG.RPT_PERIOD.as("reportPeriod"),
-          CONFIG.ADDITIONAL_DATA.as("additionalData"), CONFIG.MAPPING_PROJECT_KEY.as("mappingProjectKey"),
-          CONFIG.MAPPING_SERVICE_NAME.as(MAPPING_SERVICE_NAME_ALIAS), CONFIG.ACK_PRF_DOCSUBTYPE.as("acknowledgementDocumentSubtype"),
-          CONFIG.OUTPUT_FILE_DOCSUBTYPE.as("outputFileDocumentSubtype"), CONFIG.SUBMISSION_PRF_DOCSUBTYPE.as("submissionDocumentSubtype"),
-          CONFIG.TRANSFORMER_CONFIG.cast(String.class).as("transformerConfig"), CONFIG.INBOUND_RULE_ID.as("inboundRuleId"),
-          CONFIG.OUTBOUND_RULE_ID.as("outboundRuleId"), CONFIG.RPT_SELECTION.as("reportSelection"),
-          CONFIG.REG_REPORTABLE_ACTIVITY_COLUMNS.as("reportableActivityColumns"), CONFIG.RULE_HIT_COLUMNS.as("ruleHitColumns"),
-          CONFIG.EXCLUSION_STRATEGY.as("exclusionStrategy"), CONFIG.EXCLUSION_REASON.as("exclusionReason"),
-          CONFIG.COLUMN_TO_COMPARE.as("columnToCompare"),
-          CONFIG.MANIPULATION_STRATEGY_METADATA.cast(String.class).as("manipulationStrategyMetadata"),
-          CONFIG.RECONCILIATION_STRATEGY_METADATA.cast(String.class).as("reconciliationStrategyMetadata"))
-      .from(CONFIG)
-      .where(CONFIG.RPT_GRP_ID.eq(reportGroupId))
-      .and(CONFIG.RPT_SELECTION_VERSION_ID.eq(reportSelectionVersionId))
-      .and(CONFIG.TRANSFORMER_VERSION_ID.eq(transformerVersionId))
-      .fetchOptional(r -> new ReportConfigDetailsProjection(requiredInt(r, REPORT_GROUP_ID_ALIAS),
-          r.get(REPORT_GROUP_NAME_ALIAS, String.class), r.get("businessGroupName", String.class), r.get(COUNTRY_CODE_ALIAS, String.class),
-          r.get(COUNTRY_NAME_ALIAS, String.class), r.get("threeLetterCountryCode", String.class), r.get("regionCode", String.class),
-          r.get(REGION_NAME_ALIAS, String.class), r.get("reportCurrency", String.class), r.get(REPORT_TYPE_ALIAS, String.class),
-          requiredBoolean(r, ACTIVE_ALIAS), requiredInt(r, REPORT_SELECTION_VERSION_ID_ALIAS),
-          r.get(TRANSFORMER_VERSION_ID_ALIAS, String.class), toInstant(r.get("createdAt", OffsetDateTime.class)),
-          toInstant(r.get(MODIFIED_AT_ALIAS, OffsetDateTime.class)), requiredBoolean(r, DATABASE_LOOKUP_ENABLED_ALIAS),
-          requiredBoolean(r, "blankReport"), requiredBoolean(r, "nonTransactionalReport"), requiredBoolean(r, PARTIAL_REPORT_ALIAS),
-          r.get("reportPeriod", Integer.class), r.get("additionalData", String.class), r.get("mappingProjectKey", String.class),
-          r.get(MAPPING_SERVICE_NAME_ALIAS, String.class), r.get("acknowledgementDocumentSubtype", String.class),
-          r.get("outputFileDocumentSubtype", String.class), r.get("submissionDocumentSubtype", String.class),
-          r.get("transformerConfig", String.class), r.get("inboundRuleId", String.class), r.get("outboundRuleId", String.class),
-          r.get("reportSelection", String.class), r.get("reportableActivityColumns", String.class), r.get("ruleHitColumns", String.class),
-          r.get("exclusionStrategy", String.class), r.get("exclusionReason", String.class), r.get("columnToCompare", String.class),
-          r.get("manipulationStrategyMetadata", String.class), r.get("reconciliationStrategyMetadata", String.class)));
+    MapSqlParameterSource params = new MapSqlParameterSource()
+      .addValue("reportGroupId", reportGroupId)
+      .addValue("reportSelectionVersionId", reportSelectionVersionId)
+      .addValue("transformerVersionId", transformerVersionId);
+    return jdbc.queryForOptional(sql.load("sql/reportgroup/find-report-config-details.sql"), params, DETAILS_ROW_MAPPER);
   }
 }

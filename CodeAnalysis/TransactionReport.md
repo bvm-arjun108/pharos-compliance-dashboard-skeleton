@@ -124,9 +124,9 @@ group by "ranked"."evidence_batch_id", "ranked"."identifier"
 
 *This is the "27-column priority merge" referenced throughout the project's code comments. Full,
 uncollapsed SQL for both queries is available any time by running the app locally with
-`JOOQ_SQL_LOG_LEVEL=DEBUG` (the default) and reading the `PrettySqlExecuteListener` console output
-for a `/transactions` request — the queries are deterministic and will look exactly like this,
-just longer.*
+`SQL_LOG_LEVEL=DEBUG` (the default) and reading the `TracingNamedParameterJdbcTemplate` console
+output for a `/transactions` request — the queries are deterministic and will look exactly like
+this, just longer.*
 
 ### Plain English
 
@@ -312,7 +312,7 @@ every field the panel renders, including `ruleHitsJson`, matches the list row ex
 
 This endpoint's query string carries `identifier` and `recordKey` on every request, and the list
 endpoints carry `search` (typically an MTCN) — all customer-linkable. That is why
-`JOOQ_SQL_LOG_LEVEL` defaults to `OFF` (see `Dashboard.md`), and it is also why the nginx configs
+`SQL_LOG_LEVEL` defaults to `OFF` (see `Dashboard.md`), and it is also why the nginx configs
 (`deploy/nginx/pharos-dashboard.conf`, `frontend/nginx.conf`) now log a custom `pharos_no_query`
 format instead of the default `combined`, which would otherwise persist the full request line —
 query string and all — to the access log on every row a compliance analyst opens.

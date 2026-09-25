@@ -115,20 +115,19 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
       .map(batch -> toQueueItem(batch, catalog))
       .toList();
     long matchingBatches = queue.isEmpty() ? 0 : queue.getFirst().matchingCount();
-    return new BatchExplorerResponse(
-        new BatchExplorerSummaryResponse(summary.allBatches(), summary.successfulBatches(), summary.attentionBatches()), batches,
-        matchingBatches, page, size, fromDate, toDate, status, issueType, batchId, country, reportGroupId,
-        reportGroupId == null ? null : summary.reportGroupName(), metricFocus);
+    return new BatchExplorerResponse(new BatchExplorerSummaryResponse(summary.allBatches(), summary.successfulBatches(),
+            summary.attentionBatches()), batches, matchingBatches, page, size, fromDate, toDate, status, issueType, batchId, country,
+        reportGroupId, reportGroupId == null ? null : summary.reportGroupName(), metricFocus);
   }
 
   private BatchQueueItemResponse toQueueItem(BatchQueueProjection batch, CountryCatalogSnapshot catalog) {
     CountryDefinition country = catalog.getForReportGroup(batch.reportGroupId());
     return new BatchQueueItemResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), batch.sequenceNumber(),
         country.code(), country.name(), batch.reportingPeriodFrom(), batch.reportingPeriodTo(), batch.startedAt(), batch.completedAt(),
-        queueItemStatus(batch), batch.transformationFailures(), batch.reportedTransformationFailures(), batch.transformationFailureMismatch(),
-        batch.missingAttempts(), batch.activityMissing(), batch.filtrationErrors(), batch.reconciliationImbalance(),
-        batch.transformerOutput(), batch.excludedTransactions(), batch.duplicateTransactions(), batch.simulatedTransactions(),
-        batch.softDedupTransactions(), batch.totalIssues());
+        queueItemStatus(batch), batch.transformationFailures(), batch.reportedTransformationFailures(),
+        batch.transformationFailureMismatch(), batch.missingAttempts(), batch.activityMissing(), batch.filtrationErrors(),
+        batch.reconciliationImbalance(), batch.transformerOutput(), batch.excludedTransactions(), batch.duplicateTransactions(),
+        batch.simulatedTransactions(), batch.softDedupTransactions(), batch.totalIssues());
   }
 
   private BatchStatus queueItemStatus(BatchQueueProjection batch) {
@@ -144,12 +143,12 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
         durationSeconds(batch.startedAt(), batch.completedAt()), batch.completedAt() == null ? "RUNNING" : "COMPLETED",
         totalIssues == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION, batch.transformationFailures(),
         batch.reportedTransformationFailures(), batch.transformationFailureMismatch(), batch.missingAttempts(), batch.activityMissing(),
-        batch.duplicateTransactions(), batch.filtrationErrors(), batch.reconciliationImbalance(), totalIssues,
-        batch.selectedTransactions(), batch.transactionAttemptsFound(), batch.expectedReportableTransactions(),
-        batch.actualReportableTransactions(), batch.expectedTransformationAttempts(), batch.actualTransformationAttempts(),
-        batch.transformedActivities(), transformationBalanced, batch.transformerOutput(), null, batch.excludedTransactions(),
-        batch.simulatedTransactions(), batch.alreadyReportedTransactions(), batch.softDedupTransactions(), batch.journeyAvailable(), false,
-        batch.exclusionsAvailable(), batch.reportSelectionVersionId(), batch.transformerVersionId());
+        batch.duplicateTransactions(), batch.filtrationErrors(), batch.reconciliationImbalance(), totalIssues, batch.selectedTransactions(),
+        batch.transactionAttemptsFound(), batch.expectedReportableTransactions(), batch.actualReportableTransactions(),
+        batch.expectedTransformationAttempts(), batch.actualTransformationAttempts(), batch.transformedActivities(), transformationBalanced,
+        batch.transformerOutput(), null, batch.excludedTransactions(), batch.simulatedTransactions(), batch.alreadyReportedTransactions(),
+        batch.softDedupTransactions(), batch.journeyAvailable(), false, batch.exclusionsAvailable(), batch.reportSelectionVersionId(),
+        batch.transformerVersionId());
   }
 
   private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {

@@ -148,7 +148,7 @@ the list underneath never disagree:
 - **Controller**: `BatchExplorerController` (`com.pharos.compliance.batch.controller.BatchExplorerController`)
 - **Service**: `BatchExplorerServiceImpl.getBatches` (`com.pharos.compliance.batch.service.impl.BatchExplorerServiceImpl`)
 - **Repository**: `BatchExplorerRepository.getBatchSummary` / `getBatchQueue` (`com.pharos.compliance.batch.repository.BatchExplorerRepository`)
-- **Shared helper**: `TransformationFailureQueries.journeyFailuresByBatch` (`com.pharos.compliance.common.jooq.TransformationFailureQueries`)
+- **Shared helper**: `TransformationFailureQueries.journeyFailuresByBatch` (`com.pharos.compliance.common.jdbc.TransformationFailureQueries`)
 
 ## 2. View — Selected batch detail cards (Data Selection / Data Transformation / Skipped Status)
 
@@ -245,10 +245,10 @@ where (
 ### Plain English
 
 This is "everything about one batch, on one screen," and it uses a `LATERAL` join (the
-`cross join lateral (...) as "journey_stats"` block) as a performance trick: without it, jOOQ would
-have had to re-run the "look at the journey log for this batch" subquery multiple times in the same
-query (once for the failure count, once for the mismatch flag) — the `LATERAL` join computes both
-numbers in a single pass instead.
+`cross join lateral (...) as "journey_stats"` block) as a performance trick: without it, the query
+would have had to re-run the "look at the journey log for this batch" subquery multiple times in the
+same query (once for the failure count, once for the mismatch flag) — the `LATERAL` join computes
+both numbers in a single pass instead.
 
 Walking through what a person actually sees on the page:
 
@@ -274,7 +274,7 @@ Walking through what a person actually sees on the page:
 - **Controller**: `BatchExplorerController` (`com.pharos.compliance.batch.controller.BatchExplorerController`)
 - **Service**: `BatchExplorerServiceImpl.getBatchDetails` (`com.pharos.compliance.batch.service.impl.BatchExplorerServiceImpl`)
 - **Repository**: `BatchExplorerRepository.getBatchDetails` (`com.pharos.compliance.batch.repository.BatchExplorerRepository`)
-- **Shared helper**: `TransformationFailureQueries.journeyStatsLateral` (`com.pharos.compliance.common.jooq.TransformationFailureQueries`)
+- **Shared helper**: `TransformationFailureQueries.journeyStatsLateral` (`com.pharos.compliance.common.jdbc.TransformationFailureQueries`)
 - **DTO**: `BatchDetailsResponse` (`com.pharos.compliance.batch.dto.BatchDetailsResponse`)
 
 Every "View transactions →" / "View report →" link on these cards navigates to the Transaction

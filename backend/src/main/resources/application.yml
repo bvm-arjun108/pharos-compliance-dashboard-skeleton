@@ -10,8 +10,6 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
-  jooq:
-    sql-dialect: POSTGRES
 
 common:
   postgres:
@@ -61,15 +59,12 @@ logging:
     # is written on every page load whether or not anyone expands a row. Wherever logs are shipped
     # (a file on the host, CloudWatch) that becomes a second copy of customer PII outside the
     # database's access controls, so this defaults to OFF and must be opted into deliberately:
-    # JOOQ_SQL_LOG_LEVEL=DEBUG for local debugging only, never as a deployed default.
+    # SQL_LOG_LEVEL=DEBUG for local debugging only, never as a deployed default.
     # Turning it off does not blind you operationally -- QueryPerformanceSummaryLogger still reports
     # which queries ran, how long each took, and which crossed the slow threshold, with no row data.
-    com.pharos.compliance.common.jooq.logging.PrettySqlExecuteListener: ${JOOQ_SQL_LOG_LEVEL:OFF}
+    com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate: ${SQL_LOG_LEVEL:OFF}
     com.zaxxer.hikari: WARN
     org.apache.catalina: WARN
-    org.jooq.Constants: WARN
-    org.jooq.impl.DefaultExecuteContext.logVersionSupport: WARN
-    org.jooq.tools.LoggerListener: OFF
     org.springframework.boot.actuate.endpoint.web.EndpointLinksResolver: WARN
     org.springframework.boot.web.embedded.tomcat.TomcatWebServer: WARN
     org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext: WARN

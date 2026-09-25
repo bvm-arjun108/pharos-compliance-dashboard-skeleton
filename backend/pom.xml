@@ -28,7 +28,7 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-jooq</artifactId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -65,6 +65,20 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Real-PostgreSQL execution tests for the jOOQ -> Spring JDBC migration: the existing
+             suite proves query shape (rendered SQL/bind values) but never execution semantics
+             against an actual database, a real gap given the migration's "100% same resultset"
+             bar. Versions come from spring-boot-starter-parent's dependency management. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -74,47 +88,14 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <plugin>
-                <!-- Generates typed table/field classes from the live pharos schema so query
-                     construction is compile-checked, replacing Spring Data's reflective
-                     alias-to-getter binding. Version is inherited from spring-boot-starter-parent's
-                     dependency management (jOOQ 3.19.28 as of Boot 3.4.12); do not pin it here, or
-                     codegen and the jOOQ runtime classpath can silently drift apart. -->
-                <groupId>org.jooq</groupId>
-                <artifactId>jooq-codegen-maven</artifactId>
-                <executions>
-                    <execution>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <dependencies>
-                    <!-- The plugin's classpath is isolated from the project's own dependencies, so
-                         the JDBC driver it connects with has to be declared again here. -->
-                    <dependency>
-                        <groupId>org.postgresql</groupId>
-                        <artifactId>postgresql</artifactId>
-                        <version>${postgresql.version}</version>
-                    </dependency>
-                </dependencies>
+                <!-- Testcontainers-based tests (tagged "integration", see PostgresIntegrationTest)
+                     need a Docker daemon and are slower than the rest of the suite, so routine
+                     `mvn test` skips them. The -Pintegration-test profile below re-includes them
+                     for CI and for each jOOQ-to-JDBC migration phase's merge gate. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <jdbc>
-                        <driver>org.postgresql.Driver</driver>
-                        <url>${jooq.codegen.jdbc.url}</url>
-                        <user>${jooq.codegen.jdbc.user}</user>
-                        <password>${jooq.codegen.jdbc.password}</password>
-                    </jdbc>
-                    <generator>
-                        <database>
-                            <name>org.jooq.meta.postgres.PostgresDatabase</name>
-                            <inputSchema>pharos</inputSchema>
-                        </database>
-                        <target>
-                            <packageName>com.pharos.compliance.jooq</packageName>
-                            <directory>target/generated-sources/jooq</directory>
-                        </target>
-                    </generator>
+                    <excludedGroups>integration</excludedGroups>
                 </configuration>
             </plugin>
             <plugin>
@@ -161,56 +142,24 @@
         </plugins>
     </build>
 
-    <!-- jOOQ codegen connects at build time only, to read the schema and regenerate
-         com.pharos.compliance.jooq.*: it runs during `generate-sources`, before the Spring
-         ApplicationContext (and therefore any Spring Cloud Config Server client) exists, so it can
-         never read application.yml's common.postgres.* or a Config Server the way the running app
-         does at runtime. Hardcoding a single value here would break the moment this needs to build
-         against anything other than local dev.
-
-         Instead, these two profiles make Maven fall back the same way Spring does with
-         ${DB_URL:default} in application.yml: if DB_URL is already present in the environment,
-         use it (env.DB_URL/env.DB_USER/env.DB_PASSWORD, literally the same three variable names
-         application.yml's common.postgres.* reads); otherwise fall back to the local dev default.
-         Exactly one of these two profiles is ever active, based on whether DB_URL is set.
-
-         In CI/staging/prod, this pushes the real responsibility to where it belongs: the build
-         pipeline (not Maven, not this pom.xml) resolves the target environment's DB connection,
-         from Config Server's REST API, Vault, container-orchestrator secrets, or however that
-         pipeline already surfaces config, and exports DB_URL/DB_USER/DB_PASSWORD before invoking
-         `mvn package`. No pom.xml edit is ever needed per environment, and no per-environment value
-         is ever committed to source control.
-
-         -Djooq.codegen.jdbc.url/user/password still works as a manual override on top of either
-         profile if a build genuinely needs a codegen-only database different from both the local
-         default and whatever DB_URL points at: Maven command-line -D properties always take
-         precedence over profile-defined ones. -->
     <profiles>
         <profile>
-            <id>jooq-codegen-local-default</id>
-            <activation>
-                <property>
-                    <name>!env.DB_URL</name>
-                </property>
-            </activation>
-            <properties>
-                <jooq.codegen.jdbc.url>jdbc:postgresql://localhost:5439/pharosRBT</jooq.codegen.jdbc.url>
-                <jooq.codegen.jdbc.user>pharosRBT</jooq.codegen.jdbc.user>
-                <jooq.codegen.jdbc.password>pharosRBT</jooq.codegen.jdbc.password>
-            </properties>
-        </profile>
-        <profile>
-            <id>jooq-codegen-env</id>
-            <activation>
-                <property>
-                    <name>env.DB_URL</name>
-                </property>
-            </activation>
-            <properties>
-                <jooq.codegen.jdbc.url>${env.DB_URL}</jooq.codegen.jdbc.url>
-                <jooq.codegen.jdbc.user>${env.DB_USER}</jooq.codegen.jdbc.user>
-                <jooq.codegen.jdbc.password>${env.DB_PASSWORD}</jooq.codegen.jdbc.password>
-            </properties>
+            <!-- Runs the Testcontainers-tagged "integration" tests excluded by default (see the
+                 surefire plugin config above). Requires a Docker daemon. Mandatory at every
+                 jOOQ-to-JDBC migration phase's merge gate; not part of the routine local
+                 `mvn test` inner loop. -->
+            <id>integration-test</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"/>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 </project>

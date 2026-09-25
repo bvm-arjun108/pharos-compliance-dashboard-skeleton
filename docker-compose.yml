@@ -16,9 +16,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   # Serves the Angular production build via nginx and reverse-proxies API calls to the backend,
-  # which still runs directly on the host for now (see frontend/nginx.conf) -- not containerized,
-  # since its build needs a live, schema-populated Postgres reachable at build time for jOOQ
-  # codegen, which a hermetic Docker build stage doesn't have.
+  # which still runs directly on the host for now (see frontend/nginx.conf) -- not containerized
+  # here yet. The backend's own build no longer needs a live, schema-populated Postgres connection
+  # at build time now that its persistence layer has migrated from jOOQ codegen to hand-written SQL
+  # over Spring JDBC.
   frontend:
     build:
       context: ./frontend

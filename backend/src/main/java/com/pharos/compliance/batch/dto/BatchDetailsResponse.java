@@ -11,14 +11,13 @@ public record BatchDetailsResponse(int reportGroupId, String reportGroupName, St
     @Schema(description = "The raw report_transformation_reconciliation.activity_transformation_failed value, before correcting it against "
     + "record_transformation_journey evidence. See transformationFailureMismatch.") long reportedTransformationFailures,
     @Schema(description = "True when transformationFailures and reportedTransformationFailures disagree -- the upstream transformer job's "
-    + "reconciliation count doesn't match what record_transformation_journey actually recorded for this batch.") boolean
-        transformationFailureMismatch, long missingAttempts,
-    long activityMissing, long duplicateTransactions, long filtrationErrors, long reconciliationImbalance, long totalIssues,
-    long selectedTransactions, long transactionAttemptsFound, long expectedReportableTransactions, long actualReportableTransactions,
-    long expectedTransformationAttempts, long actualTransformationAttempts, long transformedActivities, boolean transformationBalanced,
-    long transformerOutput, Long finalDownstreamReported, long excludedTransactions, long simulatedTransactions,
-    long alreadyReportedTransactions, long softDedupTransactions, boolean journeyAvailable, boolean ruleHitsAvailable,
-    boolean exclusionsAvailable,
+    + "reconciliation count doesn't match what record_transformation_journey actually recorded for this batch.") boolean transformationFailureMismatch,
+    long missingAttempts, long activityMissing, long duplicateTransactions, long filtrationErrors, long reconciliationImbalance,
+    long totalIssues, long selectedTransactions, long transactionAttemptsFound, long expectedReportableTransactions,
+    long actualReportableTransactions, long expectedTransformationAttempts, long actualTransformationAttempts, long transformedActivities,
+    boolean transformationBalanced, long transformerOutput, Long finalDownstreamReported, long excludedTransactions,
+    long simulatedTransactions, long alreadyReportedTransactions, long softDedupTransactions, boolean journeyAvailable,
+    boolean ruleHitsAvailable, boolean exclusionsAvailable,
     @Schema(description = "The report_group_config version this batch actually ran under (from its own report_batch_info row), for "
     + "looking up that exact configuration instead of whatever the report group's current/latest version happens to be. Null if no "
     + "report_batch_info row exists for this batch", example = "104") Integer reportSelectionVersionId,

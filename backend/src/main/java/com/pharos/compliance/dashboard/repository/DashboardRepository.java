@@ -1,185 +1,129 @@
 package com.pharos.compliance.dashboard.repository;
 
-import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
+import com.pharos.compliance.common.jdbc.TransformationFailureQueries;
+import com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
+import com.pharos.compliance.common.jdbc.sql.SqlFragment;
+import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
+import com.pharos.compliance.common.jdbc.logging.SqlQueryPurpose;
+import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
-import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
-import com.pharos.compliance.common.jooq.TransformationFailureQueries;
-import static com.pharos.compliance.common.jooq.JooqConditions.containsIgnoreCase;
-import static com.pharos.compliance.common.jooq.JooqConditions.countDistinctTupleFiltered;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
-import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
-import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
-import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import org.jooq.Condition;
-import org.jooq.DSLContext;
-import org.jooq.Field;
-import org.jooq.Record;
-import org.jooq.Table;
-import org.jooq.impl.DSL;
-import org.jooq.impl.SQLDataType;
+import java.util.Map;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Migrated from jOOQ to hand-written parameterized SQL (Phase 4 of the jOOQ-to-JDBC migration);
+ * every query below preserves the original's logic, filters, ordering and result shape exactly.
+ * First consumer to switch to {@link TransformationFailureQueries}'s JDBC-side version -- {@code
+ * TransactionReportRepository} (Phase 6g) is the only remaining jOOQ consumer of the old one.
+ */
 @Repository
 @Transactional(readOnly = true)
 public class DashboardRepository {
-  private static final String ACTIVITY_MISSING_BATCHES_ALIAS = "activityMissingBatches";
-  private static final String ACTIVITY_MISSING_BATCHES_COLUMN = "activity_missing_batches";
-  private static final String BATCHES_NEEDING_ATTENTION_ALIAS = "batchesNeedingAttention";
-  private static final String BATCHES_NEEDING_ATTENTION_COLUMN = "batches_needing_attention";
-  private static final String BATCHES_RAN_ALIAS = "batchesRan";
-  private static final String BATCHES_RAN_COLUMN = "batches_ran";
-  private static final String JOURNEY_TRANSFORMATION_FAILURES_ALIAS = "journeyTransformationFailures";
-  private static final String MISSING_ATTEMPT_BATCHES_ALIAS = "missingAttemptBatches";
-  private static final String MISSING_ATTEMPT_BATCHES_COLUMN = "missing_attempt_batches";
-  private static final String PERIOD_START_COLUMN = "period_start";
-  private static final String SUCCESSFUL_BATCHES_ALIAS = "successfulBatches";
-  private static final String TOTAL_EXCLUDED_TRANSACTIONS_ALIAS = "totalExcludedTransactions";
-  private static final String TOTAL_EXCLUDED_TRANSACTIONS_COLUMN = "total_excluded_transactions";
-  private static final String TOTAL_REPORTED_TRANSACTIONS_ALIAS = "totalReportedTransactions";
-  private static final String TOTAL_REPORTED_TRANSACTIONS_COLUMN = "total_reported_transactions";
-  private static final String TRANSFORMATION_FAILURE_BATCHES_ALIAS = "transformationFailureBatches";
-  private static final String TRANSFORMATION_FAILURE_BATCHES_COLUMN = "transformation_failure_batches";
-  private static final String BATCH_GENERATED_COLUMN = "batch_generated";
-  private static final String EVER_EXCLUDED_COLUMN = "ever_excluded";
-  private static final String EVER_REPORTED_COLUMN = "ever_reported";
-  private static final String REASON_COLUMN = "reason";
-  private static final String UNSPECIFIED_REASON = "Unspecified";
-  private static final String OTHER_REASON = "Other";
-  private static final int TOP_REASON_LIMIT = 3;
-  private static final String STATUS_EXCLUDED = "EXCLUDED";
-  private static final String STATUS_EXCLUDED_SOFT_DEDUP = "EXCLUDED_SOFT_DEDUP";
-  private static final String STATUS_GENERATED = "GENERATED";
-  private static final String STATUS_SUCCESS = "SUCCESS";
-  private static final String STAGE_REPORT_GENERATION = "REPORT_GENERATION";
-  private static final String STAGE_TRANSFORMATION = "TRANSFORMATION";
-  private static final String REPORT_GENERATION_COMPLETED = "Report Generation Completed";
-  private static final com.pharos.compliance.jooq.tables.ReportTransformationReconciliation RECONCILIATION =
-      REPORT_TRANSFORMATION_RECONCILIATION;
-  private static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
-  private static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
-  private final DSLContext dsl;
+  private static final String RECONCILIATION_WITH_JOURNEY_FAILURES_SQL = "sql/dashboard/reconciliation-with-journey-failures.sql";
+  private static final String DASHBOARD_COUNTS_AGGREGATES_SQL = "sql/dashboard/dashboard-counts-aggregates.sql";
+  private static final String GET_DASHBOARD_COUNTS_SQL = "sql/dashboard/get-dashboard-counts.sql";
+  private static final String REPORT_GROUP_METRICS_SQL = "sql/dashboard/report-group-metrics.sql";
+  private static final String GET_REPORT_GROUPS_REQUIRING_ATTENTION_SQL = "sql/dashboard/get-report-groups-requiring-attention.sql";
+  private static final String GET_BATCH_HEALTH_TREND_SQL = "sql/dashboard/get-batch-health-trend.sql";
+  private static final String GET_TRANSACTION_VOLUME_TREND_SQL = "sql/dashboard/get-transaction-volume-trend.sql";
+  private static final String BATCH_SCOPE_SQL = "sql/dashboard/batch-scope.sql";
+  private static final String BATCH_EVIDENCE_SQL = "sql/dashboard/batch-evidence.sql";
+  private static final String JOURNEY_ROLL_SQL = "sql/dashboard/journey-roll.sql";
+  private static final String GET_TRANSACTION_OVERVIEW_SQL = "sql/dashboard/get-transaction-overview.sql";
+  private static final String REASON_COUNTS_SQL = "sql/dashboard/reason-counts.sql";
+  private static final String RANKED_REASONS_SQL = "sql/dashboard/ranked-reasons.sql";
+  private static final String BUCKETED_REASONS_SQL = "sql/dashboard/bucketed-reasons.sql";
+  private static final String TOP_REASONS_FINAL_SQL = "sql/dashboard/top-reasons-final.sql";
+  private static final String EXCLUDED_STATUSES_SQL = "upper(coalesce(journey.status, '')) in ('EXCLUDED', 'EXCLUDED_SOFT_DEDUP')";
+  private static final RowMapper<DashboardCountsProjection> COUNTS_ROW_MAPPER =
+      (rs, rowNum) -> new DashboardCountsProjection(rs.getLong("batchesRan"), rs.getLong("batchesNeedingAttention"),
+          rs.getLong("transformationFailureBatches"), rs.getLong("missingAttemptBatches"), rs.getLong("activityMissingBatches"),
+          rs.getLong("duplicateTransactionBatches"), rs.getLong("exclusionBatches"), rs.getLong("simulatedTransactionBatches"),
+          rs.getLong("softDedupBatches"));
+  private static final RowMapper<ReportGroupMetricsProjection> REPORT_GROUP_METRICS_ROW_MAPPER =
+      (rs, rowNum) -> new ReportGroupMetricsProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"), rs.getLong("batchesRan"),
+          rs.getLong("successfulBatches"), rs.getLong("batchesNeedingAttention"), rs.getLong("transformationFailureBatches"),
+          rs.getLong("missingAttemptBatches"), rs.getLong("activityMissingBatches"), rs.getLong("totalReportedTransactions"),
+          rs.getLong("totalExcludedTransactions"));
+  private static final RowMapper<BatchHealthTrendProjection> BATCH_HEALTH_TREND_ROW_MAPPER =
+      (rs, rowNum) -> new BatchHealthTrendProjection(rs.getObject("periodStart", LocalDate.class), rs.getLong("batchesRan"),
+          rs.getLong("successfulBatches"), rs.getLong("batchesNeedingAttention"));
+  private static final RowMapper<TransactionVolumeTrendProjection> VOLUME_TREND_ROW_MAPPER =
+      (rs, rowNum) -> new TransactionVolumeTrendProjection(rs.getObject("periodStart", LocalDate.class),
+          rs.getLong("totalReportedTransactions"), rs.getLong("totalExcludedTransactions"));
+  private static final RowMapper<TransactionOverviewProjection> OVERVIEW_ROW_MAPPER =
+      (rs, rowNum) -> new TransactionOverviewProjection(rs.getLong("selected"), rs.getLong("expected"), rs.getLong("excluded"),
+          rs.getLong("notReported"));
+  private final TracingNamedParameterJdbcTemplate jdbc;
+  private final SqlResourceLoader sql;
 
-  public DashboardRepository(DSLContext dsl) {
-    this.dsl = dsl;
+  public DashboardRepository(TracingNamedParameterJdbcTemplate jdbc, SqlResourceLoader sql) {
+    this.jdbc = jdbc;
+    this.sql = sql;
   }
 
-  private static Condition reportGroupScope(boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup,
-      int reportGroupId, Field<Integer> reportGroupIdField) {
-    Condition condition = DSL.trueCondition();
+  /**
+   * The date-range/batchId-search/country/reportGroup filters shared by every query in this class.
+   * {@code columnPrefix} lets the same condition text be embedded either bare (a query with only
+   * {@code report_transformation_reconciliation} in scope) or qualified (e.g. {@code "r."}, needed
+   * once a query also joins {@code journey_failures_by_batch}, whose own columns share the same
+   * unqualified names) -- every call site in this class uses {@code "r."} since every query here
+   * aliases the table that way.
+   */
+  private SqlFragment reconciliationScope(String columnPrefix, LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
+      String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
+    StringBuilder cond = new StringBuilder();
+    Map<String, Object> params = new HashMap<>();
+    cond.append("\n  and ").append(columnPrefix).append("created_timestamp >= :fromTimestamp");
+    cond.append("\n  and ").append(columnPrefix).append("created_timestamp < :toTimestampExclusive");
+    params.put("fromTimestamp", fromTimestamp);
+    params.put("toTimestampExclusive", toTimestampExclusive);
+
+    if (batchId != null && !batchId.isEmpty()) {
+      cond.append("\n  and lower(").append(columnPrefix).append("batch_id) like lower(:batchIdPattern)");
+      params.put("batchIdPattern", "%" + batchId + "%");
+    }
     if (filterByCountry) {
-      condition = condition.and(reportGroupIdField.in(reportGroupIds));
+      if (reportGroupIds.isEmpty()) {
+        cond.append("\n  and 1 = 0");
+      } else {
+        cond.append("\n  and ").append(columnPrefix).append("rpt_grp_id in (:countryReportGroupIds)");
+        params.put("countryReportGroupIds", reportGroupIds);
+      }
     }
     if (filterByReportGroup) {
-      condition = condition.and(reportGroupIdField.eq(reportGroupId));
+      cond.append("\n  and ").append(columnPrefix).append("rpt_grp_id = :reportGroupId");
+      params.put("reportGroupId", reportGroupId);
     }
-    return condition;
+    return SqlFragment.of(cond.toString(), params);
   }
 
   @SqlQueryPurpose("Batch View > Headline KPI cards > Load batch totals and issue counts")
   public DashboardCountsProjection getDashboardCounts(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
-      .ge(fromTimestamp)
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
+    SqlFragment journeyFailuresCte = TransformationFailureQueries.journeyFailuresByBatch(sql, scope).asCte("journey_failures_by_batch");
+    SqlFragment rtrScopeCte =
+        SqlFragment.of(sql.load(RECONCILIATION_WITH_JOURNEY_FAILURES_SQL) + scope.sql(), scope.params()).asCte("rtr_scope");
+    SqlFragment rtrAggregatesCte = SqlFragment.of(sql.load(DASHBOARD_COUNTS_AGGREGATES_SQL)).asCte("rtr_aggregates");
 
-    var journeyFailures = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
-    Field<Integer> jfRptGrpId = requiredField(journeyFailures, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> jfBatchId = requiredField(journeyFailures, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Long> jfCount = requiredField(journeyFailures, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
-
-    var rtrScope = dsl
-      .select(RECONCILIATION.asterisk())
-      .select(jfCount.as(JOURNEY_TRANSFORMATION_FAILURES_ALIAS))
-      .from(RECONCILIATION)
-      .leftJoin(journeyFailures)
-      .on(jfRptGrpId.eq(RECONCILIATION.RPT_GRP_ID))
-      .and(jfBatchId.eq(RECONCILIATION.BATCH_ID))
-      .where(scope)
-      .asTable("rtr_scope");
-
-    Field<Integer> rptGrpId = requiredField(rtrScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> scopedBatchId = requiredField(rtrScope, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Integer> seqNo = requiredField(rtrScope, RECONCILIATION.SEQ_NO.getName(), Integer.class);
-    Field<Integer> transformationFailed = requiredField(rtrScope, RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED.getName(), Integer.class);
-    Field<Long> journeyTransformationFailed = requiredField(rtrScope, JOURNEY_TRANSFORMATION_FAILURES_ALIAS, Long.class);
-    Field<Integer> missingAttempts = requiredField(rtrScope, RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT.getName(), Integer.class);
-    Field<Integer> activityMissing = requiredField(rtrScope, RECONCILIATION.ACTIVITY_MISSING.getName(), Integer.class);
-    Field<Integer> duplicateTransformation = requiredField(rtrScope, RECONCILIATION.DUPLICATE_TRANSFORMATION.getName(), Integer.class);
-    Field<Integer> excludedTxn = requiredField(rtrScope, RECONCILIATION.EXCLUDED_TXN.getName(), Integer.class);
-    Field<Integer> txnSimulated = requiredField(rtrScope, RECONCILIATION.TXN_SIMULATED.getName(), Integer.class);
-    Field<Integer> softDedup = requiredField(rtrScope, RECONCILIATION.SOFT_DEDUP_DROPPED_TXN_COUNT.getName(), Integer.class);
-
-    // Prefer the journey-derived count (COALESCE's own NULL-means-"no journey evidence for this
-    // fact" fallback -- see TransformationFailureQueries) over the raw reconciliation scalar,
-    // which can over- or under-count relative to what record_transformation_journey actually
-    // recorded. No numeric total is displayed at this headline level, only this >0 bucketing, so
-    // there's nothing here that needs a separate mismatch flag the way Batch Explorer's per-batch
-    // views do.
-    Field<Long> correctedTransformationFailed =
-        DSL.coalesce(journeyTransformationFailed, DSL.coalesce(transformationFailed, 0).cast(SQLDataType.BIGINT));
-    Condition transformationFailedGtZero = correctedTransformationFailed.gt(0L);
-    Condition missingAttemptsGtZero = DSL.coalesce(missingAttempts, 0).gt(0);
-    Condition activityMissingGtZero = DSL.coalesce(activityMissing, 0).gt(0);
-    Condition noPriorIssue =
-        DSL
-      .coalesce(correctedTransformationFailed, 0L)
-      .eq(0L)
-      .and(DSL.coalesce(missingAttempts, 0).eq(0))
-      .and(DSL.coalesce(activityMissing, 0).eq(0));
-
-    var rtrAggregates = dsl
-      .select(countDistinctTupleFiltered(DSL.trueCondition(), rptGrpId, scopedBatchId, seqNo).as(BATCHES_RAN_COLUMN),
-          countDistinctTupleFiltered(transformationFailedGtZero.or(missingAttemptsGtZero).or(activityMissingGtZero), rptGrpId, scopedBatchId,
-              seqNo)
-            .as(BATCHES_NEEDING_ATTENTION_COLUMN),
-          countDistinctTupleFiltered(transformationFailedGtZero, rptGrpId, scopedBatchId, seqNo).as(TRANSFORMATION_FAILURE_BATCHES_COLUMN),
-          countDistinctTupleFiltered(missingAttemptsGtZero, rptGrpId, scopedBatchId, seqNo).as(MISSING_ATTEMPT_BATCHES_COLUMN),
-          countDistinctTupleFiltered(activityMissingGtZero, rptGrpId, scopedBatchId, seqNo).as(ACTIVITY_MISSING_BATCHES_COLUMN),
-          countDistinctTupleFiltered(DSL.coalesce(duplicateTransformation, 0).gt(0).and(noPriorIssue), rptGrpId, scopedBatchId, seqNo)
-            .as("duplicate_transaction_batches"),
-          countDistinctTupleFiltered(DSL.coalesce(excludedTxn, 0).gt(0).and(noPriorIssue), rptGrpId, scopedBatchId, seqNo).as(
-              "exclusion_batches"),
-          countDistinctTupleFiltered(DSL.coalesce(txnSimulated, 0).gt(0).and(noPriorIssue), rptGrpId, scopedBatchId, seqNo)
-            .as("simulated_transaction_batches"),
-          countDistinctTupleFiltered(DSL.coalesce(softDedup, 0).gt(0).and(noPriorIssue), rptGrpId, scopedBatchId, seqNo).as(
-              "soft_dedup_batches"))
-      .from(rtrScope)
-      .asTable("rtr_aggregates");
-
-    Field<Long> batchesRanA = requiredField(rtrAggregates, BATCHES_RAN_COLUMN, Long.class);
-    Field<Long> batchesNeedingAttentionA = requiredField(rtrAggregates, BATCHES_NEEDING_ATTENTION_COLUMN, Long.class);
-    Field<Long> transformationFailureBatchesA = requiredField(rtrAggregates, TRANSFORMATION_FAILURE_BATCHES_COLUMN, Long.class);
-    Field<Long> missingAttemptBatchesA = requiredField(rtrAggregates, MISSING_ATTEMPT_BATCHES_COLUMN, Long.class);
-    Field<Long> activityMissingBatchesA = requiredField(rtrAggregates, ACTIVITY_MISSING_BATCHES_COLUMN, Long.class);
-    Field<Long> duplicateTransactionBatchesA = requiredField(rtrAggregates, "duplicate_transaction_batches", Long.class);
-    Field<Long> exclusionBatchesA = requiredField(rtrAggregates, "exclusion_batches", Long.class);
-    Field<Long> simulatedTransactionBatchesA = requiredField(rtrAggregates, "simulated_transaction_batches", Long.class);
-    Field<Long> softDedupBatchesA = requiredField(rtrAggregates, "soft_dedup_batches", Long.class);
-
-    return dsl
-      .select(batchesRanA.as(BATCHES_RAN_ALIAS), batchesNeedingAttentionA.as(BATCHES_NEEDING_ATTENTION_ALIAS),
-          transformationFailureBatchesA.as(TRANSFORMATION_FAILURE_BATCHES_ALIAS), missingAttemptBatchesA.as(MISSING_ATTEMPT_BATCHES_ALIAS),
-          activityMissingBatchesA.as(ACTIVITY_MISSING_BATCHES_ALIAS), duplicateTransactionBatchesA.as("duplicateTransactionBatches"),
-          exclusionBatchesA.as("exclusionBatches"), simulatedTransactionBatchesA.as("simulatedTransactionBatches"),
-          softDedupBatchesA.as("softDedupBatches"))
-      .from(rtrAggregates)
-      .fetchOptional(r -> new DashboardCountsProjection(requiredLong(r, BATCHES_RAN_ALIAS), requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS),
-          requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS), requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS),
-          requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS), requiredLong(r, "duplicateTransactionBatches"),
-          requiredLong(r, "exclusionBatches"), requiredLong(r, "simulatedTransactionBatches"), requiredLong(r, "softDedupBatches")))
+    SqlFragment combined =
+        SqlFragment.combine(List.of(journeyFailuresCte, rtrScopeCte, rtrAggregatesCte), SqlFragment.of(sql.load(GET_DASHBOARD_COUNTS_SQL)));
+    return jdbc
+      .queryForOptional(combined.sql(), combined.parameterSource(), COUNTS_ROW_MAPPER)
       .orElseThrow(() -> new IllegalStateException("Dashboard count aggregate returned no row"));
   }
 
@@ -196,493 +140,208 @@ public class DashboardRepository {
   public List<ReportGroupMetricsProjection> getReportGroupsRequiringAttention(LocalDateTime fromTimestamp,
       LocalDateTime toTimestampExclusive, String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup,
       int reportGroupId) {
-    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
-      .ge(fromTimestamp)
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
-
-    var journeyFailuresForGroups = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
-    Field<Integer> jfgRptGrpId = requiredField(journeyFailuresForGroups, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> jfgBatchId = requiredField(journeyFailuresForGroups, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Long> jfgCount =
-        requiredField(journeyFailuresForGroups, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
-    Condition transformationFailedGtZero =
-        DSL.coalesce(jfgCount, DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT)).gt(0L);
-    Condition missingAttemptsGtZero = DSL.coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0).gt(0);
-    Condition activityMissingGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).gt(0);
-
-    var reportGroupMetrics = dsl
-      .select(RECONCILIATION.RPT_GRP_ID, DSL.max(RECONCILIATION.RPT_GRP_NAME).as("rpt_grp_name"),
-          countDistinctTupleFiltered(DSL.trueCondition(), RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO).as(BATCHES_RAN_COLUMN),
-          countDistinctTupleFiltered(transformationFailedGtZero.or(missingAttemptsGtZero).or(activityMissingGtZero), RECONCILIATION.BATCH_ID,
-              RECONCILIATION.SEQ_NO)
-            .as(BATCHES_NEEDING_ATTENTION_COLUMN),
-          countDistinctTupleFiltered(transformationFailedGtZero, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(TRANSFORMATION_FAILURE_BATCHES_COLUMN),
-          countDistinctTupleFiltered(missingAttemptsGtZero, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO).as(
-              MISSING_ATTEMPT_BATCHES_COLUMN),
-          countDistinctTupleFiltered(activityMissingGtZero, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO).as(
-              ACTIVITY_MISSING_BATCHES_COLUMN),
-          DSL.coalesce(DSL.sum(RECONCILIATION.ACTIVITY_TRANSFORMED), DSL.inline(java.math.BigDecimal.ZERO)).as(
-              TOTAL_REPORTED_TRANSACTIONS_COLUMN),
-          DSL.coalesce(DSL.sum(RECONCILIATION.EXCLUDED_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
-      .from(RECONCILIATION)
-      .leftJoin(journeyFailuresForGroups)
-      .on(jfgRptGrpId.eq(RECONCILIATION.RPT_GRP_ID))
-      .and(jfgBatchId.eq(RECONCILIATION.BATCH_ID))
-      .where(scope)
-      .groupBy(RECONCILIATION.RPT_GRP_ID)
-      .asTable("report_group_metrics");
-
-    Field<Integer> rptGrpId = requiredField(reportGroupMetrics, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> rptGrpName = requiredField(reportGroupMetrics, "rpt_grp_name", String.class);
-    Field<Long> batchesRan = requiredField(reportGroupMetrics, BATCHES_RAN_COLUMN, Long.class);
-    Field<Long> batchesNeedingAttention = requiredField(reportGroupMetrics, BATCHES_NEEDING_ATTENTION_COLUMN, Long.class);
-    Field<Long> transformationFailureBatches = requiredField(reportGroupMetrics, TRANSFORMATION_FAILURE_BATCHES_COLUMN, Long.class);
-    Field<Long> missingAttemptBatches = requiredField(reportGroupMetrics, MISSING_ATTEMPT_BATCHES_COLUMN, Long.class);
-    Field<Long> activityMissingBatches = requiredField(reportGroupMetrics, ACTIVITY_MISSING_BATCHES_COLUMN, Long.class);
-    Field<Long> totalReported = requiredField(reportGroupMetrics, TOTAL_REPORTED_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> totalExcluded = requiredField(reportGroupMetrics, TOTAL_EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
+    SqlFragment journeyFailuresCte = TransformationFailureQueries.journeyFailuresByBatch(sql, scope).asCte("journey_failures_by_batch");
+    String reportGroupMetricsSql = sql.load(REPORT_GROUP_METRICS_SQL) + scope.sql() + "\ngroup by r.rpt_grp_id";
+    SqlFragment reportGroupMetricsCte = SqlFragment.of(reportGroupMetricsSql, scope.params()).asCte("report_group_metrics");
     // A specific report group or country is exactly what the caller wants full detail on -- don't
     // additionally hide rows within that already-narrow scope for having nothing to flag.
-    Condition attentionScope = filterByReportGroup || filterByCountry ? DSL.trueCondition() : batchesNeedingAttention.gt(0L);
+    String attentionFilter = filterByReportGroup || filterByCountry ? "" : "where batches_needing_attention > 0";
+    String body = sql.load(GET_REPORT_GROUPS_REQUIRING_ATTENTION_SQL).replace("%%ATTENTION_FILTER%%", attentionFilter);
 
-    return dsl
-      .select(rptGrpId.as("reportGroupId"), rptGrpName.as("reportGroupName"), batchesRan.as(BATCHES_RAN_ALIAS),
-          batchesRan.sub(batchesNeedingAttention).as(SUCCESSFUL_BATCHES_ALIAS), batchesNeedingAttention.as(BATCHES_NEEDING_ATTENTION_ALIAS),
-          transformationFailureBatches.as(TRANSFORMATION_FAILURE_BATCHES_ALIAS), missingAttemptBatches.as(MISSING_ATTEMPT_BATCHES_ALIAS),
-          activityMissingBatches.as(ACTIVITY_MISSING_BATCHES_ALIAS), totalReported.as(TOTAL_REPORTED_TRANSACTIONS_ALIAS),
-          totalExcluded.as(TOTAL_EXCLUDED_TRANSACTIONS_ALIAS))
-      .from(reportGroupMetrics)
-      .where(attentionScope)
-      .orderBy(batchesNeedingAttention.desc(), transformationFailureBatches.add(missingAttemptBatches).add(activityMissingBatches).desc(),
-          rptGrpId)
-      .fetch(r -> new ReportGroupMetricsProjection(requiredInt(r, "reportGroupId"), r.get("reportGroupName", String.class),
-          requiredLong(r, BATCHES_RAN_ALIAS), requiredLong(r, SUCCESSFUL_BATCHES_ALIAS), requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS),
-          requiredLong(r, TRANSFORMATION_FAILURE_BATCHES_ALIAS), requiredLong(r, MISSING_ATTEMPT_BATCHES_ALIAS),
-          requiredLong(r, ACTIVITY_MISSING_BATCHES_ALIAS), requiredLong(r, TOTAL_REPORTED_TRANSACTIONS_ALIAS),
-          requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)));
+    SqlFragment combined = SqlFragment.combine(List.of(journeyFailuresCte, reportGroupMetricsCte), SqlFragment.of(body));
+    return jdbc.query(combined.sql(), combined.parameterSource(), REPORT_GROUP_METRICS_ROW_MAPPER);
   }
+
+  private record TrendPeriods(SqlFragment periodsCte, String periodStartExpr) {}
 
   /**
    * Bucket boundaries and the per-row bucketing expression, shared by every trend query that
    * groups {@code report_transformation_reconciliation} rows into DAILY/WEEKLY/MONTHLY buckets
-   * over the requested date range (see {@link #getBatchHealthTrend} and {@link
-   * #getTransactionVolumeTrend}) -- both queries need the identical calendar/bucketing setup, just
-   * with different aggregates grouped into it. {@code granularity} is already resolved to exactly
-   * one of DAILY/WEEKLY/MONTHLY before either caller runs (via {@code
-   * TrendGranularity.forPeriod(...)}) -- unlike the original SQL text, which had to encode all
-   * three branches as a runtime CASE because a native query can't vary its own text, jOOQ builds
-   * the query in Java, so only the one branch that actually applies is ever constructed.
+   * over the requested date range. {@code granularity} is already resolved to exactly one of
+   * DAILY/WEEKLY/MONTHLY before either caller runs (via {@code TrendGranularity.forPeriod(...)}),
+   * so only the one branch that actually applies is ever built -- a fixed, Java-selected SQL
+   * fragment, never a request-derived string reaching the query text.
    */
-  private TrendPeriods buildTrendPeriods(LocalDate fromDate, LocalDate toDate, String granularity) {
-    Field<LocalDate> seriesStart;
-    Field<String> seriesStep;
-    Field<LocalDate> periodStartExpr;
-    switch (granularity) {
-      case "DAILY" -> {
-        seriesStart = DSL.inline(fromDate);
-        seriesStep = DSL.inline("1 day");
-        periodStartExpr = RECONCILIATION.CREATED_TIMESTAMP.cast(SQLDataType.LOCALDATE);
-      }
-      case "WEEKLY" -> {
-        seriesStart = DSL.inline(fromDate);
-        seriesStep = DSL.inline("7 days");
-        // fromDate + (((createdDate - fromDate) / 7) * 7): floor the day offset from fromDate down
-        // to the nearest whole week, reproducing the original's integer-division bucketing exactly.
-        periodStartExpr = DSL.field("{0} + ((({1}::date - {0}) / 7) * 7)", SQLDataType.LOCALDATE, DSL.inline(fromDate),
-            RECONCILIATION.CREATED_TIMESTAMP);
-      }
-      default -> {
-        seriesStart = DSL.field("date_trunc('month', {0})", SQLDataType.LOCALDATE, DSL.inline(fromDate));
-        seriesStep = DSL.inline("1 month");
-        periodStartExpr = DSL.trunc(RECONCILIATION.CREATED_TIMESTAMP, org.jooq.DatePart.MONTH).cast(SQLDataType.LOCALDATE);
-      }
-    }
-
-    var periods = dsl
-      .select(DSL
-        .field("generate_series({0}, {1}, {2}::interval)", SQLDataType.LOCALDATE, seriesStart, DSL.inline(toDate), seriesStep)
-        .as(PERIOD_START_COLUMN))
-      .asTable("periods");
-    Field<LocalDate> periodsStart = requiredField(periods, PERIOD_START_COLUMN, LocalDate.class);
-
-    return new TrendPeriods(periods, periodsStart, periodStartExpr);
-  }
-
-  private record TrendPeriods(Table<?> periods, Field<LocalDate> periodsStart, Field<LocalDate> periodStartExpr) {}
-
-  private Condition trendScope(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId, boolean filterByCountry,
-      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    return RECONCILIATION.CREATED_TIMESTAMP
-      .ge(fromTimestamp)
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+  private TrendPeriods buildTrendPeriods(String granularity, LocalDate fromDate, LocalDate toDate) {
+    String periodsSql = switch (granularity) {
+      case "DAILY" -> "select generate_series(:fromDate::date, :toDate::date, interval '1 day')::date as period_start";
+      case "WEEKLY" -> "select generate_series(:fromDate::date, :toDate::date, interval '7 days')::date as period_start";
+      default -> "select generate_series(date_trunc('month', :fromDate::date), :toDate::date, interval '1 month')::date as period_start";
+    };
+    // fromDate + (((createdDate - fromDate) / 7) * 7): floor the day offset from fromDate down to
+    // the nearest whole week, reproducing the original's integer-division bucketing exactly.
+    String periodStartExpr = switch (granularity) {
+      case "DAILY" -> "r.created_timestamp::date";
+      case "WEEKLY" -> "(:fromDate::date + (((r.created_timestamp::date - :fromDate::date) / 7) * 7))";
+      default -> "date_trunc('month', r.created_timestamp)::date";
+    };
+    SqlFragment periodsCte = SqlFragment.of(periodsSql, Map.of("fromDate", fromDate, "toDate", toDate)).asCte("periods");
+    return new TrendPeriods(periodsCte, periodStartExpr);
   }
 
   /**
    * Batch View's Daily Batch Health chart alone -- ran/successful/needing-attention per bucket.
    * Deliberately doesn't compute reported/excluded transaction totals: those are a different
-   * page's concern (see {@link #getTransactionVolumeTrend}), and since this method and that one
-   * are never both called within the same request (each page calls only its own), splitting them
-   * costs neither page an extra round trip while sparing whichever page's request runs from
-   * aggregating columns it will never read.
+   * page's concern (see {@link #getTransactionVolumeTrend}).
    */
   @SqlQueryPurpose("Batch View > Daily Batch Health chart > Load successful and failed batch counts")
   public List<BatchHealthTrendProjection> getBatchHealthTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
       boolean filterByReportGroup, int reportGroupId) {
-    TrendPeriods trendPeriods = buildTrendPeriods(fromDate, toDate, granularity);
-    Condition scope = trendScope(fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds, filterByReportGroup,
-        reportGroupId);
+    TrendPeriods trendPeriods = buildTrendPeriods(granularity, fromDate, toDate);
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
+    SqlFragment journeyFailuresCte = TransformationFailureQueries.journeyFailuresByBatch(sql, scope).asCte("journey_failures_by_batch");
 
-    var journeyFailuresForTrend = TransformationFailureQueries.journeyFailuresByBatch(dsl, scope);
-    Field<Integer> jftRptGrpId = requiredField(journeyFailuresForTrend, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> jftBatchId = requiredField(journeyFailuresForTrend, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Long> jftCount =
-        requiredField(journeyFailuresForTrend, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
-    Condition transformationFailedGtZero =
-        DSL.coalesce(jftCount, DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT)).gt(0L);
-    Condition missingAttemptsGtZero = DSL.coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0).gt(0);
-    Condition activityMissingGtZero = DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).gt(0);
+    String periodMetricsSql = "select "
+        + trendPeriods.periodStartExpr()
+        + " as period_start,\n"
+        + "  count(distinct (r.rpt_grp_id, r.batch_id, r.seq_no)) as batches_ran,\n"
+        + "  count(distinct (r.rpt_grp_id, r.batch_id, r.seq_no)) filter (\n"
+        + "    where coalesce(jf.journey_transformation_failures, coalesce(r.activity_transformation_failed, 0)::bigint) > 0\n"
+        + "      or coalesce(r.txn_missing_attempt_count, 0) > 0\n"
+        + "      or coalesce(r.activity_missing, 0) > 0\n"
+        + "  ) as batches_needing_attention\n"
+        + "from pharos.report_transformation_reconciliation r\n"
+        + "left join journey_failures_by_batch jf on jf.rpt_grp_id = r.rpt_grp_id and jf.batch_id = r.batch_id\n"
+        + "where 1 = 1"
+        // Group by the SELECT list's ordinal position, not periodStartExpr's own text repeated: the
+    // WEEKLY branch embeds :fromDate, and NamedParameterJdbcTemplate expands each textual
+    // occurrence of a named parameter to its own distinct positional placeholder, so a second
+    // copy of the same expression here would bind a different parameter marker than the SELECT
+    // list's copy -- Postgres then treats them as different expressions and rejects the query
+    // ("column must appear in the GROUP BY clause"), even though both hold the same value.
+    + scope.sql()
+        + "\ngroup by 1";
+    Map<String, Object> periodMetricsParams = new HashMap<>(scope.params());
+    periodMetricsParams.put("fromDate", fromDate);
+    periodMetricsParams.put("toDate", toDate);
+    SqlFragment periodMetricsCte = SqlFragment.of(periodMetricsSql, periodMetricsParams).asCte("period_metrics");
 
-    var periodMetrics = dsl
-      .select(trendPeriods.periodStartExpr().as(PERIOD_START_COLUMN),
-          countDistinctTupleFiltered(DSL.trueCondition(), RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(BATCHES_RAN_COLUMN),
-          countDistinctTupleFiltered(transformationFailedGtZero.or(missingAttemptsGtZero).or(activityMissingGtZero),
-              RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID, RECONCILIATION.SEQ_NO)
-            .as(BATCHES_NEEDING_ATTENTION_COLUMN))
-      .from(RECONCILIATION)
-      .leftJoin(journeyFailuresForTrend)
-      .on(jftRptGrpId.eq(RECONCILIATION.RPT_GRP_ID))
-      .and(jftBatchId.eq(RECONCILIATION.BATCH_ID))
-      .where(scope)
-      .groupBy(trendPeriods.periodStartExpr())
-      .asTable("period_metrics");
-
-    Field<Long> batchesRan = requiredField(periodMetrics, BATCHES_RAN_COLUMN, Long.class);
-    Field<Long> batchesNeedingAttention = requiredField(periodMetrics, BATCHES_NEEDING_ATTENTION_COLUMN, Long.class);
-
-    return dsl
-      .select(trendPeriods.periodsStart().as("periodStart"), DSL.coalesce(batchesRan, 0L).as(BATCHES_RAN_ALIAS),
-          DSL.coalesce(batchesRan, 0L).sub(DSL.coalesce(batchesNeedingAttention, 0L)).as(SUCCESSFUL_BATCHES_ALIAS),
-          DSL.coalesce(batchesNeedingAttention, 0L).as(BATCHES_NEEDING_ATTENTION_ALIAS))
-      .from(trendPeriods.periods())
-      .leftJoin(periodMetrics)
-      .using(trendPeriods.periodsStart())
-      .orderBy(trendPeriods.periodsStart())
-      .fetch(r -> new BatchHealthTrendProjection(r.get("periodStart", LocalDate.class), requiredLong(r, BATCHES_RAN_ALIAS),
-          requiredLong(r, SUCCESSFUL_BATCHES_ALIAS), requiredLong(r, BATCHES_NEEDING_ATTENTION_ALIAS)));
+    SqlFragment combined = SqlFragment.combine(List.of(journeyFailuresCte, trendPeriods.periodsCte(), periodMetricsCte),
+        SqlFragment.of(sql.load(GET_BATCH_HEALTH_TREND_SQL)));
+    return jdbc.query(combined.sql(), combined.parameterSource(), BATCH_HEALTH_TREND_ROW_MAPPER);
   }
 
   /**
    * Transactions Overview's trend heatmap/line charts alone -- reported/excluded transaction
-   * totals per bucket. See {@link #getBatchHealthTrend}'s Javadoc for why this is a separate
-   * query rather than the two totals riding along on that one.
+   * totals per bucket. Reported totals use {@code activity_transformed}, not {@code
+   * actual_reportable_txn}, which can include failed transformation attempts.
    */
-  // Reported totals use activity_transformed, not actual_reportable_txn, which can
-  // include failed transformation attempts. Keep expected/actual reconciliation variance
-  // calculations on their existing fields; this change concerns the displayed reported totals.
   @SqlQueryPurpose("Transactions Overview > Trend heatmap/line charts > Load reported and excluded transaction totals")
   public List<TransactionVolumeTrendProjection> getTransactionVolumeTrend(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       LocalDate fromDate, LocalDate toDate, String granularity, String batchId, boolean filterByCountry, List<Integer> reportGroupIds,
       boolean filterByReportGroup, int reportGroupId) {
-    TrendPeriods trendPeriods = buildTrendPeriods(fromDate, toDate, granularity);
-    Condition scope = trendScope(fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds, filterByReportGroup,
-        reportGroupId);
+    TrendPeriods trendPeriods = buildTrendPeriods(granularity, fromDate, toDate);
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
 
-    var periodMetrics = dsl
-      .select(trendPeriods.periodStartExpr().as(PERIOD_START_COLUMN),
-          DSL.coalesce(DSL.sum(RECONCILIATION.ACTIVITY_TRANSFORMED), DSL.inline(java.math.BigDecimal.ZERO)).as(
-              TOTAL_REPORTED_TRANSACTIONS_COLUMN),
-          DSL.coalesce(DSL.sum(RECONCILIATION.EXCLUDED_TXN), DSL.inline(java.math.BigDecimal.ZERO)).as(TOTAL_EXCLUDED_TRANSACTIONS_COLUMN))
-      .from(RECONCILIATION)
-      .where(scope)
-      .groupBy(trendPeriods.periodStartExpr())
-      .asTable("period_metrics");
+    String periodMetricsSql = "select "
+        + trendPeriods.periodStartExpr()
+        + " as period_start,\n"
+        + "  coalesce(sum(r.activity_transformed), 0) as total_reported_transactions,\n"
+        + "  coalesce(sum(r.excluded_txn), 0) as total_excluded_transactions\n"
+        + "from pharos.report_transformation_reconciliation r\n"
+        // See getBatchHealthTrend's identical comment: group by ordinal position, not a second copy
+    // of periodStartExpr's text, since a repeated :fromDate/:toDate reference would otherwise
+    // bind a different parameter marker than the SELECT list's copy.
+    + "where 1 = 1"
+        + scope.sql()
+        + "\ngroup by 1";
+    Map<String, Object> periodMetricsParams = new HashMap<>(scope.params());
+    periodMetricsParams.put("fromDate", fromDate);
+    periodMetricsParams.put("toDate", toDate);
+    SqlFragment periodMetricsCte = SqlFragment.of(periodMetricsSql, periodMetricsParams).asCte("period_metrics");
 
-    Field<Long> totalReported = requiredField(periodMetrics, TOTAL_REPORTED_TRANSACTIONS_COLUMN, Long.class);
-    Field<Long> totalExcluded = requiredField(periodMetrics, TOTAL_EXCLUDED_TRANSACTIONS_COLUMN, Long.class);
-
-    return dsl
-      .select(trendPeriods.periodsStart().as("periodStart"), DSL.coalesce(totalReported, 0L).as(TOTAL_REPORTED_TRANSACTIONS_ALIAS),
-          DSL.coalesce(totalExcluded, 0L).as(TOTAL_EXCLUDED_TRANSACTIONS_ALIAS))
-      .from(trendPeriods.periods())
-      .leftJoin(periodMetrics)
-      .using(trendPeriods.periodsStart())
-      .orderBy(trendPeriods.periodsStart())
-      .fetch(r -> new TransactionVolumeTrendProjection(r.get("periodStart", LocalDate.class), requiredLong(r, TOTAL_REPORTED_TRANSACTIONS_ALIAS),
-          requiredLong(r, TOTAL_EXCLUDED_TRANSACTIONS_ALIAS)));
+    SqlFragment combined =
+        SqlFragment.combine(List.of(trendPeriods.periodsCte(), periodMetricsCte), SqlFragment.of(sql.load(GET_TRANSACTION_VOLUME_TREND_SQL)));
+    return jdbc.query(combined.sql(), combined.parameterSource(), VOLUME_TREND_ROW_MAPPER);
   }
 
   /**
-   * Rolls up every journey event (not just the latest-state row) per {@code (rpt_grp_id,
-   * identifier)} into two booleans -- {@code ever_excluded} and {@code ever_reported} -- then
-   * partitions the result into the four Transactions Overview numbers. This intentionally departs
-   * from every other transaction count in this class: those all read {@code
-   * report_transformation_reconciliation}'s batch-level aggregate columns, which cannot see
-   * individual transactions; this reads {@code record_transformation_journey}'s rows for every
-   * batch in {@code scope} (the caller's date/country/report-group window, via {@code
-   * batchScope}/{@code batchEvidence} below) -- NOT the transaction's entire all-time history
-   * across batches outside that window -- joined against {@code report_batch_info} to confirm a
-   * batch's report was actually generated (not merely that its transformation step succeeded)
-   * before counting a transaction as reported. "Ever" therefore means "at any point within this
-   * window," matching {@link com.pharos.compliance.transaction.repository.evidence.OverviewEvidenceQueries#reportingRoll}
-   * exactly, so this tile's count and its own drill-through evidence agree. Ported directly from a
-   * validated business-rule spec (see the definitions of Reported / Not Reported / Excluded By
-   * Design / Expected), not derived independently -- the {@code batch_generated} condition, the
-   * exact stage/status literals, and the bucket definitions below are intentionally unchanged from
-   * that source.
+   * The shared {@code batch_scope}/{@code batch_evidence}/{@code roll} CTE chain behind {@link
+   * #getTransactionOverview}, {@link #getTopExclusionReasons} and {@link #getNotReportedReasons}:
+   * rolls up every journey event (not just the latest-state row) per {@code (rpt_grp_id,
+   * identifier)} into {@code ever_excluded}/{@code ever_reported}, joined against {@code
+   * report_batch_info} to confirm a batch's report was actually generated (not merely that its
+   * transformation step succeeded) before counting a transaction as reported. {@code
+   * extraReasonColumn} lets {@link #getTopExclusionReasons}/{@link #getNotReportedReasons} add
+   * their own {@code reason} column onto the same roll without {@link #getTransactionOverview}
+   * paying for it.
    */
+  private List<SqlFragment> journeyRollCtes(SqlFragment scope, String extraReasonColumn) {
+    SqlFragment batchScopeCte = SqlFragment.of(sql.load(BATCH_SCOPE_SQL) + scope.sql(), scope.params()).asCte("batch_scope");
+    SqlFragment batchEvidenceCte = SqlFragment.of(sql.load(BATCH_EVIDENCE_SQL)).asCte("batch_evidence");
+    SqlFragment rollCte = SqlFragment.of(sql.load(JOURNEY_ROLL_SQL).replace("%%EXTRA_COLUMN%%", extraReasonColumn)).asCte("roll");
+    return List.of(batchScopeCte, batchEvidenceCte, rollCte);
+  }
+
   @SqlQueryPurpose("Transactions Overview > Selected / Expected / Excluded / Not Reported KPI cards > Aggregate transaction evidence")
   public TransactionOverviewProjection getTransactionOverview(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
-      .ge(fromTimestamp)
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
+    List<SqlFragment> ctes = journeyRollCtes(scope, "");
 
-    var batchScope =
-        dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable("batch_scope");
-
-    Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);
-
-    var batchEvidence = dsl
-      .select(bsRptGrpId, bsBatchId,
-          DSL
-            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
-            .as(BATCH_GENERATED_COLUMN))
-      .from(batchScope)
-      .leftJoin(BATCH_INFO)
-      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
-      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
-      .asTable("batch_evidence");
-
-    Field<Integer> beRptGrpId = requiredField(batchEvidence, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> beBatchId = requiredField(batchEvidence, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
-
-    Field<String> upperStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
-    Condition everExcludedCondition = upperStatus.in(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP);
-    Condition everReportedCondition = JOURNEY.STAGE
-      .eq(STAGE_REPORT_GENERATION)
-      .and(upperStatus.eq(STATUS_GENERATED))
-      .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-
-    var roll = dsl
-      .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
-          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN))
-      .from(JOURNEY)
-      .join(batchEvidence)
-      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(beBatchId.eq(JOURNEY.BATCH_ID))
-      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
-      .asTable("roll");
-
-    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
-    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-
-    return dsl
-      .select(DSL.count().as("selected"), DSL.count().filterWhere(everReported.isTrue().or(everExcluded.isFalse())).as("expected"),
-          DSL.count().filterWhere(everExcluded.isTrue().and(everReported.isFalse())).as("excluded"),
-          DSL.count().filterWhere(everReported.isFalse().and(everExcluded.isFalse())).as("not_reported"))
-      .from(roll)
-      .fetchOptional(r -> new TransactionOverviewProjection(requiredLong(r, "selected"), requiredLong(r, "expected"),
-          requiredLong(r, "excluded"), requiredLong(r, "not_reported")))
+    SqlFragment combined = SqlFragment.combine(ctes, SqlFragment.of(sql.load(GET_TRANSACTION_OVERVIEW_SQL)));
+    return jdbc
+      .queryForOptional(combined.sql(), combined.parameterSource(), OVERVIEW_ROW_MAPPER)
       .orElseThrow(() -> new IllegalStateException("Transaction overview aggregate returned no row"));
   }
 
   /**
+   * Groups {@code roll}'s rows matching {@code filterSql} by its {@code reason} column, keeps the
+   * top 3 by count, and collapses every remaining group into a single {@code "Other"} row --
+   * shared by {@link #getTopExclusionReasons} and {@link #getNotReportedReasons}.
+   */
+  private List<SqlFragment> topReasonsCtes(String filterSql) {
+    SqlFragment reasonCountsCte = SqlFragment.of(sql.load(REASON_COUNTS_SQL).replace("%%FILTER%%", filterSql)).asCte("reason_counts");
+    SqlFragment rankedReasonsCte = SqlFragment.of(sql.load(RANKED_REASONS_SQL)).asCte("ranked_reasons");
+    SqlFragment bucketedReasonsCte = SqlFragment.of(sql.load(BUCKETED_REASONS_SQL)).asCte("bucketed_reasons");
+    return List.of(reasonCountsCte, rankedReasonsCte, bucketedReasonsCte);
+  }
+
+  private <T> List<T> queryReasons(SqlFragment scope, String extraReasonColumn, String filterSql,
+      java.util.function.BiFunction<String, Long, T> factory) {
+    List<SqlFragment> allCtes = new ArrayList<>(journeyRollCtes(scope, extraReasonColumn));
+    allCtes.addAll(topReasonsCtes(filterSql));
+    SqlFragment combined = SqlFragment.combine(allCtes, SqlFragment.of(sql.load(TOP_REASONS_FINAL_SQL)));
+    return jdbc.query(combined.sql(), combined.parameterSource(), (rs, rowNum) -> factory.apply(rs.getString("reason"), rs.getLong("count")));
+  }
+
+  /**
    * The same journey-derived "excluded" bucket as {@link #getTransactionOverview}'s {@code
-   * excluded} count, broken out by reason instead of collapsed to one total -- for explaining
-   * *why* transactions were excluded rather than just how many. Each excluded identifier's reason
-   * is {@code comments} (falling back to {@code skip_reason} when null), taken from whichever of
-   * its own EXCLUDED/EXCLUDED_SOFT_DEDUP rows has the lexicographically-greatest value. {@code
-   * comments} leads (not {@code skip_reason}, despite that being the priority order the
-   * per-record "Investigation Detail" column uses) because {@code skip_reason} is frequently a
-   * verbose, per-record exception payload -- e.g. {@code [{"Exception": "...", "Path":
-   * "RECORDS[6615]/...", ...}]} -- that embeds a record-specific index, so two rows with the exact
-   * same underlying issue still fail to group together; {@code comments} is consistently a short,
-   * low-cardinality value (an enum-like code or short sentence) that groups meaningfully. Shows the
-   * top 3 reasons by count plus a single "Other" bucket summing every remaining reason, rather than
-   * a longer flat list -- deliberately the actual free-text reason values (not a synthesized
-   * category), same as {@link #getNotReportedReasons}.
+   * excluded} count, broken out by reason instead of collapsed to one total. Each excluded
+   * identifier's reason is {@code comments} (falling back to {@code skip_reason} when null) --
+   * {@code comments} leads because {@code skip_reason} is frequently a verbose, per-record
+   * exception payload that embeds a record-specific index, so two rows with the exact same
+   * underlying issue still fail to group together.
    */
   @SqlQueryPurpose("Transactions Overview > Top Exclusion Reasons chart > Aggregate excluded transactions by reason")
   public List<ExclusionReasonProjection> getTopExclusionReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
-      .ge(fromTimestamp)
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
-
-    var batchScope =
-        dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable("batch_scope");
-
-    Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);
-
-    var batchEvidence = dsl
-      .select(bsRptGrpId, bsBatchId,
-          DSL
-            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
-            .as(BATCH_GENERATED_COLUMN))
-      .from(batchScope)
-      .leftJoin(BATCH_INFO)
-      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
-      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
-      .asTable("batch_evidence");
-
-    Field<Integer> beRptGrpId = requiredField(batchEvidence, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> beBatchId = requiredField(batchEvidence, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
-
-    Field<String> upperStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
-    Condition everExcludedCondition = upperStatus.in(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP);
-    Condition everReportedCondition = JOURNEY.STAGE
-      .eq(STAGE_REPORT_GENERATION)
-      .and(upperStatus.eq(STATUS_GENERATED))
-      .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-    Field<String> exclusionReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
-
-    var roll = dsl
-      .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
-          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN),
-          DSL.max(DSL.when(everExcludedCondition, exclusionReasonColumn)).as(REASON_COLUMN))
-      .from(JOURNEY)
-      .join(batchEvidence)
-      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(beBatchId.eq(JOURNEY.BATCH_ID))
-      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
-      .asTable("roll");
-
-    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
-    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-    Field<String> reason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
-
-    return topReasonsThenOther(roll, everExcluded.isTrue().and(everReported.isFalse()), reason)
-      .stream()
-      .map(r -> new ExclusionReasonProjection(r.reason(), r.count()))
-      .toList();
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
+    String extraReasonColumn =
+        ", max(case when " + EXCLUDED_STATUSES_SQL + " then coalesce(journey.comments, journey.skip_reason) end) as reason";
+    return queryReasons(scope, extraReasonColumn, "ever_excluded and not ever_reported", ExclusionReasonProjection::new);
   }
-
-  /**
-   * Groups {@code roll}'s rows matching {@code filter} by {@code reasonField}, keeps the top {@link
-   * #TOP_REASON_LIMIT} by count, and collapses every remaining group into a single {@code "Other"}
-   * row -- shared by {@link #getTopExclusionReasons} and {@link #getNotReportedReasons} since both
-   * need the identical "top N, then a catch-all" shape over their own raw reason text. "Other" is
-   * always ordered last regardless of its own count (it's a residual bucket, not a real contender
-   * for "top"), which can otherwise outrank the 3rd-place reason on a long tail of distinct values.
-   */
-  private List<ReasonCount> topReasonsThenOther(Table<?> roll, Condition filter, Field<String> reasonField) {
-    var reasonCounts = dsl
-      .select(reasonField.as(REASON_COLUMN), DSL.count().as("count"))
-      .from(roll)
-      .where(filter)
-      .groupBy(reasonField)
-      .asTable("reason_counts");
-
-    Field<String> countsReason = requiredField(reasonCounts, REASON_COLUMN, String.class);
-    Field<Integer> countsCount = requiredField(reasonCounts, "count", Integer.class);
-    Field<Integer> rank = DSL.rowNumber().over(DSL.orderBy(countsCount.desc(), countsReason)).as("rn");
-
-    var ranked = dsl.select(countsReason, countsCount, rank).from(reasonCounts).asTable("ranked_reasons");
-
-    Field<String> rankedReason = requiredField(ranked, REASON_COLUMN, String.class);
-    Field<Integer> rankedCount = requiredField(ranked, "count", Integer.class);
-    Field<Integer> rankedRank = requiredField(ranked, "rn", Integer.class);
-    Field<String> bucketed = DSL.when(rankedRank.le(TOP_REASON_LIMIT), rankedReason).otherwise(DSL.inline(OTHER_REASON));
-    // Materialized as its own table (rather than grouping/ordering by the `bucketed` CASE
-    // expression directly) so the outer aggregate below groups and orders by a plain output column
-    // -- Postgres rejects an ORDER BY expression that re-embeds `rn` (via `bucketed`) once the query
-    // has already grouped past it, even though it's logically the same value the GROUP BY used.
-    var bucketedRows = dsl.select(bucketed.as(REASON_COLUMN), rankedCount.as("count")).from(ranked).asTable("bucketed_reasons");
-    Field<String> bucketedReason = requiredField(bucketedRows, REASON_COLUMN, String.class);
-    Field<Integer> bucketedRawCount = requiredField(bucketedRows, "count", Integer.class);
-    Field<Long> totalCount = DSL.sum(bucketedRawCount).cast(SQLDataType.BIGINT);
-
-    return dsl
-      .select(bucketedReason, totalCount.as("count"))
-      .from(bucketedRows)
-      .groupBy(bucketedReason)
-      .orderBy(bucketedReason.eq(DSL.inline(OTHER_REASON)).asc(), DSL.field(DSL.name("count"), Long.class).desc())
-      .fetch(r -> new ReasonCount(r.get(REASON_COLUMN, String.class), requiredLong(r, "count")));
-  }
-
-  private record ReasonCount(String reason, long count) {}
 
   /**
    * Breaks the same journey-derived "not reported" bucket {@link #getTransactionOverview}'s {@code
    * notReported} counts down by *why* -- the same {@code comments} (falling back to {@code
    * skip_reason}) free text {@link #getTopExclusionReasons} uses, just taken from the
-   * lexicographically-greatest non-null value across an identifier's *entire* journey (not just its
-   * EXCLUDED rows, since a not-reported identifier is never excluded by definition). Replaced an
-   * earlier fixed-category CASE (stalled-vs-still-processing, then four named buckets) that kept
-   * needing a new bucket carved out whenever the data didn't fit cleanly -- showing the actual
-   * recorded reason text plus a top-3-then-"Other" cutoff avoids that redefinition cycle entirely,
-   * matching the exclusion reasons card's own shape.
+   * lexicographically-greatest non-null value across an identifier's *entire* journey (not just
+   * its EXCLUDED rows, since a not-reported identifier is never excluded by definition).
    */
   @SqlQueryPurpose("Transactions Overview > Not Reported Breakdown chart > Aggregate transactions by reason")
   public List<NotReportedReasonProjection> getNotReportedReasons(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive,
       String batchId, boolean filterByCountry, List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    Condition scope = RECONCILIATION.CREATED_TIMESTAMP
-      .ge(fromTimestamp)
-      .and(RECONCILIATION.CREATED_TIMESTAMP.lt(toTimestampExclusive))
-      .and(containsIgnoreCase(RECONCILIATION.BATCH_ID, batchId))
-      .and(reportGroupScope(filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId, RECONCILIATION.RPT_GRP_ID));
-
-    var batchScope =
-        dsl.selectDistinct(RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID).from(RECONCILIATION).where(scope).asTable("batch_scope");
-
-    Field<Integer> bsRptGrpId = requiredField(batchScope, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> bsBatchId = requiredField(batchScope, RECONCILIATION.BATCH_ID.getName(), String.class);
-
-    var batchEvidence = dsl
-      .select(bsRptGrpId, bsBatchId,
-          DSL
-            .coalesce(BATCH_INFO.COMPILER_STATUS.eq(REPORT_GENERATION_COMPLETED).or(BATCH_INFO.REPORT_STATUS.in("ALL", "PARTIAL")), false)
-            .as(BATCH_GENERATED_COLUMN))
-      .from(batchScope)
-      .leftJoin(BATCH_INFO)
-      .on(BATCH_INFO.RPT_GRP_ID.eq(bsRptGrpId))
-      .and(BATCH_INFO.BATCH_ID.eq(bsBatchId))
-      .asTable("batch_evidence");
-
-    Field<Integer> beRptGrpId = requiredField(batchEvidence, RECONCILIATION.RPT_GRP_ID.getName(), Integer.class);
-    Field<String> beBatchId = requiredField(batchEvidence, RECONCILIATION.BATCH_ID.getName(), String.class);
-    Field<Boolean> batchGenerated = requiredField(batchEvidence, BATCH_GENERATED_COLUMN, Boolean.class);
-
-    Field<String> upperStatus = DSL.upper(DSL.coalesce(JOURNEY.STATUS, ""));
-    Condition everExcludedCondition = upperStatus.in(STATUS_EXCLUDED, STATUS_EXCLUDED_SOFT_DEDUP);
-    Condition everReportedCondition = JOURNEY.STAGE
-      .eq(STAGE_REPORT_GENERATION)
-      .and(upperStatus.eq(STATUS_GENERATED))
-      .or(JOURNEY.STAGE.eq(STAGE_TRANSFORMATION).and(upperStatus.eq(STATUS_SUCCESS)).and(batchGenerated.isTrue()));
-    Field<String> notReportedReasonColumn = DSL.coalesce(JOURNEY.COMMENTS, JOURNEY.SKIP_REASON);
-
-    var roll = dsl
-      .select(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER, DSL.boolOr(everExcludedCondition).as(EVER_EXCLUDED_COLUMN),
-          DSL.boolOr(everReportedCondition).as(EVER_REPORTED_COLUMN), DSL.max(notReportedReasonColumn).as(REASON_COLUMN))
-      .from(JOURNEY)
-      .join(batchEvidence)
-      .on(beRptGrpId.eq(JOURNEY.RPT_GRP_ID))
-      .and(beBatchId.eq(JOURNEY.BATCH_ID))
-      .groupBy(JOURNEY.RPT_GRP_ID, JOURNEY.IDENTIFIER)
-      .asTable("roll");
-
-    Field<Boolean> everExcluded = requiredField(roll, EVER_EXCLUDED_COLUMN, Boolean.class);
-    Field<Boolean> everReported = requiredField(roll, EVER_REPORTED_COLUMN, Boolean.class);
-    Field<String> reason = DSL.coalesce(requiredField(roll, REASON_COLUMN, String.class), DSL.inline(UNSPECIFIED_REASON));
-
-    return topReasonsThenOther(roll, everReported.isFalse().and(everExcluded.isFalse()), reason)
-      .stream()
-      .map(r -> new NotReportedReasonProjection(r.reason(), r.count()))
-      .toList();
+    SqlFragment scope = reconciliationScope("r.", fromTimestamp, toTimestampExclusive, batchId, filterByCountry, reportGroupIds,
+        filterByReportGroup, reportGroupId);
+    String extraReasonColumn = ", max(coalesce(journey.comments, journey.skip_reason)) as reason";
+    return queryReasons(scope, extraReasonColumn, "not ever_reported and not ever_excluded", NotReportedReasonProjection::new);
   }
 }

@@ -1,7 +1,7 @@
 package com.pharos.compliance.common.tracing;
 
-import com.pharos.compliance.common.jooq.metrics.QueryPerformanceSummaryLogger;
-import com.pharos.compliance.common.jooq.metrics.QueryPerformanceTracker;
+import com.pharos.compliance.common.metrics.QueryPerformanceSummaryLogger;
+import com.pharos.compliance.common.metrics.QueryPerformanceTracker;
 import com.pharos.compliance.common.tracing.TraceContextAccessor.TraceIdentifiers;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

@@ -1,19 +1,13 @@
 package com.pharos.compliance.transaction.repository.evidence;
 
-import static com.pharos.compliance.jooq.tables.RecordTransformationJourney.RECORD_TRANSFORMATION_JOURNEY;
-import static com.pharos.compliance.jooq.tables.RegReportableActivity.REG_REPORTABLE_ACTIVITY;
-import static com.pharos.compliance.jooq.tables.ReportBatchInfo.REPORT_BATCH_INFO;
-import static com.pharos.compliance.jooq.tables.ReportTransformationReconciliation.REPORT_TRANSFORMATION_RECONCILIATION;
-import static com.pharos.compliance.jooq.tables.RuleHit.RULE_HIT;
-import static com.pharos.compliance.jooq.tables.RuleHitExclusionAudit.RULE_HIT_EXCLUSION_AUDIT;
 import java.util.List;
 
 /**
- * Column-name constants and table aliases shared across the transaction-evidence pipelines in
- * this package ({@link BatchEvidenceQueries}, {@link PeriodEvidenceQueries}, {@link
- * OverviewEvidenceQueries}, {@link EvidencePaginator}, {@link RuleHitMatcher}). One place for
- * every string every pipeline agrees on, so renaming or re-checking a column touches one file
- * instead of hunting across five.
+ * Column-name constants shared across the hand-SQL transaction-evidence pipelines in {@code
+ * com.pharos.compliance.transaction.repository.evidence.jdbc} ({@code BatchEvidenceQueries},
+ * {@code PeriodEvidenceQueries}, {@code OverviewEvidenceQueries}, {@code EvidencePaginator},
+ * {@code RuleHitMatcher}). One place for every string every pipeline agrees on, so renaming or
+ * re-checking a column touches one file instead of hunting across five.
  */
 public final class EvidenceColumns {
   public static final String ACTIVITY_TYPE = "activity_type";
@@ -97,13 +91,6 @@ public final class EvidenceColumns {
   public static final String VALUE_NOT_REPORTED = "NOT_REPORTED";
   public static final String VALUE_REPORTED = "REPORTED";
   public static final String REPORTING_TIMESTAMP = "reportingTimestamp";
-  public static final com.pharos.compliance.jooq.tables.ReportTransformationReconciliation RECONCILIATION =
-      REPORT_TRANSFORMATION_RECONCILIATION;
-  public static final com.pharos.compliance.jooq.tables.RecordTransformationJourney JOURNEY = RECORD_TRANSFORMATION_JOURNEY;
-  public static final com.pharos.compliance.jooq.tables.RuleHit RULE_HIT_TABLE = RULE_HIT;
-  public static final com.pharos.compliance.jooq.tables.RuleHitExclusionAudit EXCLUSION_AUDIT = RULE_HIT_EXCLUSION_AUDIT;
-  public static final com.pharos.compliance.jooq.tables.RegReportableActivity RRA = REG_REPORTABLE_ACTIVITY;
-  public static final com.pharos.compliance.jooq.tables.ReportBatchInfo BATCH_INFO = REPORT_BATCH_INFO;
   /**
    * Column list shared by the merged CTE and the outer projection -- 27 fields, in the exact order
    * the original SQL's MERGED_CTE listed them, so the two stay easy to compare side by side.

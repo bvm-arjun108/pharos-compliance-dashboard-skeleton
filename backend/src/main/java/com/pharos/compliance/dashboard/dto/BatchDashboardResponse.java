@@ -17,5 +17,5 @@ public record BatchDashboardResponse(@Schema(example = "30") long batchesRan, @S
     @Schema(example = "1") long duplicateTransactionBatches, @Schema(example = "23") long exclusionBatches,
     @Schema(example = "15") long simulatedTransactionBatches, @Schema(example = "0") long softDedupBatches,
     TrendGranularity trendGranularity, List<BatchHealthTrendResponse> batchHealthTrend,
-    List<ReportGroupAttentionResponse> reportGroupsRequiringAttention,
-    @Schema(example = "2026-08-01") LocalDate fromDate, @Schema(example = "2026-08-31") LocalDate toDate) {}
+    List<ReportGroupAttentionResponse> reportGroupsRequiringAttention, @Schema(example = "2026-08-01") LocalDate fromDate,
+    @Schema(example = "2026-08-31") LocalDate toDate) {}

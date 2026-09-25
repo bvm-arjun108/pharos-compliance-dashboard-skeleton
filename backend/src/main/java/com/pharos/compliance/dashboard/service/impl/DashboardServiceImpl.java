@@ -86,9 +86,9 @@ public class DashboardServiceImpl implements DashboardService {
       .map(this::toReportGroupResponse)
       .toList();
 
-    BatchDashboardResponse response = new BatchDashboardResponse(counts.batchesRan(),
-        counts.batchesRan() - counts.batchesNeedingAttention(), counts.batchesNeedingAttention(), counts.transformationFailureBatches(),
-        counts.missingAttemptBatches(), counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
+    BatchDashboardResponse response = new BatchDashboardResponse(counts.batchesRan(), counts.batchesRan() - counts.batchesNeedingAttention(),
+        counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
+        counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
         counts.simulatedTransactionBatches(), counts.softDedupBatches(), scope.trendGranularity(), trend, reportGroups, fromDate, toDate);
 
     LOGGER.info("Batch dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={}"

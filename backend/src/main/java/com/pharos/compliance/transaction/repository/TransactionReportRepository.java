@@ -1,34 +1,28 @@
 package com.pharos.compliance.transaction.repository;
 
-import static com.pharos.compliance.common.jooq.JooqFields.requiredBoolean;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredField;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredInt;
-import static com.pharos.compliance.common.jooq.JooqFields.requiredLong;
-import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.RECONCILIATION;
-import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.REPORT_GROUP_NAME_ALIAS;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
-import com.pharos.compliance.common.jooq.TransformationFailureQueries;
-import com.pharos.compliance.common.jooq.logging.SqlQueryPurpose;
-import org.jooq.Field;
+import com.pharos.compliance.common.jdbc.TransformationFailureQueries;
+import com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
+import com.pharos.compliance.common.jdbc.sql.SqlFragment;
+import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
+import com.pharos.compliance.common.jdbc.logging.SqlQueryPurpose;
 import com.pharos.compliance.transaction.model.EvidenceCursor;
-import com.pharos.compliance.transaction.repository.evidence.BatchEvidenceQueries;
-import com.pharos.compliance.transaction.repository.evidence.EvidencePaginator;
 import com.pharos.compliance.transaction.repository.evidence.EvidenceProjection;
-import com.pharos.compliance.transaction.repository.evidence.OverviewEvidenceQueries;
-import com.pharos.compliance.transaction.repository.evidence.PeriodEvidenceQueries;
-import com.pharos.compliance.transaction.repository.evidence.RuleHitMatcher;
+import com.pharos.compliance.transaction.repository.evidence.jdbc.BatchEvidenceQueries;
+import com.pharos.compliance.transaction.repository.evidence.jdbc.EvidencePaginator;
+import com.pharos.compliance.transaction.repository.evidence.jdbc.OverviewEvidenceQueries;
+import com.pharos.compliance.transaction.repository.evidence.jdbc.PeriodEvidenceQueries;
+import com.pharos.compliance.transaction.repository.evidence.jdbc.RuleHitMatcher;
 import com.pharos.compliance.transaction.repository.projection.EvidencePage;
-import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.PeriodAggregateProjection;
+import com.pharos.compliance.transaction.repository.projection.TransactionEvidenceProjection;
 import com.pharos.compliance.transaction.repository.projection.TransactionReportContextProjection;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import org.jooq.DSLContext;
-import org.jooq.Table;
-import org.jooq.impl.DSL;
-import org.jooq.impl.SQLDataType;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,18 +55,29 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 @Transactional(readOnly = true)
 public class TransactionReportRepository {
-  private final DSLContext dsl;
+  private static final String REPORT_CONTEXT_SQL = "sql/transaction/report-context.sql";
+  private static final RowMapper<TransactionReportContextProjection> REPORT_CONTEXT_ROW_MAPPER =
+      (rs, rowNum) -> new TransactionReportContextProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"),
+          rs.getString("batchId"), rs.getInt("sequenceNumber"), rs.getString("reportingPeriodFrom"), rs.getString("reportingPeriodTo"),
+          rs.getLong("selectedTransactions"), rs.getLong("attemptsFound"), rs.getLong("missingAttempts"), rs.getLong("activityMissing"),
+          rs.getLong("expectedEligible"), rs.getLong("actualEligible"), rs.getLong("transformed"), rs.getLong("failed"),
+          rs.getLong("reportedFailed"), rs.getBoolean("failedMismatch"), rs.getLong("expectedReportable"), rs.getLong("actualReportable"),
+          rs.getLong("excluded"), rs.getLong("simulated"), rs.getLong("alreadyReported"), rs.getLong("softDedup"),
+          rs.getLong("filtrationVariance"), rs.getLong("reconciliationVariance"));
+  private final TracingNamedParameterJdbcTemplate jdbc;
+  private final SqlResourceLoader sql;
   private final BatchEvidenceQueries batchEvidenceQueries;
   private final PeriodEvidenceQueries periodEvidenceQueries;
   private final OverviewEvidenceQueries overviewEvidenceQueries;
 
-  public TransactionReportRepository(DSLContext dsl) {
-    this.dsl = dsl;
-    EvidencePaginator paginator = new EvidencePaginator(dsl);
-    RuleHitMatcher ruleHitMatcher = new RuleHitMatcher(dsl);
-    this.batchEvidenceQueries = new BatchEvidenceQueries(dsl, ruleHitMatcher, paginator);
-    this.periodEvidenceQueries = new PeriodEvidenceQueries(dsl, ruleHitMatcher, paginator);
-    this.overviewEvidenceQueries = new OverviewEvidenceQueries(dsl, paginator, periodEvidenceQueries);
+  public TransactionReportRepository(TracingNamedParameterJdbcTemplate jdbc, SqlResourceLoader sql) {
+    this.jdbc = jdbc;
+    this.sql = sql;
+    EvidencePaginator paginator = new EvidencePaginator(jdbc, sql);
+    RuleHitMatcher ruleHitMatcher = new RuleHitMatcher();
+    this.batchEvidenceQueries = new BatchEvidenceQueries(sql, ruleHitMatcher, paginator);
+    this.periodEvidenceQueries = new PeriodEvidenceQueries(jdbc, sql, ruleHitMatcher, paginator);
+    this.overviewEvidenceQueries = new OverviewEvidenceQueries(jdbc, sql, paginator, periodEvidenceQueries);
   }
 
   @SqlQueryPurpose("Load transaction reconciliation context for one batch")
@@ -82,63 +87,15 @@ public class TransactionReportRepository {
     // it in) is corrected to the journey-derived count whenever journey has any coverage for this
     // batch, falling back to the raw reconciliation scalar otherwise -- exactly mirroring
     // BatchExplorerRepository#getBatchDetails. The LATERAL join computes both journeyAvailable and
-    // the journey-derived count once; both are then plain column references, safe to reuse below.
-    var journeyStats = TransformationFailureQueries.journeyStatsLateral(dsl, RECONCILIATION.RPT_GRP_ID, RECONCILIATION.BATCH_ID);
-    Field<Boolean> journeyAvailable = requiredField(journeyStats, TransformationFailureQueries.JOURNEY_AVAILABLE_COLUMN, Boolean.class);
-    Field<Long> journeyFailed = requiredField(journeyStats, TransformationFailureQueries.JOURNEY_TRANSFORMATION_FAILURES_COLUMN, Long.class);
-    // Deliberately unaliased raw expression -- reused inside the CASE/comparison below; see
-    // BatchExplorerRepository#getBatchDetails for why an already-.as()-aliased field can't be
-    // reused a second time within the same SELECT list.
-    Field<Long> reportedFailedRaw = DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMATION_FAILED, 0).cast(SQLDataType.BIGINT);
-    Field<Long> failed = DSL.when(journeyAvailable, journeyFailed).otherwise(reportedFailedRaw).as("failed");
-    Field<Boolean> failedMismatch = DSL.condition(journeyAvailable).and(journeyFailed.ne(reportedFailedRaw)).as("failedMismatch");
-
-    return dsl
-      .select(RECONCILIATION.RPT_GRP_ID.as("reportGroupId"), RECONCILIATION.RPT_GRP_NAME.as(REPORT_GROUP_NAME_ALIAS),
-          RECONCILIATION.BATCH_ID.as("batchId"), RECONCILIATION.SEQ_NO.as("sequenceNumber"),
-          RECONCILIATION.RPT_FROM_DATE.as("reportingPeriodFrom"), RECONCILIATION.RPT_TO_DATE.as("reportingPeriodTo"),
-          DSL.coalesce(RECONCILIATION.TXN_SELECTED, 0).cast(SQLDataType.BIGINT).as("selectedTransactions"),
-          DSL
-            .greatest(DSL.coalesce(RECONCILIATION.TXN_SELECTED, 0).sub(DSL.coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0)),
-                DSL.inline(0))
-            .cast(SQLDataType.BIGINT)
-            .as("attemptsFound"), DSL
-            .coalesce(RECONCILIATION.TXN_MISSING_ATTEMPT_COUNT, 0)
-            .cast(SQLDataType.BIGINT)
-            .as("missingAttempts"), DSL.coalesce(RECONCILIATION.ACTIVITY_MISSING, 0).cast(SQLDataType.BIGINT).as("activityMissing"),
-          DSL.coalesce(RECONCILIATION.EXPECTED_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("expectedEligible"),
-          DSL.coalesce(RECONCILIATION.ACTUAL_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0).cast(SQLDataType.BIGINT).as("actualEligible"),
-          DSL.coalesce(RECONCILIATION.ACTIVITY_TRANSFORMED, 0).cast(SQLDataType.BIGINT).as("transformed"), failed,
-          reportedFailedRaw.as("reportedFailed"), failedMismatch,
-          DSL.coalesce(RECONCILIATION.EXPECTED_REPORTABLE_TXN, 0).cast(SQLDataType.BIGINT).as("expectedReportable"),
-          DSL.coalesce(RECONCILIATION.ACTUAL_REPORTABLE_TXN, 0).cast(SQLDataType.BIGINT).as("actualReportable"),
-          DSL.coalesce(RECONCILIATION.EXCLUDED_TXN, 0).cast(SQLDataType.BIGINT).as("excluded"),
-          DSL.coalesce(RECONCILIATION.TXN_SIMULATED, 0).cast(SQLDataType.BIGINT).as("simulated"),
-          DSL.coalesce(RECONCILIATION.ALREADY_REPORTED_COUNT, 0).cast(SQLDataType.BIGINT).as("alreadyReported"),
-          DSL.coalesce(RECONCILIATION.SOFT_DEDUP_DROPPED_TXN_COUNT, 0).cast(SQLDataType.BIGINT).as("softDedup"),
-          DSL
-            .abs(DSL.coalesce(RECONCILIATION.EXPECTED_REPORTABLE_TXN, 0).sub(DSL.coalesce(RECONCILIATION.ACTUAL_REPORTABLE_TXN, 0)))
-            .cast(SQLDataType.BIGINT)
-            .as("filtrationVariance"),
-          DSL
-            .abs(DSL
-              .coalesce(RECONCILIATION.EXPECTED_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0)
-              .sub(DSL.coalesce(RECONCILIATION.ACTUAL_ACTIVITY_ELIGIBLE_FOR_TRANSFORMATION, 0)))
-            .cast(SQLDataType.BIGINT)
-            .as("reconciliationVariance"))
-      .from(RECONCILIATION)
-      .crossJoin(journeyStats)
-      .where(RECONCILIATION.RPT_GRP_ID.eq(reportGroupId))
-      .and(RECONCILIATION.BATCH_ID.eq(batchId))
-      .and(RECONCILIATION.SEQ_NO.eq(sequenceNumber))
-      .fetchOptional(r -> new TransactionReportContextProjection(requiredInt(r, "reportGroupId"),
-          r.get(REPORT_GROUP_NAME_ALIAS, String.class), r.get("batchId", String.class), requiredInt(r, "sequenceNumber"),
-          r.get("reportingPeriodFrom", String.class), r.get("reportingPeriodTo", String.class), requiredLong(r, "selectedTransactions"),
-          requiredLong(r, "attemptsFound"), requiredLong(r, "missingAttempts"), requiredLong(r, "activityMissing"),
-          requiredLong(r, "expectedEligible"), requiredLong(r, "actualEligible"), requiredLong(r, "transformed"), requiredLong(r, "failed"),
-          requiredLong(r, "reportedFailed"), requiredBoolean(r, "failedMismatch"), requiredLong(r, "expectedReportable"),
-          requiredLong(r, "actualReportable"), requiredLong(r, "excluded"), requiredLong(r, "simulated"), requiredLong(r, "alreadyReported"),
-          requiredLong(r, "softDedup"), requiredLong(r, "filtrationVariance"), requiredLong(r, "reconciliationVariance")));
+    // the journey-derived count once per row; report-context.sql references them as plain column
+    // references, safe to reuse across the CASE and mismatch expressions.
+    SqlFragment journeyStats = TransformationFailureQueries.journeyStatsLateral(sql, "r.rpt_grp_id", "r.batch_id");
+    String body = sql.load(REPORT_CONTEXT_SQL).replace("/*JOURNEY_STATS_LATERAL*/", journeyStats.sql());
+    MapSqlParameterSource params = new MapSqlParameterSource()
+      .addValue("reportGroupId", reportGroupId)
+      .addValue("batchId", batchId)
+      .addValue("sequenceNumber", sequenceNumber);
+    return jdbc.queryForOptional(body, params, REPORT_CONTEXT_ROW_MAPPER);
   }
 
   @SqlQueryPurpose("Load paginated transaction evidence for one batch")
@@ -164,7 +121,7 @@ public class TransactionReportRepository {
   @SqlQueryPurpose("List every distinct batch ID in a period-report scope")
   public List<String> findPeriodBatchIds(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId) {
-    Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+    SqlFragment scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
         filterByReportGroup, reportGroupId, "");
     return periodEvidenceQueries.distinctBatchIds(scope);
   }
@@ -237,7 +194,7 @@ public class TransactionReportRepository {
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,
       String status, String reason, boolean batchScopedExcluded, String sortDirection, int size, long offset, EvidenceCursor cursor,
       EvidenceProjection projection) {
-    Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+    SqlFragment scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
         filterByReportGroup, reportGroupId, batchId);
     if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
       return periodEvidenceQueries.findExcludedEvidenceRecordsForBatchTotal(scope, search, sortDirection, size, offset, cursor, projection);
@@ -253,7 +210,7 @@ public class TransactionReportRepository {
   public long countPeriodEvidenceRecords(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId, String search, String outcome,
       String status, String reason, boolean batchScopedExcluded) {
-    Table<?> scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
+    SqlFragment scope = periodEvidenceQueries.batchScope(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds,
         filterByReportGroup, reportGroupId, batchId);
     if (VALUE_EXCLUDED.equals(status) && batchScopedExcluded) {
       return periodEvidenceQueries.countExcludedEvidenceRecordsForBatchTotal(scope, search);
