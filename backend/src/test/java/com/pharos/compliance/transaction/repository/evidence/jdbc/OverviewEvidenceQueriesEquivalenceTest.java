@@ -95,6 +95,15 @@ class OverviewEvidenceQueriesEquivalenceTest extends PostgresIntegrationTest {
 
     insertRuleHit(GROUP_1, BATCH_OB, 1, "O-R1", 930004L, true);
     insertRuleHit(GROUP_2, BATCH_OC, 2, "O-R2", 930008L, false);
+    // Two audit rows for the same transaction prove that overview enrichment uses the latest row
+    // without multiplying the journey record returned to the UI.
+    insertExclusionAudit(GROUP_1, BATCH_OA, 9, "O-E-OLD", 930001L, "OLD_AUDIT_REASON", "OLD_STRATEGY", "OLD-REPORTED-BATCH",
+        FROM.plusHours(1));
+    insertExclusionAudit(GROUP_1, BATCH_OA, 10, "O-E-LATEST", 930001L, "AUDIT_REASON", "FIELD_BASED_RULE_EXCLUSION_STRATEGY",
+        "REPORTED-BATCH-1", FROM.plusDays(2));
+    // A still-newer audit row in another batch must never be attached to OA's journey row.
+    insertExclusionAudit(GROUP_1, BATCH_OB, 11, "O-E-WRONG-BATCH", 930001L, "WRONG_BATCH_REASON", "WRONG_BATCH_STRATEGY",
+        "WRONG-REPORTED-BATCH", FROM.plusDays(3));
 
     insertRra(930004, "Eve Sender", "Frank Receiver");
     insertRra(930008, "Grace Sender", "Heidi Receiver");
@@ -147,6 +156,25 @@ class OverviewEvidenceQueriesEquivalenceTest extends PostgresIntegrationTest {
           .addValue("isReported", isReported));
   }
 
+  private void insertExclusionAudit(int groupId, String batchId, int bucketId, String ruleId, long externalTxnKey, String exclusionReason,
+      String exclusionStrategy, String reportedBatchId, LocalDateTime modifiedTimestamp) {
+    jdbcTemplate.update("insert into pharos.rule_hit_exclusion_audit (rpt_grp_id, bucket_id, rule_id, attempt_id, "
+        + "processing_batch_id, external_txn_key, exclusion_reason_id, exclusion_strategy, reported_batch_id, modified_timestamp) "
+        + "values (:groupId, :bucketId, :ruleId, :attemptId, :batchId, :externalTxnKey, :exclusionReason, :exclusionStrategy, "
+        + ":reportedBatchId, :modifiedTimestamp)",
+        new MapSqlParameterSource()
+          .addValue("groupId", groupId)
+          .addValue("bucketId", bucketId)
+          .addValue("ruleId", ruleId)
+          .addValue("attemptId", externalTxnKey)
+          .addValue("batchId", batchId)
+          .addValue("externalTxnKey", externalTxnKey)
+          .addValue("exclusionReason", exclusionReason)
+          .addValue("exclusionStrategy", exclusionStrategy)
+          .addValue("reportedBatchId", reportedBatchId)
+          .addValue("modifiedTimestamp", modifiedTimestamp));
+  }
+
   private void insertRra(long txnSurKey, String senderName, String receiverName) {
     jdbcTemplate.update("insert into pharos.reg_reportable_activity (txn_sur_key, s_party_name, r_party_name, txn_status) "
         + "values (:txnSurKey, :senderName, :receiverName, 'COMPLETE')",
@@ -181,6 +209,33 @@ class OverviewEvidenceQueriesEquivalenceTest extends PostgresIntegrationTest {
       .stream()
       .map(r -> r.identifier())
       .toList());
+  }
+
+  @Test
+  void excludedListProjectionUsesLatestAuditEvidenceWithoutDuplicatingTheTransaction() {
+    EvidencePage page =
+        queries.findOverviewEvidenceRecords(scope(), "EXCLUDED", null, "", "ALL", "DESC", 50, 0, null, EvidenceProjection.LIST);
+
+    assertEquals(1, page.records().size(), "multiple audit rows must not multiply the journey result");
+    var excluded = page.records().get(0);
+    assertEquals("930001", excluded.identifier());
+    assertEquals("AUDIT_REASON", excluded.exclusionReason());
+    assertEquals("REPORTED-BATCH-1", excluded.reportedBatchId());
+  }
+
+  @Test
+  void excludedDetailProjectionIncludesLatestBatchScopedAuditEvidence() {
+    EvidencePage page =
+        queries.findOverviewEvidenceRecords(scope(), "EXCLUDED", null, "", "ALL", "DESC", 50, 0, null, EvidenceProjection.DETAIL);
+
+    assertEquals(1, page.records().size());
+    var excluded = page.records().get(0);
+    assertEquals("O-E-LATEST", excluded.ruleId());
+    assertEquals("AUDIT_REASON", excluded.exclusionReason());
+    assertEquals("FIELD_BASED_RULE_EXCLUSION_STRATEGY", excluded.exclusionStrategy());
+    assertEquals("REPORTED-BATCH-1", excluded.reportedBatchId());
+    assertEquals(10, excluded.bucketId());
+    assertEquals(930001L, excluded.attemptId());
   }
 
   @Test

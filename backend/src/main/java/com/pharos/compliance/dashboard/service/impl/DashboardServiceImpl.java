@@ -12,11 +12,13 @@ import com.pharos.compliance.dashboard.dto.TransactionOverviewResponse;
 import com.pharos.compliance.dashboard.dto.TransactionVolumeTrendResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.repository.DashboardRepository;
+import com.pharos.compliance.dashboard.repository.projection.BatchDashboardSnapshotProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionDashboardSnapshotProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import com.pharos.compliance.dashboard.service.DashboardService;
@@ -37,18 +39,12 @@ import org.springframework.stereotype.Service;
  * response -- each page threw away roughly half the payload and paid for query work the other
  * page owned (Batch View never reads {@code topExclusionReasons}/{@code notReportedReasons};
  * Transactions Overview never reads the batch KPI counts or {@code reportGroupsRequiringAttention}
- * -- see each frontend component's own response interface). The seven {@link DashboardRepository}
- * queries are always independent of each other (no shared join or merge), so the split below is a
- * pure "call only the queries this page needs" change: {@link #getBatchDashboard} runs the three
- * Batch View queries ({@link DashboardRepository#getBatchHealthTrend} among them), {@link
- * #getTransactionDashboard} runs the four Transactions Overview queries ({@link
- * DashboardRepository#getTransactionVolumeTrend} among them). Those last two used to be one method
- * ({@code getBatchHealthTrend} returning every field either page might want), but since the two
- * pages read disjoint fields off it (batches ran/needing-attention for Batch View,
- * reported/excluded transaction totals for Transactions Overview) and neither page ever calls the
- * other's query in the same request, splitting them costs neither page an extra round trip while
- * sparing each one from aggregating columns its own request will never read -- see each
- * repository method's own Javadoc.
+ * -- see each frontend component's own response interface). Each endpoint now executes two focused
+ * repository statements: one shared snapshot for sections derived from the same scoped rows, and
+ * one page-specific time-series query. Batch View pairs its snapshot with {@link
+ * DashboardRepository#getBatchHealthTrend}; Transactions Overview pairs its snapshot with {@link
+ * DashboardRepository#getTransactionVolumeTrend}. This keeps unrelated page work separated while
+ * ensuring each expensive shared scope is evaluated only once per request.
  */
 @Service
 public class DashboardServiceImpl implements DashboardService {
@@ -64,84 +60,81 @@ public class DashboardServiceImpl implements DashboardService {
   @Override
   public BatchDashboardResponse getBatchDashboard(LocalDate fromDate, LocalDate toDate, String batchId, String country,
       Integer reportGroupId) {
-    RequestScope scope = resolveScope(fromDate, toDate, batchId, country, reportGroupId);
-    long startedAt = System.nanoTime();
+    RequestScope dashboardRequestScope = resolveScope(fromDate, toDate, batchId, country, reportGroupId);
+    long operationStartedAtNanos = System.nanoTime();
 
-    DashboardCountsProjection counts = dashboardRepository.getDashboardCounts(scope.fromTimestamp(), scope.toTimestampExclusive(),
-        scope.normalizedBatchId(), scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(),
-        scope.reportGroupIdFilter());
+    BatchDashboardSnapshotProjection batchDashboardSnapshot = dashboardRepository.getBatchDashboardSnapshot(dashboardRequestScope.fromTimestamp(),
+        dashboardRequestScope.toTimestampExclusive(), dashboardRequestScope.normalizedBatchId(),
+        dashboardRequestScope.countryFilter().enabled(), dashboardRequestScope.countryFilter().reportGroupIds(),
+        dashboardRequestScope.filterByReportGroup(), dashboardRequestScope.reportGroupIdFilter());
+    DashboardCountsProjection dashboardCounts = batchDashboardSnapshot.counts();
 
-    List<BatchHealthTrendResponse> trend = dashboardRepository
-      .getBatchHealthTrend(scope.fromTimestamp(), scope.toTimestampExclusive(), fromDate, toDate, scope.trendGranularity().name(),
-          scope.normalizedBatchId(), scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(),
-          scope.reportGroupIdFilter())
+    List<BatchHealthTrendResponse> batchHealthTrend = dashboardRepository
+      .getBatchHealthTrend(dashboardRequestScope.fromTimestamp(), dashboardRequestScope.toTimestampExclusive(), fromDate, toDate,
+          dashboardRequestScope.trendGranularity().name(), dashboardRequestScope.normalizedBatchId(),
+          dashboardRequestScope.countryFilter().enabled(), dashboardRequestScope.countryFilter().reportGroupIds(),
+          dashboardRequestScope.filterByReportGroup(), dashboardRequestScope.reportGroupIdFilter())
       .stream()
-      .map(period -> toBatchHealthTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
+      .map(trendPeriod -> toBatchHealthTrendResponse(trendPeriod, fromDate, toDate, dashboardRequestScope.trendGranularity()))
       .toList();
 
-    List<ReportGroupAttentionResponse> reportGroups = dashboardRepository
-      .getReportGroupsRequiringAttention(scope.fromTimestamp(), scope.toTimestampExclusive(), scope.normalizedBatchId(),
-          scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(), scope.reportGroupIdFilter())
-      .stream()
-      .map(this::toReportGroupResponse)
-      .toList();
+    List<ReportGroupAttentionResponse> reportGroupsRequiringAttention =
+        batchDashboardSnapshot.reportGroups().stream().map(this::toReportGroupResponse).toList();
 
-    BatchDashboardResponse response = new BatchDashboardResponse(counts.batchesRan(), counts.batchesRan() - counts.batchesNeedingAttention(),
-        counts.batchesNeedingAttention(), counts.transformationFailureBatches(), counts.missingAttemptBatches(),
-        counts.activityMissingBatches(), counts.duplicateTransactionBatches(), counts.exclusionBatches(),
-        counts.simulatedTransactionBatches(), counts.softDedupBatches(), scope.trendGranularity(), trend, reportGroups, fromDate, toDate);
+    BatchDashboardResponse batchDashboardResponse = new BatchDashboardResponse(dashboardCounts.batchesRan(),
+        dashboardCounts.batchesRan() - dashboardCounts.batchesNeedingAttention(), dashboardCounts.batchesNeedingAttention(),
+        dashboardCounts.transformationFailureBatches(), dashboardCounts.missingAttemptBatches(), dashboardCounts.activityMissingBatches(),
+        dashboardCounts.duplicateTransactionBatches(), dashboardCounts.exclusionBatches(), dashboardCounts.simulatedTransactionBatches(),
+        dashboardCounts.softDedupBatches(), dashboardRequestScope.trendGranularity(), batchHealthTrend, reportGroupsRequiringAttention,
+        fromDate, toDate);
 
     LOGGER.info("Batch dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | batchesRan={} | successful={}"
-        + " | attention={} | issueReportGroups={} | trendBuckets={} | duration={}ms", fromDate, toDate, scope.normalizedCountryCode(),
-        reportGroupId == null ? "ALL" : reportGroupId, response.batchesRan(), response.successfulBatches(),
-        response.batchesNeedingAttention(), response.reportGroupsRequiringAttention().size(), response.batchHealthTrend().size(),
-        (System.nanoTime() - startedAt) / 1_000_000);
-    return response;
+        + " | attention={} | issueReportGroups={} | trendBuckets={} | duration={}ms", fromDate, toDate,
+        dashboardRequestScope.normalizedCountryCode(), reportGroupId == null ? "ALL" : reportGroupId, batchDashboardResponse.batchesRan(),
+        batchDashboardResponse.successfulBatches(), batchDashboardResponse.batchesNeedingAttention(),
+        batchDashboardResponse.reportGroupsRequiringAttention().size(), batchDashboardResponse.batchHealthTrend().size(),
+        (System.nanoTime() - operationStartedAtNanos) / 1_000_000);
+    return batchDashboardResponse;
   }
 
   @Override
   public TransactionDashboardResponse getTransactionDashboard(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
-    RequestScope scope = resolveScope(fromDate, toDate, "", country, reportGroupId);
-    long startedAt = System.nanoTime();
+    RequestScope dashboardRequestScope = resolveScope(fromDate, toDate, "", country, reportGroupId);
+    long operationStartedAtNanos = System.nanoTime();
 
-    TransactionOverviewProjection transactionOverview = dashboardRepository.getTransactionOverview(scope.fromTimestamp(),
-        scope.toTimestampExclusive(), scope.normalizedBatchId(), scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(),
-        scope.filterByReportGroup(), scope.reportGroupIdFilter());
+    TransactionDashboardSnapshotProjection transactionDashboardSnapshot = dashboardRepository.getTransactionDashboardSnapshot(dashboardRequestScope.fromTimestamp(),
+        dashboardRequestScope.toTimestampExclusive(), dashboardRequestScope.normalizedBatchId(),
+        dashboardRequestScope.countryFilter().enabled(), dashboardRequestScope.countryFilter().reportGroupIds(),
+        dashboardRequestScope.filterByReportGroup(), dashboardRequestScope.reportGroupIdFilter());
+    TransactionOverviewProjection transactionOverview = transactionDashboardSnapshot.overview();
 
-    List<ExclusionReasonResponse> topExclusionReasons = dashboardRepository
-      .getTopExclusionReasons(scope.fromTimestamp(), scope.toTimestampExclusive(), scope.normalizedBatchId(),
-          scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(), scope.reportGroupIdFilter())
+    List<ExclusionReasonResponse> topExclusionReasons =
+        transactionDashboardSnapshot.exclusionReasons().stream().map(this::toExclusionReasonResponse).toList();
+
+    List<NotReportedReasonResponse> notReportedReasons =
+        transactionDashboardSnapshot.notReportedReasons().stream().map(this::toNotReportedReasonResponse).toList();
+
+    List<TransactionVolumeTrendResponse> transactionVolumeTrend = dashboardRepository
+      .getTransactionVolumeTrend(dashboardRequestScope.fromTimestamp(), dashboardRequestScope.toTimestampExclusive(), fromDate, toDate,
+          dashboardRequestScope.trendGranularity().name(), dashboardRequestScope.normalizedBatchId(),
+          dashboardRequestScope.countryFilter().enabled(), dashboardRequestScope.countryFilter().reportGroupIds(),
+          dashboardRequestScope.filterByReportGroup(), dashboardRequestScope.reportGroupIdFilter())
       .stream()
-      .map(this::toExclusionReasonResponse)
+      .map(trendPeriod -> toTransactionVolumeTrendResponse(trendPeriod, fromDate, toDate, dashboardRequestScope.trendGranularity()))
       .toList();
 
-    List<NotReportedReasonResponse> notReportedReasons = dashboardRepository
-      .getNotReportedReasons(scope.fromTimestamp(), scope.toTimestampExclusive(), scope.normalizedBatchId(), scope
-            .countryFilter()
-            .enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(), scope.reportGroupIdFilter())
-      .stream()
-      .map(this::toNotReportedReasonResponse)
-      .toList();
-
-    List<TransactionVolumeTrendResponse> trend = dashboardRepository
-      .getTransactionVolumeTrend(scope.fromTimestamp(), scope.toTimestampExclusive(), fromDate, toDate, scope.trendGranularity().name(),
-          scope.normalizedBatchId(), scope.countryFilter().enabled(), scope.countryFilter().reportGroupIds(), scope.filterByReportGroup(),
-          scope.reportGroupIdFilter())
-      .stream()
-      .map(period -> toTransactionVolumeTrendResponse(period, fromDate, toDate, scope.trendGranularity()))
-      .toList();
-
-    TransactionDashboardResponse response = new TransactionDashboardResponse(new TransactionOverviewResponse(transactionOverview.selected(),
+    TransactionDashboardResponse transactionDashboardResponse = new TransactionDashboardResponse(new TransactionOverviewResponse(transactionOverview.selected(),
             transactionOverview.expected(), transactionOverview.excluded(), transactionOverview.notReported()), topExclusionReasons,
-        notReportedReasons, scope.trendGranularity(), trend, fromDate, toDate);
+        notReportedReasons, dashboardRequestScope.trendGranularity(), transactionVolumeTrend, fromDate, toDate);
 
     LOGGER.info("Transaction dashboard snapshot ready | period={}..{} | country={} | reportGroupId={} | txnSelected={} | txnExpected={}"
         + " | txnExcluded={} | txnNotReported={} | exclusionReasons={} | notReportedReasons={} | trendBuckets={} | duration={}ms", fromDate,
-        toDate, scope.normalizedCountryCode(), reportGroupId == null ? "ALL" : reportGroupId, response.transactionOverview().selected(),
-        response.transactionOverview().expected(), response.transactionOverview().excluded(), response.transactionOverview().notReported(),
-        response.topExclusionReasons().size(), response.notReportedReasons().size(), response.batchHealthTrend().size(),
-        (System.nanoTime() - startedAt) / 1_000_000);
-    return response;
+        toDate, dashboardRequestScope.normalizedCountryCode(), reportGroupId == null ? "ALL" : reportGroupId,
+        transactionDashboardResponse.transactionOverview().selected(), transactionDashboardResponse.transactionOverview().expected(),
+        transactionDashboardResponse.transactionOverview().excluded(), transactionDashboardResponse.transactionOverview().notReported(),
+        transactionDashboardResponse.topExclusionReasons().size(), transactionDashboardResponse.notReportedReasons().size(),
+        transactionDashboardResponse.batchHealthTrend().size(), (System.nanoTime() - operationStartedAtNanos) / 1_000_000);
+    return transactionDashboardResponse;
   }
 
   private RequestScope resolveScope(LocalDate fromDate, LocalDate toDate, String batchId, String country, Integer reportGroupId) {
@@ -161,39 +154,43 @@ public class DashboardServiceImpl implements DashboardService {
         toDate, normalizedCountryCode, reportGroupId == null ? "ALL" : reportGroupId,
         normalizedBatchId.isEmpty() ? "ALL" : normalizedBatchId, trendGranularity);
 
-    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-    CountryFilter countryFilter = resolveCountryFilter(catalog, normalizedCountryCode);
+    CountryCatalogSnapshot countryCatalogSnapshot = countryCatalog.getSnapshot();
+    CountryFilter countryFilter = resolveCountryFilter(countryCatalogSnapshot, normalizedCountryCode);
 
     return new RequestScope(normalizedBatchId, normalizedCountryCode, filterByReportGroup, reportGroupIdFilter, trendGranularity,
         fromTimestamp, toTimestampExclusive, countryFilter);
   }
 
-  private ExclusionReasonResponse toExclusionReasonResponse(ExclusionReasonProjection reason) {
-    return new ExclusionReasonResponse(reason.reason(), reason.count());
+  private ExclusionReasonResponse toExclusionReasonResponse(ExclusionReasonProjection exclusionReason) {
+    return new ExclusionReasonResponse(exclusionReason.reason(), exclusionReason.count());
   }
 
-  private NotReportedReasonResponse toNotReportedReasonResponse(NotReportedReasonProjection reason) {
-    return new NotReportedReasonResponse(reason.reason(), reason.count());
+  private NotReportedReasonResponse toNotReportedReasonResponse(NotReportedReasonProjection notReportedReason) {
+    return new NotReportedReasonResponse(notReportedReason.reason(), notReportedReason.count());
   }
 
-  private BatchHealthTrendResponse toBatchHealthTrendResponse(BatchHealthTrendProjection period, LocalDate requestedFromDate,
+  private BatchHealthTrendResponse toBatchHealthTrendResponse(BatchHealthTrendProjection trendPeriod, LocalDate requestedFromDate,
       LocalDate requestedToDate, TrendGranularity granularity) {
-    return new BatchHealthTrendResponse(period.periodStart().isBefore(requestedFromDate) ? requestedFromDate : period.periodStart(),
-        periodEnd(period.periodStart(), requestedToDate, granularity), period.batchesRan(), period.successfulBatches(),
-        period.batchesNeedingAttention());
+    return new BatchHealthTrendResponse(trendPeriod.periodStart().isBefore(requestedFromDate)
+        ? requestedFromDate
+        : trendPeriod.periodStart(), periodEnd(trendPeriod.periodStart(), requestedToDate, granularity), trendPeriod.batchesRan(),
+        trendPeriod.successfulBatches(), trendPeriod.batchesNeedingAttention());
   }
 
-  private TransactionVolumeTrendResponse toTransactionVolumeTrendResponse(TransactionVolumeTrendProjection period,
+  private TransactionVolumeTrendResponse toTransactionVolumeTrendResponse(TransactionVolumeTrendProjection trendPeriod,
       LocalDate requestedFromDate, LocalDate requestedToDate, TrendGranularity granularity) {
-    return new TransactionVolumeTrendResponse(period.periodStart().isBefore(requestedFromDate) ? requestedFromDate : period.periodStart(),
-        periodEnd(period.periodStart(), requestedToDate, granularity), period.totalReportedTransactions(),
-        period.totalExcludedTransactions());
+    return new TransactionVolumeTrendResponse(trendPeriod.periodStart().isBefore(requestedFromDate)
+        ? requestedFromDate
+        : trendPeriod.periodStart(), periodEnd(trendPeriod.periodStart(), requestedToDate, granularity),
+        trendPeriod.totalReportedTransactions(), trendPeriod.totalExcludedTransactions());
   }
 
-  private ReportGroupAttentionResponse toReportGroupResponse(ReportGroupMetricsProjection group) {
-    return new ReportGroupAttentionResponse(group.reportGroupId(), group.reportGroupName(), group.batchesRan(), group.successfulBatches(),
-        group.batchesNeedingAttention(), group.transformationFailureBatches(), group.missingAttemptBatches(), group.activityMissingBatches(),
-        group.totalReportedTransactions(), group.totalExcludedTransactions());
+  private ReportGroupAttentionResponse toReportGroupResponse(ReportGroupMetricsProjection reportGroupMetrics) {
+    return new ReportGroupAttentionResponse(reportGroupMetrics.reportGroupId(), reportGroupMetrics.reportGroupName(),
+        reportGroupMetrics.batchesRan(), reportGroupMetrics.successfulBatches(), reportGroupMetrics.batchesNeedingAttention(),
+        reportGroupMetrics.transformationFailureBatches(), reportGroupMetrics.missingAttemptBatches(),
+        reportGroupMetrics.activityMissingBatches(), reportGroupMetrics.totalReportedTransactions(),
+        reportGroupMetrics.totalExcludedTransactions());
   }
 
   private LocalDate periodEnd(LocalDate periodStart, LocalDate requestedToDate, TrendGranularity granularity) {
@@ -205,15 +202,14 @@ public class DashboardServiceImpl implements DashboardService {
     return calculatedEnd.isAfter(requestedToDate) ? requestedToDate : calculatedEnd;
   }
 
-  private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {
+  private CountryFilter resolveCountryFilter(CountryCatalogSnapshot countryCatalogSnapshot, String countryCode) {
     if ("ALL".equals(countryCode)) {
       return new CountryFilter("ALL", false, List.of(-1));
     }
-    CountryDefinition definition =
-        catalog
+    CountryDefinition countryDefinition = countryCatalogSnapshot
       .findByCode(countryCode)
       .orElseThrow(() -> new InvalidRequestException("Unsupported country filter: " + countryCode));
-    return new CountryFilter(countryCode, true, definition.reportGroupIds().stream().toList());
+    return new CountryFilter(countryCode, true, countryDefinition.reportGroupIds().stream().toList());
   }
 
   private String normalizeCountryCode(String country) {

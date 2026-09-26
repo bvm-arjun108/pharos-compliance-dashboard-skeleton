@@ -21,12 +21,12 @@ public class HealthServiceImpl implements HealthService {
   @Override
   public HealthResponse getHealth() {
     try {
-      var metadata = databaseHealthRepository.getDatabaseMetadata();
-      HealthResponse response =
-          new HealthResponse("UP", "pharos-compliance-backend", metadata.database(), metadata.schema(), OffsetDateTime.now());
-      LOGGER.debug("Database health check passed | database={} | schema={} | status={}", response.database(), response.schema(),
-          response.status());
-      return response;
+      var databaseMetadata = databaseHealthRepository.getDatabaseMetadata();
+      HealthResponse healthResponse =
+          new HealthResponse("UP", "pharos-compliance-backend", databaseMetadata.database(), databaseMetadata.schema(), OffsetDateTime.now());
+      LOGGER.debug("Database health check passed | database={} | schema={} | status={}", healthResponse.database(), healthResponse.schema(),
+          healthResponse.status());
+      return healthResponse;
     } catch (DatabaseUnavailableException exception) {
       throw exception;
     } catch (Exception exception) {

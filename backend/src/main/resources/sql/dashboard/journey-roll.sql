@@ -5,8 +5,14 @@ select
   bool_or(
     (journey.stage = 'REPORT_GENERATION' and upper(coalesce(journey.status, '')) = 'GENERATED')
     or (journey.stage = 'TRANSFORMATION' and upper(coalesce(journey.status, '')) = 'SUCCESS' and batch_evidence.batch_generated)
-  ) as ever_reported
-  %%EXTRA_COLUMN%%
+  ) as ever_reported,
+  max(
+    case
+      when upper(coalesce(journey.status, '')) in ('EXCLUDED', 'EXCLUDED_SOFT_DEDUP')
+        then coalesce(journey.comments, journey.skip_reason)
+    end
+  ) as exclusion_reason,
+  max(coalesce(journey.comments, journey.skip_reason)) as not_reported_reason
 from pharos.record_transformation_journey journey
 join batch_evidence
   on batch_evidence.rpt_grp_id = journey.rpt_grp_id

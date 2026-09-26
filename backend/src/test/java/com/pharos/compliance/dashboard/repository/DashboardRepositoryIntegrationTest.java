@@ -3,11 +3,13 @@ package com.pharos.compliance.dashboard.repository;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
+import com.pharos.compliance.dashboard.repository.projection.BatchDashboardSnapshotProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionDashboardSnapshotProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import com.pharos.compliance.testsupport.PostgresIntegrationTest;
@@ -76,7 +78,7 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
   }
 
   @Test
-  void getDashboardCountsUsesJourneyCorrectionAndKeepsIssueBucketsMutuallyExclusive() {
+  void getBatchDashboardSnapshotUsesJourneyCorrectionAndKeepsIssueBucketsMutuallyExclusive() {
     // BATCH-A: reconciliation says 1 failure, journey says 2 -- corrected count wins.
     insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 1, 0, 0, 0, 10);
     insertJourney(GROUP, "BATCH-A", "id-1", "TRANSFORMATION", "FAILED", null);
@@ -86,20 +88,32 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
     // BATCH-C: perfectly clean.
     insertReconciliation(GROUP, "BATCH-C", FROM.plusDays(3), 0, 0, 0, 0, 10);
 
-    DashboardCountsProjection counts = repository.getDashboardCounts(FROM, TO, "", false, List.of(), true, GROUP);
+    BatchDashboardSnapshotProjection snapshot = repository.getBatchDashboardSnapshot(FROM, TO, "", false, List.of(), true, GROUP);
+    DashboardCountsProjection counts = snapshot.counts();
 
     assertEquals(3, counts.batchesRan());
     assertEquals(1, counts.batchesNeedingAttention(), "only BATCH-A has a real issue");
     assertEquals(1, counts.transformationFailureBatches());
     assertEquals(1, counts.exclusionBatches(), "BATCH-B's exclusion counts since it has no prior issue");
+
+    assertEquals(1, snapshot.reportGroups().size());
+    ReportGroupMetricsProjection group = snapshot.reportGroups().getFirst();
+    assertEquals(3, group.batchesRan());
+    assertEquals(2, group.successfulBatches());
+    assertEquals(1, group.batchesNeedingAttention());
+    assertEquals(1, group.transformationFailureBatches());
+    assertEquals(30, group.totalReportedTransactions());
+    assertEquals(5, group.totalExcludedTransactions());
   }
 
   @Test
-  void getReportGroupsRequiringAttentionHidesCleanGroupsUnlessScoped() {
+  void getBatchDashboardSnapshotHidesCleanGroupsUnlessScoped() {
     insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 1, 0, 0, 0, 10);
     insertReconciliation(CLEAN_GROUP, "BATCH-X", FROM.plusDays(1), 0, 0, 0, 0, 10);
 
-    List<ReportGroupMetricsProjection> unscoped = repository.getReportGroupsRequiringAttention(FROM, TO, "", false, List.of(), false, -1);
+    BatchDashboardSnapshotProjection unscopedSnapshot = repository.getBatchDashboardSnapshot(FROM, TO, "", false, List.of(), false, -1);
+    List<ReportGroupMetricsProjection> unscoped = unscopedSnapshot.reportGroups();
+    assertEquals(2, unscopedSnapshot.counts().batchesRan(), "clean groups remain included in headline totals");
     assertTrue(unscoped
       .stream()
       .noneMatch(g -> g.reportGroupId() == CLEAN_GROUP), "clean group hidden when unscoped");
@@ -107,10 +121,19 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
       .stream()
       .anyMatch(g -> g.reportGroupId() == GROUP));
 
-    List<ReportGroupMetricsProjection> scoped =
-        repository.getReportGroupsRequiringAttention(FROM, TO, "", false, List.of(), true, CLEAN_GROUP);
+    BatchDashboardSnapshotProjection scopedSnapshot =
+        repository.getBatchDashboardSnapshot(FROM, TO, "", false, List.of(), true, CLEAN_GROUP);
+    List<ReportGroupMetricsProjection> scoped = scopedSnapshot.reportGroups();
     assertEquals(1, scoped.size(), "a specific report group is shown even with nothing to flag");
     assertEquals(CLEAN_GROUP, scoped.get(0).reportGroupId());
+  }
+
+  @Test
+  void getBatchDashboardSnapshotReturnsZeroCountsForAnEmptyScope() {
+    BatchDashboardSnapshotProjection snapshot = repository.getBatchDashboardSnapshot(FROM, TO, "NO-SUCH-BATCH", false, List.of(), false, -1);
+
+    assertEquals(new DashboardCountsProjection(0, 0, 0, 0, 0, 0, 0, 0, 0), snapshot.counts());
+    assertTrue(snapshot.reportGroups().isEmpty());
   }
 
   @Test
@@ -147,13 +170,14 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
   }
 
   @Test
-  void getTransactionOverviewPartitionsSelectedIntoExpectedExcludedAndNotReported() {
+  void getTransactionDashboardSnapshotPartitionsSelectedIntoExpectedExcludedAndNotReported() {
     insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 0, 0, 0, 0, 10);
     insertJourney(GROUP, "BATCH-A", "reported-1", "REPORT_GENERATION", "GENERATED", null);
     insertJourney(GROUP, "BATCH-A", "excluded-1", "TRANSFORMATION", "EXCLUDED", "Some reason");
     insertJourney(GROUP, "BATCH-A", "not-reported-1", "TRANSFORMATION", "PENDING", null);
 
-    TransactionOverviewProjection overview = repository.getTransactionOverview(FROM, TO, "", false, List.of(), true, GROUP);
+    TransactionOverviewProjection overview =
+        repository.getTransactionDashboardSnapshot(FROM, TO, "", false, List.of(), true, GROUP).overview();
 
     assertEquals(3, overview.selected());
     assertEquals(1, overview.excluded());
@@ -162,7 +186,7 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
   }
 
   @Test
-  void getTopExclusionReasonsCollapsesBeyondTopThreeIntoOther() {
+  void getTransactionDashboardSnapshotCollapsesExclusionReasonsBeyondTopThreeIntoOther() {
     insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 0, 0, 0, 0, 10);
     insertJourney(GROUP, "BATCH-A", "id-1", "TRANSFORMATION", "EXCLUDED", "Reason A");
     insertJourney(GROUP, "BATCH-A", "id-2", "TRANSFORMATION", "EXCLUDED", "Reason A");
@@ -170,7 +194,8 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
     insertJourney(GROUP, "BATCH-A", "id-4", "TRANSFORMATION", "EXCLUDED", "Reason C");
     insertJourney(GROUP, "BATCH-A", "id-5", "TRANSFORMATION", "EXCLUDED", "Reason D");
 
-    List<ExclusionReasonProjection> reasons = repository.getTopExclusionReasons(FROM, TO, "", false, List.of(), true, GROUP);
+    List<ExclusionReasonProjection> reasons =
+        repository.getTransactionDashboardSnapshot(FROM, TO, "", false, List.of(), true, GROUP).exclusionReasons();
 
     assertEquals(4, reasons.size(), "top 3 plus one Other bucket");
     assertEquals("Reason A", reasons.get(0).reason(), "highest count sorts first");
@@ -180,15 +205,26 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
   }
 
   @Test
-  void getNotReportedReasonsFallsBackToSkipReasonWhenCommentsIsNull() {
+  void getTransactionDashboardSnapshotFallsBackToSkipReasonWhenCommentsIsNull() {
     insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 0, 0, 0, 0, 10);
     jdbcTemplate.update("insert into pharos.record_transformation_journey (rpt_grp_id, batch_id, identifier, stage, status, comments, skip_reason) "
         + "values (:groupId, 'BATCH-A', 'id-1', 'TRANSFORMATION', 'PENDING', null, 'Skip text')",
         new MapSqlParameterSource("groupId", GROUP));
 
-    List<NotReportedReasonProjection> reasons = repository.getNotReportedReasons(FROM, TO, "", false, List.of(), true, GROUP);
+    List<NotReportedReasonProjection> reasons =
+        repository.getTransactionDashboardSnapshot(FROM, TO, "", false, List.of(), true, GROUP).notReportedReasons();
 
     assertEquals(1, reasons.size());
     assertEquals("Skip text", reasons.get(0).reason());
+  }
+
+  @Test
+  void getTransactionDashboardSnapshotReturnsZeroOverviewAndNoReasonsForAnEmptyScope() {
+    TransactionDashboardSnapshotProjection snapshot =
+        repository.getTransactionDashboardSnapshot(FROM, TO, "NO-SUCH-BATCH", false, List.of(), false, -1);
+
+    assertEquals(new TransactionOverviewProjection(0, 0, 0, 0), snapshot.overview());
+    assertTrue(snapshot.exclusionReasons().isEmpty());
+    assertTrue(snapshot.notReportedReasons().isEmpty());
   }
 }

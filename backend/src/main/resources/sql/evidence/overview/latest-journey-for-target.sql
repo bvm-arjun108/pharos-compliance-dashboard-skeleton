@@ -26,10 +26,10 @@ select * from (
     %%JOURNEY_OUTCOME%% as outcome,
     j.comments as comments,
     j.skip_reason as skip_reason,
-    cast(null as text) as rule_id,
-    cast(null as text) as exclusion_reason,
-    cast(null as text) as exclusion_strategy,
-    cast(null as text) as reported_batch_id,
+    ea.rule_id as rule_id,
+    ea.exclusion_reason as exclusion_reason,
+    ea.exclusion_strategy as exclusion_strategy,
+    ea.reported_batch_id as reported_batch_id,
     j.reporting_timestamp_latest::text as reporting_timestamp,
     j.modified_timestamp::text as modified_at,
     j.modified_timestamp as sort_ts,
@@ -42,12 +42,46 @@ select * from (
     cast(null as text) as activity_type,
     cast(null as text) as send_date,
     cast(null as text) as galactic_id,
-    cast(null as integer) as bucket_id,
-    cast(null as bigint) as attempt_id,
+    ea.bucket_id as bucket_id,
+    ea.attempt_id as attempt_id,
     (case when %%RRA_KEY_GUARD%% then j.identifier::bigint else null end) as rra_key,
     row_number() over (partition by j.rpt_grp_id, j.identifier order by j.modified_timestamp desc nulls last) as source_rank
   from pharos.record_transformation_journey j
   join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id
   join reporting_target tgt on tgt.rpt_grp_id = j.rpt_grp_id and tgt.identifier = j.identifier
+  left join (
+    -- A transaction can have several audit rows in one batch. Select the latest one before the
+    -- join so audit enrichment cannot multiply the journey rows returned to the UI.
+    select distinct on (
+      audit.rpt_grp_id,
+      audit.processing_batch_id,
+      coalesce(audit.external_txn_key::text, audit.attempt_id::text)
+    )
+      audit.rpt_grp_id,
+      audit.processing_batch_id as batch_id,
+      coalesce(audit.external_txn_key::text, audit.attempt_id::text) as identifier,
+      audit.rule_id,
+      audit.exclusion_reason_id as exclusion_reason,
+      audit.exclusion_strategy,
+      audit.reported_batch_id,
+      audit.bucket_id,
+      audit.attempt_id
+    from pharos.rule_hit_exclusion_audit audit
+    where (audit.rpt_grp_id, audit.processing_batch_id) in (
+      select rpt_grp_id, batch_id
+      from batch_scope
+    )
+    order by
+      audit.rpt_grp_id,
+      audit.processing_batch_id,
+      coalesce(audit.external_txn_key::text, audit.attempt_id::text),
+      audit.modified_timestamp desc nulls last,
+      audit.bucket_id desc,
+      audit.rule_id,
+      audit.attempt_id desc
+  ) ea
+    on ea.rpt_grp_id = j.rpt_grp_id
+    and ea.batch_id = j.batch_id
+    and ea.identifier = j.identifier
 ) ranked_journey
 where source_rank = 1

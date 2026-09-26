@@ -1,21 +1,16 @@
 select
-  r.rpt_grp_id,
-  max(r.rpt_grp_name) as rpt_grp_name,
-  count(distinct (r.batch_id, r.seq_no)) as batches_ran,
-  count(distinct (r.batch_id, r.seq_no)) filter (
-    where coalesce(jf.journey_transformation_failures, coalesce(r.activity_transformation_failed, 0)::bigint) > 0
-      or coalesce(r.txn_missing_attempt_count, 0) > 0
-      or coalesce(r.activity_missing, 0) > 0
-  ) as batches_needing_attention,
-  count(distinct (r.batch_id, r.seq_no)) filter (
-    where coalesce(jf.journey_transformation_failures, coalesce(r.activity_transformation_failed, 0)::bigint) > 0
-  ) as transformation_failure_batches,
-  count(distinct (r.batch_id, r.seq_no)) filter (where coalesce(r.txn_missing_attempt_count, 0) > 0) as missing_attempt_batches,
-  count(distinct (r.batch_id, r.seq_no)) filter (where coalesce(r.activity_missing, 0) > 0) as activity_missing_batches,
-  coalesce(sum(r.activity_transformed), 0) as total_reported_transactions,
-  coalesce(sum(r.excluded_txn), 0) as total_excluded_transactions
-from pharos.report_transformation_reconciliation r
-left join journey_failures_by_batch jf
-  on jf.rpt_grp_id = r.rpt_grp_id
-  and jf.batch_id = r.batch_id
-where 1 = 1
+  rpt_grp_id,
+  max(rpt_grp_name) as rpt_grp_name,
+  count(*)::bigint as batches_ran,
+  count(*) filter (where needs_attention)::bigint as batches_needing_attention,
+  count(*) filter (where transformation_failures > 0)::bigint as transformation_failure_batches,
+  count(*) filter (where missing_attempts > 0)::bigint as missing_attempt_batches,
+  count(*) filter (where activity_missing > 0)::bigint as activity_missing_batches,
+  count(*) filter (where not needs_attention and duplicate_transactions > 0)::bigint as duplicate_transaction_batches,
+  count(*) filter (where not needs_attention and excluded_transactions > 0)::bigint as exclusion_batches,
+  count(*) filter (where not needs_attention and simulated_transactions > 0)::bigint as simulated_transaction_batches,
+  count(*) filter (where not needs_attention and soft_dedup_transactions > 0)::bigint as soft_dedup_batches,
+  coalesce(sum(reported_transactions), 0)::bigint as total_reported_transactions,
+  coalesce(sum(excluded_transactions), 0)::bigint as total_excluded_transactions
+from scoped_batch_metrics
+group by rpt_grp_id

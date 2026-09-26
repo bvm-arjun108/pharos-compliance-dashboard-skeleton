@@ -57,7 +57,7 @@ public class OverviewEvidenceQueries {
   /**
    * Rolls up every journey event (not just the latest-state row) per {@code (rpt_grp_id,
    * identifier)} in scope into {@code ever_excluded}/{@code ever_reported} booleans -- identical
-   * logic and bucket definitions to {@code DashboardRepository#getTransactionOverview}, ported here
+   * logic and bucket definitions to {@code DashboardRepository#getTransactionDashboardSnapshot}, ported here
    * so the period-wide transaction list's Excluded/Not Reported filters match what the dashboard
    * tile they're clicked from actually counted. Assumes {@code reporting_batch_evidence} is already
    * a named CTE earlier in the same {@code WITH} clause.

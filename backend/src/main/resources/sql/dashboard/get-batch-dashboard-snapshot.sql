@@ -1,0 +1,28 @@
+select
+  rpt_grp_id as "reportGroupId",
+  rpt_grp_name as "reportGroupName",
+  batches_ran as "batchesRan",
+  batches_ran - batches_needing_attention as "successfulBatches",
+  batches_needing_attention as "batchesNeedingAttention",
+  transformation_failure_batches as "transformationFailureBatches",
+  missing_attempt_batches as "missingAttemptBatches",
+  activity_missing_batches as "activityMissingBatches",
+  total_reported_transactions as "totalReportedTransactions",
+  total_excluded_transactions as "totalExcludedTransactions",
+  duplicate_transaction_batches as "duplicateTransactionBatches",
+  exclusion_batches as "exclusionBatches",
+  simulated_transaction_batches as "simulatedTransactionBatches",
+  soft_dedup_batches as "softDedupBatches",
+  sum(batches_ran) over ()::bigint as "overallBatchesRan",
+  sum(batches_needing_attention) over ()::bigint as "overallBatchesNeedingAttention",
+  sum(transformation_failure_batches) over ()::bigint as "overallTransformationFailureBatches",
+  sum(missing_attempt_batches) over ()::bigint as "overallMissingAttemptBatches",
+  sum(activity_missing_batches) over ()::bigint as "overallActivityMissingBatches",
+  sum(duplicate_transaction_batches) over ()::bigint as "overallDuplicateTransactionBatches",
+  sum(exclusion_batches) over ()::bigint as "overallExclusionBatches",
+  sum(simulated_transaction_batches) over ()::bigint as "overallSimulatedTransactionBatches",
+  sum(soft_dedup_batches) over ()::bigint as "overallSoftDedupBatches"
+from report_group_metrics
+order by batches_needing_attention desc,
+  transformation_failure_batches + missing_attempt_batches + activity_missing_batches desc,
+  rpt_grp_id

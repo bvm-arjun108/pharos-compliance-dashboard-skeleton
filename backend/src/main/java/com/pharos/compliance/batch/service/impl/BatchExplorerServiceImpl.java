@@ -43,8 +43,8 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
 
   @Override
   public BatchFilterOptionsResponse getFilterOptions() {
-    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-    return new BatchFilterOptionsResponse(catalog
+    CountryCatalogSnapshot countryCatalogSnapshot = countryCatalog.getSnapshot();
+    return new BatchFilterOptionsResponse(countryCatalogSnapshot
       .countries()
       .stream()
       .map(country -> new CountryOptionResponse(country.code(), country.name()))
@@ -63,105 +63,114 @@ public class BatchExplorerServiceImpl implements BatchExplorerService {
     LocalDateTime fromTimestamp = fromDate.atStartOfDay();
     LocalDateTime toTimestampExclusive = toDate.plusDays(1).atStartOfDay();
     long offset = (long) page * size;
-    long startedAt = System.nanoTime();
+    long operationStartedAtNanos = System.nanoTime();
 
     LOGGER.debug("Batch queue scope resolved | period={}..{} | country={} | reportGroupId={} | batchFilter={} | status={} | issueType={}"
         + " | metricFocus={} | page={} | size={}", fromDate, toDate, normalizedCountryCode, reportGroupId == null ? "ALL" : reportGroupId,
         normalizedBatchId.isEmpty() ? "ALL" : normalizedBatchId, status, issueType, metricFocus, page, size);
 
-    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-    CountryFilter countryFilter = resolveCountryFilter(catalog, normalizedCountryCode);
-    BatchSummaryProjection summary = batchExplorerRepository.getBatchSummary(fromTimestamp, toTimestampExclusive, normalizedBatchId,
+    CountryCatalogSnapshot countryCatalogSnapshot = countryCatalog.getSnapshot();
+    CountryFilter countryFilter = resolveCountryFilter(countryCatalogSnapshot, normalizedCountryCode);
+    BatchSummaryProjection batchSummary = batchExplorerRepository.getBatchSummary(fromTimestamp, toTimestampExclusive, normalizedBatchId,
         reportGroupId, countryFilter.enabled(), countryFilter.reportGroupIds());
-    List<BatchQueueProjection> queue = batchExplorerRepository.getBatchQueue(fromTimestamp, toTimestampExclusive, normalizedBatchId,
+    List<BatchQueueProjection> batchQueue = batchExplorerRepository.getBatchQueue(fromTimestamp, toTimestampExclusive, normalizedBatchId,
         reportGroupId, countryFilter.enabled(), countryFilter.reportGroupIds(), status.name(), issueType.name(), metricFocus.name(), size,
         offset);
 
-    BatchExplorerResponse response = toExplorerResponse(summary, queue, catalog, fromDate, toDate, status, issueType, normalizedBatchId,
-        countryFilter.countryCode(), reportGroupId, metricFocus, page, size);
+    BatchExplorerResponse batchExplorerResponse = toExplorerResponse(batchSummary, batchQueue, countryCatalogSnapshot, fromDate, toDate,
+        status, issueType, normalizedBatchId, countryFilter.countryCode(), reportGroupId, metricFocus, page, size);
 
     LOGGER.info("Batch queue ready | period={}..{} | country={} | reportGroupId={} | status={} | issueType={} | metricFocus={}"
         + " | all={} | successful={} | attention={} | matched={} | returned={} | page={} | size={} | duration={}ms", fromDate, toDate,
-        countryFilter.countryCode(), reportGroupId == null ? "ALL" : reportGroupId, status, issueType, metricFocus, summary.allBatches(),
-        summary.successfulBatches(), summary.attentionBatches(), response.matchingBatches(), response.batches().size(), page, size,
-        (System.nanoTime() - startedAt) / 1_000_000);
-    return response;
+        countryFilter.countryCode(), reportGroupId == null ? "ALL" : reportGroupId, status, issueType, metricFocus,
+        batchSummary.allBatches(), batchSummary.successfulBatches(), batchSummary.attentionBatches(),
+        batchExplorerResponse.matchingBatches(), batchExplorerResponse.batches().size(), page, size,
+        (System.nanoTime() - operationStartedAtNanos) / 1_000_000);
+    return batchExplorerResponse;
   }
 
   @Override
   public BatchDetailsResponse getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
-    long startedAt = System.nanoTime();
+    long operationStartedAtNanos = System.nanoTime();
     LOGGER.debug("Batch details requested | reportGroupId={} | batchId={} | sequence={}", reportGroupId, batchId, sequenceNumber);
 
-    BatchDetailsProjection details = batchExplorerRepository
+    BatchDetailsProjection batchDetails = batchExplorerRepository
       .getBatchDetails(reportGroupId, batchId, sequenceNumber)
       .orElseThrow(() -> new ResourceNotFoundException("Batch was not found for the supplied report group and sequence"));
-    CountryCatalogSnapshot catalog = countryCatalog.getSnapshot();
-    BatchDetailsResponse response = toDetailsResponse(details, catalog);
+    CountryCatalogSnapshot countryCatalogSnapshot = countryCatalog.getSnapshot();
+    BatchDetailsResponse batchDetailsResponse = toDetailsResponse(batchDetails, countryCatalogSnapshot);
 
     LOGGER.info("Batch details ready | reportGroupId={} | reportGroupName={} | batchId={} | sequence={} | status={} | operationalStatus={}"
         + " | issues={} | selectedTransactions={} | transformerOutput={} | excludedTransactions={} | duration={}ms", reportGroupId,
-        response.reportGroupName(), batchId, sequenceNumber, response.status(), response.operationalStatus(), response.totalIssues(),
-        response.selectedTransactions(), response.transformerOutput(), response.excludedTransactions(),
-        (System.nanoTime() - startedAt) / 1_000_000);
-    return response;
+        batchDetailsResponse.reportGroupName(), batchId, sequenceNumber, batchDetailsResponse.status(),
+        batchDetailsResponse.operationalStatus(), batchDetailsResponse.totalIssues(), batchDetailsResponse.selectedTransactions(),
+        batchDetailsResponse.transformerOutput(), batchDetailsResponse.excludedTransactions(),
+        (System.nanoTime() - operationStartedAtNanos) / 1_000_000);
+    return batchDetailsResponse;
   }
 
-  private BatchExplorerResponse toExplorerResponse(BatchSummaryProjection summary, List<BatchQueueProjection> queue,
-      CountryCatalogSnapshot catalog, LocalDate fromDate, LocalDate toDate, BatchStatus status, BatchIssueType issueType, String batchId,
-      String country, Integer reportGroupId, BatchMetricFocus metricFocus, int page, int size) {
-    List<BatchQueueItemResponse> batches = queue
+  private BatchExplorerResponse toExplorerResponse(BatchSummaryProjection batchSummary, List<BatchQueueProjection> batchQueue,
+      CountryCatalogSnapshot countryCatalogSnapshot, LocalDate fromDate, LocalDate toDate, BatchStatus status, BatchIssueType issueType,
+      String batchId, String country, Integer reportGroupId, BatchMetricFocus metricFocus, int page, int size) {
+    List<BatchQueueItemResponse> batchQueueItems =
+        batchQueue
       .stream()
-      .map(batch -> toQueueItem(batch, catalog))
+      .map(batchProjection -> toQueueItem(batchProjection, countryCatalogSnapshot))
       .toList();
-    long matchingBatches = queue.isEmpty() ? 0 : queue.getFirst().matchingCount();
-    return new BatchExplorerResponse(new BatchExplorerSummaryResponse(summary.allBatches(), summary.successfulBatches(),
-            summary.attentionBatches(), summary.activityMissingBatches(), summary.missingAttemptBatches(), summary.transformationBatches(),
-            summary.duplicateTransactionBatches(), summary.exclusionBatches(), summary.simulatedTransactionBatches(),
-            summary.softDedupBatches()), batches, matchingBatches, page, size, fromDate, toDate, status, issueType, batchId, country,
-        reportGroupId, reportGroupId == null ? null : summary.reportGroupName(), metricFocus);
+    long matchingBatchCount = batchQueue.isEmpty() ? 0 : batchQueue.getFirst().matchingCount();
+    return new BatchExplorerResponse(new BatchExplorerSummaryResponse(batchSummary.allBatches(), batchSummary.successfulBatches(),
+            batchSummary.attentionBatches(), batchSummary.activityMissingBatches(), batchSummary.missingAttemptBatches(),
+            batchSummary.transformationBatches(), batchSummary.duplicateTransactionBatches(), batchSummary.exclusionBatches(),
+            batchSummary.simulatedTransactionBatches(), batchSummary.softDedupBatches()), batchQueueItems, matchingBatchCount, page, size,
+        fromDate, toDate, status, issueType, batchId, country, reportGroupId, reportGroupId == null ? null : batchSummary.reportGroupName(),
+        metricFocus);
   }
 
-  private BatchQueueItemResponse toQueueItem(BatchQueueProjection batch, CountryCatalogSnapshot catalog) {
-    CountryDefinition country = catalog.getForReportGroup(batch.reportGroupId());
-    return new BatchQueueItemResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), batch.sequenceNumber(),
-        country.code(), country.name(), batch.reportingPeriodFrom(), batch.reportingPeriodTo(), batch.startedAt(), batch.completedAt(),
-        queueItemStatus(batch), batch.transformationFailures(), batch.reportedTransformationFailures(),
-        batch.transformationFailureMismatch(), batch.missingAttempts(), batch.activityMissing(), batch.filtrationErrors(),
-        batch.reconciliationImbalance(), batch.transformerOutput(), batch.excludedTransactions(), batch.duplicateTransactions(),
-        batch.simulatedTransactions(), batch.softDedupTransactions(), batch.totalIssues());
+  private BatchQueueItemResponse toQueueItem(BatchQueueProjection batchProjection, CountryCatalogSnapshot countryCatalogSnapshot) {
+    CountryDefinition countryDefinition = countryCatalogSnapshot.getForReportGroup(batchProjection.reportGroupId());
+    return new BatchQueueItemResponse(batchProjection.reportGroupId(), batchProjection.reportGroupName(), batchProjection.batchId(),
+        batchProjection.sequenceNumber(), countryDefinition.code(), countryDefinition.name(), batchProjection.reportingPeriodFrom(),
+        batchProjection.reportingPeriodTo(), batchProjection.startedAt(), batchProjection.completedAt(), queueItemStatus(batchProjection),
+        batchProjection.transformationFailures(), batchProjection.reportedTransformationFailures(),
+        batchProjection.transformationFailureMismatch(), batchProjection.missingAttempts(), batchProjection.activityMissing(),
+        batchProjection.filtrationErrors(), batchProjection.reconciliationImbalance(), batchProjection.transformerOutput(),
+        batchProjection.excludedTransactions(), batchProjection.duplicateTransactions(), batchProjection.simulatedTransactions(),
+        batchProjection.softDedupTransactions(), batchProjection.totalIssues());
   }
 
   private BatchStatus queueItemStatus(BatchQueueProjection batch) {
     return batch.totalIssues() == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION;
   }
 
-  private BatchDetailsResponse toDetailsResponse(BatchDetailsProjection batch, CountryCatalogSnapshot catalog) {
-    CountryDefinition country = catalog.getForReportGroup(batch.reportGroupId());
-    long totalIssues = batch.transformationFailures() + batch.missingAttempts() + batch.activityMissing();
-    boolean transformationBalanced = batch.actualTransformationAttempts() == batch.transformedActivities() + batch.transformationFailures();
-    return new BatchDetailsResponse(batch.reportGroupId(), batch.reportGroupName(), batch.batchId(), batch.sequenceNumber(), country.code(),
-        country.name(), batch.reportingPeriodFrom(), batch.reportingPeriodTo(), batch.startedAt(), batch.completedAt(),
-        durationSeconds(batch.startedAt(), batch.completedAt()), batch.completedAt() == null ? "RUNNING" : "COMPLETED",
-        totalIssues == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION, batch.transformationFailures(),
-        batch.reportedTransformationFailures(), batch.transformationFailureMismatch(), batch.missingAttempts(), batch.activityMissing(),
-        batch.duplicateTransactions(), batch.filtrationErrors(), batch.reconciliationImbalance(), totalIssues, batch.selectedTransactions(),
-        batch.transactionAttemptsFound(), batch.expectedReportableTransactions(), batch.actualReportableTransactions(),
-        batch.expectedTransformationAttempts(), batch.actualTransformationAttempts(), batch.transformedActivities(), transformationBalanced,
-        batch.transformerOutput(), null, batch.excludedTransactions(), batch.simulatedTransactions(), batch.alreadyReportedTransactions(),
-        batch.softDedupTransactions(), batch.journeyAvailable(), false, batch.exclusionsAvailable(), batch.reportSelectionVersionId(),
-        batch.transformerVersionId());
+  private BatchDetailsResponse toDetailsResponse(BatchDetailsProjection batchDetails, CountryCatalogSnapshot countryCatalogSnapshot) {
+    CountryDefinition countryDefinition = countryCatalogSnapshot.getForReportGroup(batchDetails.reportGroupId());
+    long totalIssues = batchDetails.transformationFailures() + batchDetails.missingAttempts() + batchDetails.activityMissing();
+    boolean transformationBalanced =
+        batchDetails.actualTransformationAttempts() == batchDetails.transformedActivities() + batchDetails.transformationFailures();
+    return new BatchDetailsResponse(batchDetails.reportGroupId(), batchDetails.reportGroupName(), batchDetails.batchId(),
+        batchDetails.sequenceNumber(), countryDefinition.code(), countryDefinition.name(), batchDetails.reportingPeriodFrom(),
+        batchDetails.reportingPeriodTo(), batchDetails.startedAt(), batchDetails.completedAt(),
+        durationSeconds(batchDetails.startedAt(), batchDetails.completedAt()), batchDetails.completedAt() == null ? "RUNNING" : "COMPLETED",
+        totalIssues == 0 ? BatchStatus.SUCCESSFUL : BatchStatus.ATTENTION, batchDetails.transformationFailures(),
+        batchDetails.reportedTransformationFailures(), batchDetails.transformationFailureMismatch(), batchDetails.missingAttempts(),
+        batchDetails.activityMissing(), batchDetails.duplicateTransactions(), batchDetails.filtrationErrors(),
+        batchDetails.reconciliationImbalance(), totalIssues, batchDetails.selectedTransactions(), batchDetails.transactionAttemptsFound(),
+        batchDetails.expectedReportableTransactions(), batchDetails.actualReportableTransactions(),
+        batchDetails.expectedTransformationAttempts(), batchDetails.actualTransformationAttempts(), batchDetails.transformedActivities(),
+        transformationBalanced, batchDetails.transformerOutput(), null, batchDetails.excludedTransactions(),
+        batchDetails.simulatedTransactions(), batchDetails.alreadyReportedTransactions(), batchDetails.softDedupTransactions(),
+        batchDetails.journeyAvailable(), false, batchDetails.exclusionsAvailable(), batchDetails.reportSelectionVersionId(),
+        batchDetails.transformerVersionId());
   }
 
-  private CountryFilter resolveCountryFilter(CountryCatalogSnapshot catalog, String countryCode) {
+  private CountryFilter resolveCountryFilter(CountryCatalogSnapshot countryCatalogSnapshot, String countryCode) {
     if ("ALL".equals(countryCode)) {
       return new CountryFilter("ALL", false, NO_REPORT_GROUPS);
     }
-    CountryDefinition definition =
-        catalog
+    CountryDefinition countryDefinition = countryCatalogSnapshot
       .findByCode(countryCode)
       .orElseThrow(() -> new InvalidRequestException("Unsupported country filter: " + countryCode));
-    return new CountryFilter(countryCode, true, definition.reportGroupIds().stream().toList());
+    return new CountryFilter(countryCode, true, countryDefinition.reportGroupIds().stream().toList());
   }
 
   private String normalizeCountryCode(String country) {

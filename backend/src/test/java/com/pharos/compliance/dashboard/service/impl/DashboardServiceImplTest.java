@@ -17,11 +17,13 @@ import com.pharos.compliance.dashboard.dto.BatchDashboardResponse;
 import com.pharos.compliance.dashboard.dto.TransactionDashboardResponse;
 import com.pharos.compliance.dashboard.model.TrendGranularity;
 import com.pharos.compliance.dashboard.repository.DashboardRepository;
+import com.pharos.compliance.dashboard.repository.projection.BatchDashboardSnapshotProjection;
 import com.pharos.compliance.dashboard.repository.projection.BatchHealthTrendProjection;
 import com.pharos.compliance.dashboard.repository.projection.DashboardCountsProjection;
 import com.pharos.compliance.dashboard.repository.projection.ExclusionReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.NotReportedReasonProjection;
 import com.pharos.compliance.dashboard.repository.projection.ReportGroupMetricsProjection;
+import com.pharos.compliance.dashboard.repository.projection.TransactionDashboardSnapshotProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionOverviewProjection;
 import com.pharos.compliance.dashboard.repository.projection.TransactionVolumeTrendProjection;
 import com.pharos.compliance.reportgroup.model.CountryCatalogSnapshot;
@@ -59,16 +61,12 @@ class DashboardServiceImplTest {
 
   @Test
   void buildsBatchDashboardFromMockedRepositoryDataWithoutRunningTransactionQueries() {
-    when(dashboardRepository.getDashboardCounts(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(), anyList(),
-        anyBoolean(), anyInt()))
-      .thenReturn(fixture.counts());
+    when(dashboardRepository.getBatchDashboardSnapshot(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(),
+        anyList(), anyBoolean(), anyInt()))
+      .thenReturn(new BatchDashboardSnapshotProjection(fixture.counts(), fixture.reportGroups()));
     when(dashboardRepository.getBatchHealthTrend(any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDate.class),
         any(LocalDate.class), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt()))
       .thenReturn(fixture.trend());
-    when(dashboardRepository.getReportGroupsRequiringAttention(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(),
-        anyList(), anyBoolean(), anyInt()))
-      .thenReturn(fixture.reportGroups());
-
     BatchDashboardResponse response = dashboardService.getBatchDashboard(FROM_DATE, TO_DATE, " BIN ", "pt", null);
 
     assertEquals(10, response.batchesRan());
@@ -80,24 +78,18 @@ class DashboardServiceImplTest {
     assertEquals(1, response.batchHealthTrend().getFirst().batchesNeedingAttention());
     assertEquals("PORTUGAL OBJECTIVE", response.reportGroupsRequiringAttention().getFirst().reportGroupName());
 
-    verify(dashboardRepository, never()).getTransactionOverview(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
-    verify(dashboardRepository, never()).getTopExclusionReasons(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
-    verify(dashboardRepository, never()).getNotReportedReasons(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
+    verify(dashboardRepository, never())
+      .getTransactionDashboardSnapshot(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
     verify(dashboardRepository, never())
       .getTransactionVolumeTrend(any(), any(), any(), any(), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
   }
 
   @Test
   void buildsTransactionDashboardFromMockedRepositoryDataWithoutRunningBatchKpiQueries() {
-    when(dashboardRepository.getTransactionOverview(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(), anyList(),
-        anyBoolean(), anyInt()))
-      .thenReturn(fixture.transactionOverview());
-    when(dashboardRepository.getTopExclusionReasons(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(), anyList(),
-        anyBoolean(), anyInt()))
-      .thenReturn(fixture.exclusionReasons());
-    when(dashboardRepository.getNotReportedReasons(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(), anyList(),
-        anyBoolean(), anyInt()))
-      .thenReturn(fixture.notReportedReasons());
+    when(dashboardRepository.getTransactionDashboardSnapshot(any(LocalDateTime.class), any(LocalDateTime.class), anyString(), anyBoolean(),
+        anyList(), anyBoolean(), anyInt()))
+      .thenReturn(
+          new TransactionDashboardSnapshotProjection(fixture.transactionOverview(), fixture.exclusionReasons(), fixture.notReportedReasons()));
     when(dashboardRepository.getTransactionVolumeTrend(any(LocalDateTime.class), any(LocalDateTime.class), any(LocalDate.class),
         any(LocalDate.class), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt()))
       .thenReturn(fixture.transactionVolumeTrend());
@@ -114,9 +106,8 @@ class DashboardServiceImplTest {
     assertEquals(2, response.batchHealthTrend().size());
     assertEquals(710, response.batchHealthTrend().getFirst().totalReportedTransactions());
 
-    verify(dashboardRepository, never()).getDashboardCounts(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
-    verify(dashboardRepository, never())
-      .getReportGroupsRequiringAttention(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
+    verify(dashboardRepository, never()).getBatchDashboardSnapshot(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(),
+        anyInt());
     verify(dashboardRepository, never())
       .getBatchHealthTrend(any(), any(), any(), any(), anyString(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
   }
@@ -126,7 +117,8 @@ class DashboardServiceImplTest {
     assertThrows(InvalidDateRangeException.class, () -> dashboardService.getBatchDashboard(TO_DATE, FROM_DATE, "", "PT", null));
     assertThrows(InvalidRequestException.class, () -> dashboardService.getBatchDashboard(FROM_DATE, TO_DATE, "", "XX", null));
 
-    verify(dashboardRepository, never()).getDashboardCounts(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(), anyInt());
+    verify(dashboardRepository, never()).getBatchDashboardSnapshot(any(), any(), anyString(), anyBoolean(), anyList(), anyBoolean(),
+        anyInt());
   }
 
   private record DashboardFixture(List<CountryDefinition> countries, DashboardCountsProjection counts,
