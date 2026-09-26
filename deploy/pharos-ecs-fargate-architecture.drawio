@@ -19,8 +19,8 @@
         <mxCell id="subtitle" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=16;fontColor=#D8D8D8;" value="AWS ECS Fargate deployment architecture" vertex="1">
           <mxGeometry height="25" width="500" x="78" y="86" as="geometry" />
         </mxCell>
-        <mxCell id="awsCloud" parent="1" style="swimlane;html=1;rounded=1;startSize=46;horizontal=1;fillColor=#E8E8E5;swimlaneFillColor=#F8F8F6;strokeColor=#666B70;strokeWidth=2;fontSize=19;fontStyle=1;fontColor=#16191F;arcSize=8;collapsible=0;shadow=1;" value="AWS Cloud" vertex="1">
-          <mxGeometry height="600" width="1100" x="460" y="145" as="geometry" />
+        <mxCell id="awsCloud" parent="1" style="swimlane;html=1;rounded=1;startSize=46;horizontal=1;fillColor=#E8E8E5;swimlaneFillColor=#F8F8F6;strokeColor=#666B70;strokeWidth=2;fontSize=19;fontStyle=1;fontColor=#16191F;arcSize=8;collapsible=0;shadow=1;align=left;spacingLeft=20;" value="AWS Cloud" vertex="1">
+          <mxGeometry height="475" width="1100" x="460" y="270" as="geometry" />
         </mxCell>
         <mxCell id="vpc" parent="1" style="swimlane;html=1;rounded=1;startSize=44;horizontal=1;fillColor=#E5EFE2;swimlaneFillColor=#FAFBF8;strokeColor=#54854A;strokeWidth=2;fontSize=18;fontStyle=1;fontColor=#294B24;arcSize=8;collapsible=0;" value="Amazon VPC" vertex="1">
           <mxGeometry height="390" width="1015" x="500" y="315" as="geometry" />
@@ -31,20 +31,32 @@
         <mxCell id="privateLabel" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;arcSize=30;fillColor=#E4F1E4;strokeColor=none;fontSize=13;fontStyle=1;fontColor=#3F6B3E;" value="PRIVATE SUBNETS · MULTI-AZ" vertex="1">
           <mxGeometry height="28" width="220" x="530" y="355" as="geometry" />
         </mxCell>
-        <mxCell id="ecrGroup" parent="1" style="swimlane;html=1;rounded=1;startSize=32;horizontal=1;fillColor=#FFE8CE;swimlaneFillColor=#FFF9F2;strokeColor=#ED7100;strokeWidth=1;fontSize=13;fontStyle=1;fontColor=#7A3B00;arcSize=7;collapsible=0;" value="Amazon ECR" vertex="1">
-          <mxGeometry height="92" width="465" x="815" y="205" as="geometry" />
+        <mxCell id="releaseGroup" parent="1" style="swimlane;html=1;rounded=1;startSize=34;horizontal=1;fillColor=#E8E8E5;swimlaneFillColor=#FFFFFF;strokeColor=#666B70;strokeWidth=1;fontSize=14;fontStyle=1;fontColor=#16191F;arcSize=7;collapsible=0;shadow=1;" value="Build &amp;amp; Release" vertex="1">
+          <mxGeometry height="122" width="650" x="685" y="138" as="geometry" />
         </mxCell>
-        <mxCell id="ecrFrontend" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ecr;fillColor=#ED7100;strokeColor=none;" value="" vertex="1">
-          <mxGeometry height="44" width="44" x="905" y="243" as="geometry" />
+        <mxCell id="gitlab" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#FFF7F2;strokeColor=#FC6D26;strokeWidth=2;shadow=1;" value="" vertex="1">
+          <mxGeometry height="64" width="220" x="720" y="180" as="geometry" />
         </mxCell>
-        <mxCell id="ecrFrontendLabel" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#16191F;" value="Frontend" vertex="1">
-          <mxGeometry height="28" width="95" x="958" y="251" as="geometry" />
+        <mxCell id="gitlabIcon" parent="1" style="shape=image;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;html=1;image=data:image/svg+xml,%3Csvg%20fill%3D%22%23FC6D26%22%20role%3D%22img%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ctitle%3EGitLab%3C%2Ftitle%3E%3Cpath%20d%3D%22m23.6004%209.5927-.0337-.0862L20.3.9814a.851.851%200%200%200-.3362-.405.8748.8748%200%200%200-.9997.0539.8748.8748%200%200%200-.29.4399l-2.2055%206.748H7.5375l-2.2057-6.748a.8573.8573%200%200%200-.29-.4412.8748.8748%200%200%200-.9997-.0537.8585.8585%200%200%200-.3362.4049L.4332%209.5015l-.0325.0862a6.0657%206.0657%200%200%200%202.0119%207.0105l.0113.0087.03.0213%204.976%203.7264%202.462%201.8633%201.4995%201.1321a1.0085%201.0085%200%200%200%201.2197%200l1.4995-1.1321%202.4619-1.8633%205.006-3.7489.0125-.01a6.0682%206.0682%200%200%200%202.0094-7.003z%22%2F%3E%3C%2Fsvg%3E;" value="" vertex="1">
+          <mxGeometry height="40" width="44" x="738" y="192" as="geometry" />
         </mxCell>
-        <mxCell id="ecrBackend" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ecr;fillColor=#ED7100;strokeColor=none;" value="" vertex="1">
-          <mxGeometry height="44" width="44" x="1110" y="243" as="geometry" />
+        <mxCell id="gitlabText" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontColor=#16191F;" value="&lt;b&gt;GitLab CI/CD&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#5F6B7A&quot;&gt;Build and release&lt;/font&gt;" vertex="1">
+          <mxGeometry height="44" width="140" x="790" y="190" as="geometry" />
         </mxCell>
-        <mxCell id="ecrBackendLabel" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontStyle=1;fontColor=#16191F;" value="Backend" vertex="1">
-          <mxGeometry height="28" width="90" x="1163" y="251" as="geometry" />
+        <mxCell id="jfrog" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#F4FBF4;strokeColor=#41BF47;strokeWidth=2;shadow=1;" value="" vertex="1">
+          <mxGeometry height="64" width="260" x="1040" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="jfrogIcon" parent="1" style="shape=image;verticalLabelPosition=bottom;verticalAlign=top;imageAspect=0;aspect=fixed;html=1;image=data:image/svg+xml,%3Csvg%20fill%3D%22%2341BF47%22%20role%3D%22img%22%20viewBox%3D%220%200%2024%2024%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ctitle%3EJFrog%3C%2Ftitle%3E%3Cpath%20d%3D%22M10.655%2015.631l-1.268.353c.11.32.2.893.2%201.665v3.795h1.421v-4.015c.265-.32.552-.474.86-.474.156%200%20.277.033.409.11l.386-1.312a1.05%201.05%200%2000-.53-.122%201.22%201.22%200%2000-.463.09c-.265.131-.596.43-.805.715%200-.32-.077-.573-.21-.805zM5.76%2013.757h-.154v7.676h1.477v-3.398h1.864v-1.268H7.082v-1.764H9.41l.088-.673c-1.4-.1-2.668-.32-3.738-.573zm-3.452%208.7l.684.796c.662-.265%201.49-.86%201.71-1.81.077-.308.1-.506.1-1.51v-6.165H3.308v6.33c0%20.828-.032%201.136-.142%201.423-.144.32-.486.695-.86.938zm13.422-3.892c0%201.346-.264%201.92-.871%201.92a.782.782%200%2001-.717-.464c-.11-.286-.176-.773-.176-1.434%200-.563.055-.96.143-1.268.11-.353.386-.574.728-.574.254%200%20.474.11.606.298.199.265.287.76.287%201.522zm.87%202.206c.465-.551.674-1.225.674-2.195%200-.916-.187-1.544-.617-2.073-.464-.574-1.06-.85-1.831-.85-1.456%200-2.426%201.18-2.426%202.967%200%201.787.96%202.934%202.426%202.934.827.01%201.367-.297%201.775-.783zm4.038-3.177c0%20.52-.31.805-.86.805-.497%200-.828-.23-.828-.805%200-.529.31-.838.838-.838.53%200%20.85.31.85.838zm2.503-1.213l-.585-.937c-.33.31-.727.485-1.113.485-.177%200-.276-.022-.662-.12a3.282%203.282%200%2000-.97-.145c-1.38%200-2.272.75-2.272%201.92%200%20.837.375%201.367%201.158%201.576-.32.077-.662.243-.816.43a.79.79%200%2000-.166.52c0%20.176.044.33.11.463a.68.68%200%2000.31.275c.253.1.66.166%201.29.177.33%200%20.529.01.595.01.386.023.584.09.739.166.143.089.253.287.253.508%200%20.22-.132.44-.341.573-.188.132-.497.188-.894.188-.65%200-1.014-.243-1.014-.695%200-.2.022-.243.066-.364h-1.301c-.055.11-.122.265-.122.573%200%20.386.144.717.442%201.004.485.474%201.279.606%202.04.606.838%200%201.654-.198%202.128-.727.298-.331.43-.695.43-1.17%200-.507-.143-.893-.463-1.212-.375-.364-.805-.497-1.632-.508l-.761-.01c-.143%200-.232-.056-.232-.133%200-.154.199-.288.563-.464.11.01.143.01.21.01%201.146%200%201.984-.705%201.984-1.686%200-.375-.11-.662-.32-.927.177.022.232.033.364.033.375%200%20.673-.12.982-.419zM5.384%207.085c-1.764.43-2.966%201.279-2.966%202.25%200%20.606.463%201.157%201.224%201.587a2.155%202.155%200%2001-.353-1.157c.01-1.004.794-1.941%202.095-2.68zM24%2010.889c0-.64-.397-1.224-1.059-1.709.055.2.1.397.1.596%200%201.82-2.548%203.385-6.165%204.036.408.044.827.066%201.268.066%203.23-.01%205.856-1.345%205.856-2.989zm-2.084-.992c0-.673-.574-1.29-1.555-1.798.23.276.353.574.353.883%200%201.62-3.44%202.933-7.698%202.933-4.246%200-7.698-1.312-7.698-2.933%200-.21.055-.408.165-.596-.683.452-1.07.97-1.07%201.522%200%201.753%203.916%203.176%208.747%203.176%204.83%200%208.756-1.445%208.756-3.187zM18.1%209.81c-1.786%201.147-7.279%201.588-9.639.11-1.853-1.158-1.213-3-6.518-7.036-.694-.53.133-1.092.651-.728.518.364.044.453%201.092%201.5%202.117%202.118%202.095.21%202.426.938.706%201.51%202.25%203.032%202.25%203.032%201.555%201.015%202.79%201.235%205.084-.32%201.456-.981.86%201.566%204.423-.275%201.3-.673%201.246-.22%202.569-2.063.55-.76%201.6.585.408.772-.474.078-1.28.596-1.621%201.412-.496%201.224-.287%202.128-1.125%202.658zM8.196%206.7c-.44-.199-.904-.95-1.08-1.246.496-.486.297-1.29.01-1.732-.275-.44-.617-.32-.98-.727-.376-.41.142-1.467.617-.651%201.775%203.055%202.944%201.786%204.39%201.599%201.39-.177%202.624.584%203-1.566.065-.353.407-.43.44.143.033.585.254%201.996%201.015%202.173.76.187%201.378-.177%201.555-.375.176-.2.275-.177.353.33.077.497.275%201.192%201.345.42%202.195-1.566%201.566-2.173%202.426-2.58.485-.232%201.257.518.144%201.08-1.588.805-1.754%201.797-2.757%202.426-1.688%201.059-1.17.044-3.882-.342-1.048-.143-1.38%201.015-2.195.684-1.864-.772-3.177-.618-4.4.364zm5.879-5.657c.066.463.143.452.309.485.165.044.375-.22.375-.463.01-.254-.11-.408-.353-.397-.254.01-.342.132-.331.375zm8.16.827c.2.187.728.066.85-.078.32-.352.33-.562.165-.805-.165-.231-.507-.198-.85.056-.341.253-.275.727-.164.827zm-.143%202.338c-.165.22-.176.386-.055.507.132.132.397.242.585.1.187-.155.187-.376.033-.563-.166-.2-.386-.2-.563-.044zM5.352%201.45c.253.077.374.32.584.044.11-.133.12-.32-.023-.52-.088-.12-.507-.21-.683-.032-.177.177-.01.464.121.508zM.178%201.295c.463.287.76.717%201.114.33.121-.131.264-.363.01-.826C1.117.457.511.325.301.457c-.22.12-.485.618-.121.838zM4.447%203.49c.143.154.397.143.551.055.144-.088.121-.32-.022-.518-.088-.122-.353-.188-.53%200-.176.187-.098.352%200%20.463z%22%2F%3E%3C%2Fsvg%3E;" value="" vertex="1">
+          <mxGeometry height="42" width="48" x="1058" y="191" as="geometry" />
+        </mxCell>
+        <mxCell id="jfrogText" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=14;fontColor=#16191F;" value="&lt;b&gt;JFrog Artifactory&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#5F6B7A&quot;&gt;Container registry&lt;/font&gt;" vertex="1">
+          <mxGeometry height="44" width="180" x="1115" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeGitlabJfrog" edge="1" parent="1" source="gitlab" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#16191F;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="jfrog" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="releasePushBadge" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=12;fontStyle=1;fontColor=#16191F;labelBackgroundColor=#FFFFFF;spacing=2;" value="BUILD · PUSH" vertex="1">
+          <mxGeometry height="22" width="92" x="944" y="191" as="geometry" />
         </mxCell>
         <mxCell id="userHalo" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#FFD400;strokeColor=#16191F;strokeWidth=2;shadow=1;" value="" vertex="1">
           <mxGeometry height="80" width="80" x="65" y="479" as="geometry" />
@@ -138,11 +150,20 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="edgeEcrFrontend" edge="1" parent="1" source="ecrFrontend" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;dashed=1;strokeWidth=1;strokeColor=#ED7100;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="frontend" value="">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edgeJfrogFrontend" edge="1" parent="1" source="jfrog" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;dashed=1;strokeWidth=2;strokeColor=#41BF47;exitX=0.35;exitY=1;entryX=0.5;entryY=0;" target="frontend" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1130" y="292" />
+              <mxPoint x="895" y="292" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="edgeEcrBackend" edge="1" parent="1" source="ecrBackend" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;dashed=1;strokeWidth=1;strokeColor=#ED7100;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="backend" value="">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="edgeJfrogBackend" edge="1" parent="1" source="jfrog" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;dashed=1;strokeWidth=2;strokeColor=#41BF47;exitX=0.7;exitY=1;entryX=0.5;entryY=0;" target="backend" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1220" y="292" />
+            </Array>
+          </mxGeometry>
         </mxCell>
         <mxCell id="edgeOkta" edge="1" parent="1" source="frontend" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;dashed=1;strokeWidth=1;strokeColor=#007DC1;exitX=0.5;exitY=0;entryX=0;entryY=0.5;" target="okta" value="">
           <mxGeometry relative="1" as="geometry">
@@ -184,7 +205,7 @@
         <mxCell id="oidcBadge" parent="1" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=16;fontStyle=1;fontColor=#00689F;" value="OIDC" vertex="1">
           <mxGeometry height="24" width="68" x="1353" y="320" as="geometry" />
         </mxCell>
-        <mxCell id="deploymentFooter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;arcSize=10;fillColor=#050505;strokeColor=#050505;strokeWidth=1;fontSize=16;fontColor=#FFFFFF;shadow=1;" value="&lt;font color=&quot;#FFD400&quot;&gt;&lt;b&gt;DEPLOYMENT MODEL&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; Two Docker images &amp;nbsp;•&amp;nbsp; One Fargate task &amp;nbsp;•&amp;nbsp; One ECS service &amp;nbsp;•&amp;nbsp; Frontend exposed through the NLB" vertex="1">
+        <mxCell id="deploymentFooter" parent="1" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;arcSize=10;fillColor=#050505;strokeColor=#050505;strokeWidth=1;fontSize=16;fontColor=#FFFFFF;shadow=1;" value="&lt;font color=&quot;#FFD400&quot;&gt;&lt;b&gt;DEPLOYMENT MODEL&lt;/b&gt;&lt;/font&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp; Two JFrog-hosted images &amp;nbsp;•&amp;nbsp; One Fargate task &amp;nbsp;•&amp;nbsp; One ECS service &amp;nbsp;•&amp;nbsp; Frontend exposed through the NLB" vertex="1">
           <mxGeometry height="60" width="1100" x="460" y="765" as="geometry" />
         </mxCell>
       </root>
