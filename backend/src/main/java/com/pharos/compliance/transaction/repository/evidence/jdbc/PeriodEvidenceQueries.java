@@ -181,11 +181,7 @@ public class PeriodEvidenceQueries {
   }
 
   private SqlFragment evidenceForPeriod() {
-    String journeyOutcome = EvidenceSqlSupport.journeyOutcome("j.status");
-    String rraKeyGuard = EvidenceSqlSupport.matchesDigitsOnly("j.identifier");
-    String evidenceSql =
-        sql.load(EVIDENCE_FOR_PERIOD_SQL).replace("%%JOURNEY_OUTCOME%%", journeyOutcome).replace("%%RRA_KEY_GUARD%%", rraKeyGuard);
-    return SqlFragment.of(evidenceSql);
+    return SqlFragment.of(sql.load(EVIDENCE_FOR_PERIOD_SQL));
   }
 
   /**

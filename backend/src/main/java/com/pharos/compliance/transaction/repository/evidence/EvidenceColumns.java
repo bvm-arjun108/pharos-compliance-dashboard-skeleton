@@ -26,10 +26,12 @@ public final class EvidenceColumns {
   public static final String REASON_COLUMN = "reason";
   public static final String NOT_REPORTED_REASON_COLUMN = "not_reported_reason";
   public static final String UNSPECIFIED_REASON = "Unspecified";
-  // Same "top N, then Other" cutoff as DashboardRepository#topReasonsThenOther -- kept as literal
-  // duplicates (not shared constants) for the same reason the whole roll/target pipeline is
-  // duplicated here: this repository answers "give me the rows," DashboardRepository answers "give
-  // me the count," and they need to agree on the bucketing without depending on each other.
+  // Same "top N, then Other" cutoff as DashboardRepository's exclusion/not-reported reason
+  // breakdown (the literal 3 in exclusion-bucketed-reasons.sql / not-reported-bucketed-reasons.sql)
+  // -- kept as literal duplicates (not shared constants) for the same reason the whole roll/target
+  // pipeline is duplicated here: this repository answers "give me the rows," DashboardRepository
+  // answers "give me the count," and they need to agree on the bucketing without depending on each
+  // other.
   public static final String OTHER_REASON = "Other";
   public static final int TOP_REASON_LIMIT = 3;
   public static final String EVIDENCE_BATCH_ID = "evidence_batch_id";

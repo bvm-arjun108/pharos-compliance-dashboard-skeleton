@@ -4,9 +4,7 @@
 -- batches, so record_key additionally carries rpt_grp_id to stay unique across them, and every
 -- branch also projects rpt_grp_id itself (the batch-scoped pipeline never needs it -- its rule-hit
 -- enrichment is already pinned to one batch -- but the period/overview pipelines' enrichment can
--- span every report group in view). The marked spots are substituted in Java: one is the fixed
--- journeyOutcome CASE expression, the other the fixed digits-only guard before casting identifier
--- to bigint for the RRA join key -- both built from EvidenceSqlSupport, not request-derived text.
+-- span every report group in view).
 select
   ('JOURNEY:' || j.rpt_grp_id::text || ':' || j.batch_id || ':' || j.identifier) as record_key,
   j.rpt_grp_id as rpt_grp_id,
@@ -16,7 +14,12 @@ select
   'JOURNEY' as evidence_source,
   j.stage as stage,
   j.status as status,
-  %%JOURNEY_OUTCOME%% as outcome,
+  (case
+    when upper(coalesce(j.status, '')) in ('ERROR', 'FAILED', 'FAILURE') then 'ERROR'
+    when upper(coalesce(j.status, '')) in ('SUCCESS', 'COMPLETED', 'TRANSFORMED', 'REPORTED') then 'SUCCESS'
+    when upper(coalesce(j.status, '')) = 'EXCLUDED' then 'EXCLUDED'
+    else 'PENDING'
+  end) as outcome,
   j.comments as comments,
   j.skip_reason as skip_reason,
   cast(null as text) as rule_id,
@@ -37,7 +40,7 @@ select
   cast(null as text) as galactic_id,
   cast(null as integer) as bucket_id,
   cast(null as bigint) as attempt_id,
-  (case when %%RRA_KEY_GUARD%% then j.identifier::bigint else null end) as rra_key
+  (case when j.identifier ~ '^[0-9]+$' then j.identifier::bigint else null end) as rra_key
 from pharos.record_transformation_journey j
 join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id
 

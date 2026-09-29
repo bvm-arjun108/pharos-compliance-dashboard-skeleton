@@ -8,9 +8,7 @@ import java.util.Map;
  * Small, stateless SQL-building helpers used by more than one evidence pipeline.
  *
  * <p>Every method here takes plain SQL column-reference strings (e.g. {@code "j.status"}) --
- * fixed text supplied by the calling repository, never a bound value or request-derived string,
- * exactly like the column-reference parameters used by {@code
- * TransformationFailureQueries#journeyStatsLateral}.
+ * fixed text supplied by the calling repository, never a bound value or request-derived string.
  */
 public final class EvidenceSqlSupport {
   private EvidenceSqlSupport() {
@@ -38,17 +36,6 @@ public final class EvidenceSqlSupport {
     String sql =
         "(lower(" + identifierColumnRef + ") like :searchPattern or lower(coalesce(" + mtcnColumnRef + ", '')) like :searchPattern)";
     return SqlFragment.of(sql, Map.of("searchPattern", pattern));
-  }
-
-  /**
-   * Fixed status literals, no bind parameters -- {@code statusColumnRef} is a caller-supplied
-   * column reference, never user input.
-   */
-  public static String journeyOutcome(String statusColumnRef) {
-    String upperStatus = "upper(coalesce(" + statusColumnRef + ", ''))";
-    return "(case" + " when " + upperStatus + " in ('ERROR', 'FAILED', 'FAILURE') then 'ERROR'" + " when " + upperStatus
-        + " in ('SUCCESS', 'COMPLETED', 'TRANSFORMED', 'REPORTED') then 'SUCCESS'" + " when " + upperStatus
-        + " = 'EXCLUDED' then 'EXCLUDED'" + " else 'PENDING'" + " end)";
   }
 
   /**

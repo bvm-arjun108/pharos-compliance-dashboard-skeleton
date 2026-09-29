@@ -4,6 +4,10 @@
 -- and json_agg over zero matching rows still returns exactly one row with a NULL value (the same
 -- "aggregate over an empty set produces one null row" behavior the original LATERAL + json_agg
 -- form relied on), so coalescing straight to '[]' behaves identically either way.
+--
+-- EvidencePaginator concatenates this file, its own optional report-group filter, then
+-- select-detail-page-tail.sql, then its own "order by" clause -- the report-group filter and the
+-- sort column/direction are genuinely per-request, so they can't be baked into a static file.
 select
   m.record_key as "recordKey",
   m.identifier as "identifier",
@@ -60,9 +64,3 @@ select
     from rule_hit_matches_enrichment rhm
     where rhm.matched_identifier is not null
       and rhm.matched_identifier = m.identifier
-      %%REPORT_GROUP_FILTER%%
-  ), '[]') as "ruleHitsJson"
-from merged m
-left join pharos.reg_reportable_activity rra
-  on rra.txn_sur_key = m.rra_key
-order by %%ORDER_BY%%

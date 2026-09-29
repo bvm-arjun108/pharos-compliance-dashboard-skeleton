@@ -25,15 +25,6 @@ class EvidenceSqlSupportTest {
   }
 
   @Test
-  void journeyOutcomeMapsFixedStatusLiteralsToTheirBucket() {
-    String expr = EvidenceSqlSupport.journeyOutcome("j.status");
-    assertTrue(expr.contains("'ERROR', 'FAILED', 'FAILURE'"));
-    assertTrue(expr.contains("'SUCCESS', 'COMPLETED', 'TRANSFORMED', 'REPORTED'"));
-    assertTrue(expr.contains("= 'EXCLUDED'"));
-    assertTrue(expr.contains("else 'PENDING'"));
-  }
-
-  @Test
   void firstNonNullByRankBuildsTheFilteredArrayAggExpression() {
     String expr = EvidenceSqlSupport.firstNonNullByRankExpr("val", "source_rank", "record_key");
     assertEquals("(array_agg(val order by source_rank asc, record_key asc) filter (where val is not null))[1]", expr);

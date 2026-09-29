@@ -1,7 +1,8 @@
--- The journey-stats-lateral.sql fragment is spliced in below (see TransactionReportRepository),
--- correlated to this query's own "r" alias. See TransformationFailureQueries' own Javadoc for why
--- "failed"/"reportedFailed"/"failedMismatch" fall back to the raw reconciliation scalar whenever
--- the batch has no journey rows at all, exactly mirroring BatchExplorerRepository#getBatchDetails.
+-- The CROSS JOIN LATERAL below computes journey_available (boolean) and
+-- journey_transformation_failures (bigint) once per row, correlated to this query's own "r" alias.
+-- See TransformationFailureQueries' own Javadoc for why "failed"/"reportedFailed"/"failedMismatch"
+-- fall back to the raw reconciliation scalar whenever the batch has no journey rows at all, exactly
+-- mirroring BatchExplorerRepository#getBatchDetails.
 select
   r.rpt_grp_id as "reportGroupId",
   r.rpt_grp_name as "reportGroupName",
@@ -34,7 +35,16 @@ select
   abs(coalesce(r.expected_activity_eligible_for_transformation, 0) - coalesce(r.actual_activity_eligible_for_transformation, 0))::bigint
     as "reconciliationVariance"
 from pharos.report_transformation_reconciliation r
-cross join /*JOURNEY_STATS_LATERAL*/
+cross join lateral (
+  select
+    count(*) > 0 as journey_available,
+    (count(distinct identifier) filter (
+      where upper(stage) = 'TRANSFORMATION' and upper(status) in ('ERROR', 'FAILED', 'FAILURE')
+    ))::bigint as journey_transformation_failures
+  from pharos.record_transformation_journey
+  where rpt_grp_id = r.rpt_grp_id
+    and batch_id = r.batch_id
+) journey_stats
 where r.rpt_grp_id = :reportGroupId
   and r.batch_id = :batchId
   and r.seq_no = :sequenceNumber

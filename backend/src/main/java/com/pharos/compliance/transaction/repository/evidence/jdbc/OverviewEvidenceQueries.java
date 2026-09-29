@@ -84,8 +84,10 @@ public class OverviewEvidenceQueries {
    * The identifiers belonging to one {@link #reportingRoll} bucket. {@code reason} narrows further
    * to the exact slice a dashboard breakdown legend row represents -- a comments/skip_reason value
    * for either status, or the literal {@code "Other"} for that card's catch-all row, matched via a
-   * {@code NOT IN} against the same top-3 cutoff {@code DashboardRepository#topReasonsThenOther}
-   * used to build the card. Assumes {@code reporting_roll} is already a named CTE.
+   * {@code NOT IN} against the same top-3 cutoff used by DashboardRepository's exclusion/not-reported
+   * reason breakdown (the literal {@code 3} in {@code exclusion-bucketed-reasons.sql} / {@code
+   * not-reported-bucketed-reasons.sql}) used to build the card. Assumes {@code reporting_roll} is
+   * already a named CTE.
    */
   private SqlFragment reportingTarget(String status, String reason) {
     String bucketCondition = VALUE_EXCLUDED.equals(status)
@@ -124,13 +126,7 @@ public class OverviewEvidenceQueries {
   }
 
   private SqlFragment latestJourneyForTarget() {
-    String journeyOutcome = EvidenceSqlSupport.journeyOutcome("j.status");
-    String rraKeyGuard = EvidenceSqlSupport.matchesDigitsOnly("j.identifier");
-    String sqlText = sql
-      .load(LATEST_JOURNEY_SQL)
-      .replace("%%JOURNEY_OUTCOME%%", journeyOutcome)
-      .replace("%%RRA_KEY_GUARD%%", rraKeyGuard);
-    return SqlFragment.of(sqlText);
+    return SqlFragment.of(sql.load(LATEST_JOURNEY_SQL));
   }
 
   /**

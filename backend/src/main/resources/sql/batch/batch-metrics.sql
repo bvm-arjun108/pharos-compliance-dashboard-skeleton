@@ -1,6 +1,6 @@
 -- Phase 1 only cares about completed batches from a batch perspective -- batches with a
--- reconciliation record, possibly with issues. The marked spot below is replaced in Java with the
--- caller's date-range/batchId/reportGroupId/country conditions.
+-- reconciliation record, possibly with issues. The caller appends its own
+-- date-range/batchId/reportGroupId/country conditions directly after "where 1 = 1" below.
 select
   rpt_grp_id,
   batch_id,
@@ -26,4 +26,3 @@ select
   coalesce(soft_dedup_dropped_txn_count, 0)::bigint as soft_dedup_transactions
 from pharos.report_transformation_reconciliation
 where 1 = 1
-  /*SCOPE*/

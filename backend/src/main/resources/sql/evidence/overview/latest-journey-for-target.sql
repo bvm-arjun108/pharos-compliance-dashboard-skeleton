@@ -7,12 +7,10 @@
 -- collapsing. Ranking by identifier alone and taking the top row sidesteps that grain entirely.
 --
 -- Assumes `batch_scope` and `reporting_target` are already CTEs earlier in the same WITH clause.
--- The marked spots are substituted in Java: the fixed journeyOutcome CASE expression and the fixed
--- digits-only guard before casting identifier to bigint for the RRA join key -- both built from
--- EvidenceSqlSupport, not request-derived text. `source_rank` is deliberately left in the output
--- (rather than projected away) -- it passes through as harmless leftover baggage into
--- filtered_evidence/ranked_evidence, distinct from ranked-evidence.sql's own unrelated
--- merge_source_rank column, exactly as the jOOQ version's own Table<?> did.
+-- `source_rank` is deliberately left in the output (rather than projected away) -- it passes
+-- through as harmless leftover baggage into filtered_evidence/ranked_evidence, distinct from
+-- ranked-evidence.sql's own unrelated merge_source_rank column, exactly as the jOOQ version's own
+-- Table<?> did.
 select * from (
   select
     ('JOURNEY:' || j.rpt_grp_id::text || ':' || j.batch_id || ':' || j.identifier) as record_key,
@@ -23,7 +21,12 @@ select * from (
     'JOURNEY' as evidence_source,
     j.stage as stage,
     j.status as status,
-    %%JOURNEY_OUTCOME%% as outcome,
+    (case
+      when upper(coalesce(j.status, '')) in ('ERROR', 'FAILED', 'FAILURE') then 'ERROR'
+      when upper(coalesce(j.status, '')) in ('SUCCESS', 'COMPLETED', 'TRANSFORMED', 'REPORTED') then 'SUCCESS'
+      when upper(coalesce(j.status, '')) = 'EXCLUDED' then 'EXCLUDED'
+      else 'PENDING'
+    end) as outcome,
     j.comments as comments,
     j.skip_reason as skip_reason,
     ea.rule_id as rule_id,
@@ -44,7 +47,7 @@ select * from (
     cast(null as text) as galactic_id,
     ea.bucket_id as bucket_id,
     ea.attempt_id as attempt_id,
-    (case when %%RRA_KEY_GUARD%% then j.identifier::bigint else null end) as rra_key,
+    (case when j.identifier ~ '^[0-9]+$' then j.identifier::bigint else null end) as rra_key,
     row_number() over (partition by j.rpt_grp_id, j.identifier order by j.modified_timestamp desc nulls last) as source_rank
   from pharos.record_transformation_journey j
   join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id

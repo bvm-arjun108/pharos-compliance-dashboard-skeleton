@@ -1,6 +1,8 @@
 package com.pharos.compliance.transaction.repository.evidence.jdbc;
 
-/** Fully-qualified table names shared by the transaction-evidence SQL builders. */
+/**
+ * Fully-qualified table names shared by the transaction-evidence SQL builders.
+ */
 public final class EvidenceTables {
   public static final String RECONCILIATION = "pharos.report_transformation_reconciliation";
   public static final String JOURNEY = "pharos.record_transformation_journey";

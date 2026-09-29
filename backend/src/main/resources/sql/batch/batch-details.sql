@@ -1,5 +1,5 @@
--- The journey-stats-lateral.sql fragment is spliced in below (see BatchExplorerRepository),
--- correlated to this query's own "r" alias.
+-- The CROSS JOIN LATERAL below computes journey_available (boolean) and
+-- journey_transformation_failures (bigint) once per row, correlated to this query's own "r" alias.
 select
   r.rpt_grp_id as "reportGroupId",
   r.rpt_grp_name as "reportGroupName",
@@ -49,7 +49,16 @@ left join pharos.report_batch_info bi
   on bi.rpt_grp_id = r.rpt_grp_id
   and bi.batch_id = r.batch_id
   and bi.seq_no = r.seq_no
-cross join /*JOURNEY_STATS_LATERAL*/
+cross join lateral (
+  select
+    count(*) > 0 as journey_available,
+    (count(distinct identifier) filter (
+      where upper(stage) = 'TRANSFORMATION' and upper(status) in ('ERROR', 'FAILED', 'FAILURE')
+    ))::bigint as journey_transformation_failures
+  from pharos.record_transformation_journey
+  where rpt_grp_id = r.rpt_grp_id
+    and batch_id = r.batch_id
+) journey_stats
 where r.rpt_grp_id = :reportGroupId
   and r.batch_id = :batchId
   and r.seq_no = :sequenceNumber

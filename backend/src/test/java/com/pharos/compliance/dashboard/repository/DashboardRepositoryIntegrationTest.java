@@ -205,6 +205,29 @@ class DashboardRepositoryIntegrationTest extends PostgresIntegrationTest {
   }
 
   @Test
+  void getTransactionDashboardSnapshotCollapsesNotReportedReasonsBeyondTopThreeIntoOther() {
+    // Mirrors getTransactionDashboardSnapshotCollapsesExclusionReasonsBeyondTopThreeIntoOther --
+    // not-reported reasons now come from their own literal SQL files (not-reported-reason-counts /
+    // -ranked-reasons / -bucketed-reasons), so this proves that pipeline buckets independently of,
+    // and identically to, the exclusion pipeline rather than relying on a shared template.
+    insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 0, 0, 0, 0, 10);
+    insertJourney(GROUP, "BATCH-A", "id-1", "TRANSFORMATION", "PENDING", "Reason A");
+    insertJourney(GROUP, "BATCH-A", "id-2", "TRANSFORMATION", "PENDING", "Reason A");
+    insertJourney(GROUP, "BATCH-A", "id-3", "TRANSFORMATION", "PENDING", "Reason B");
+    insertJourney(GROUP, "BATCH-A", "id-4", "TRANSFORMATION", "PENDING", "Reason C");
+    insertJourney(GROUP, "BATCH-A", "id-5", "TRANSFORMATION", "PENDING", "Reason D");
+
+    List<NotReportedReasonProjection> reasons =
+        repository.getTransactionDashboardSnapshot(FROM, TO, "", false, List.of(), true, GROUP).notReportedReasons();
+
+    assertEquals(4, reasons.size(), "top 3 plus one Other bucket");
+    assertEquals("Reason A", reasons.get(0).reason(), "highest count sorts first");
+    assertEquals(2, reasons.get(0).count());
+    assertEquals("Other", reasons.get(reasons.size() - 1).reason(), "Other is always last");
+    assertEquals(1, reasons.get(reasons.size() - 1).count(), "Reason D alone collapsed into Other");
+  }
+
+  @Test
   void getTransactionDashboardSnapshotFallsBackToSkipReasonWhenCommentsIsNull() {
     insertReconciliation(GROUP, "BATCH-A", FROM.plusDays(1), 0, 0, 0, 0, 10);
     jdbcTemplate.update("insert into pharos.record_transformation_journey (rpt_grp_id, batch_id, identifier, stage, status, comments, skip_reason) "

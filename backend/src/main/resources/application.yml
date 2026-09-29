@@ -1,6 +1,6 @@
 spring:
   application:
-    name: pharos-compliance-dashboard
+    name: compliance-dashboard
   main:
     banner-mode: off
     keep-alive: true
@@ -34,7 +34,7 @@ server:
   port: 8085
   shutdown: graceful
 
-pharos:
+compliance:
   observability:
     query-performance:
       enabled: ${QUERY_PERFORMANCE_LOG_ENABLED:true}

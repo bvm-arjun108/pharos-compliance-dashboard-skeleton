@@ -17,4 +17,3 @@ select
   m.modified_at as "modifiedAt",
   m.processing_complete as "processingComplete"
 from merged m
-order by %%ORDER_BY%%

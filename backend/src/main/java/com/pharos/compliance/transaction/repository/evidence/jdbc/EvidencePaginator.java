@@ -42,6 +42,7 @@ public class EvidencePaginator {
   private static final String RANKED_EVIDENCE_SQL = "sql/evidence/ranked-evidence.sql";
   private static final String SELECT_LIST_PAGE_SQL = "sql/evidence/select-list-page.sql";
   private static final String SELECT_DETAIL_PAGE_SQL = "sql/evidence/select-detail-page.sql";
+  private static final String SELECT_DETAIL_PAGE_TAIL_SQL = "sql/evidence/select-detail-page-tail.sql";
   private static final RowMapper<PageKey> PAGE_KEY_ROW_MAPPER =
       (rs, rowNum) -> new PageKey(rs.getString("evidence_batch_id"), rs.getString("identifier"),
           rs.getObject("sort_ts", OffsetDateTime.class), rs.getString("record_key"));
@@ -213,7 +214,7 @@ public class EvidencePaginator {
 
     if (!projection.details()) {
       // Nothing in the list projection reads rule hits, so the bridge is not built at all here.
-      String listSql = sql.load(SELECT_LIST_PAGE_SQL).replace("%%ORDER_BY%%", orderBy(resolvedSortDirection, "m."));
+      String listSql = sql.load(SELECT_LIST_PAGE_SQL) + "\norder by " + orderBy(resolvedSortDirection, "m.");
       SqlFragment combined = SqlFragment.combine(mergeCtes, SqlFragment.of(listSql));
       List<TransactionEvidenceProjection> records = jdbc.query(combined.sql(), combined.parameterSource(), LIST_ROW_MAPPER);
       return new EvidencePage(records, page.nextCursor());
@@ -224,11 +225,9 @@ public class EvidencePaginator {
     List<SqlFragment> detailCtes = new ArrayList<>(mergeCtes);
     detailCtes.add(ruleHitFragment);
 
-    String reportGroupFilter = carriesReportGroupId ? "and rhm.rpt_grp_id = m.rpt_grp_id" : "";
-    String detailSql = sql
-      .load(SELECT_DETAIL_PAGE_SQL)
-      .replace("%%REPORT_GROUP_FILTER%%", reportGroupFilter)
-      .replace("%%ORDER_BY%%", orderBy(resolvedSortDirection, "m."));
+    String reportGroupFilter = carriesReportGroupId ? "\n      and rhm.rpt_grp_id = m.rpt_grp_id" : "";
+    String detailSql = sql.load(SELECT_DETAIL_PAGE_SQL) + reportGroupFilter + sql.load(SELECT_DETAIL_PAGE_TAIL_SQL) + "\norder by "
+        + orderBy(resolvedSortDirection, "m.");
     SqlFragment combined = SqlFragment.combine(detailCtes, SqlFragment.of(detailSql));
     List<TransactionEvidenceProjection> records = jdbc.query(combined.sql(), combined.parameterSource(), DETAIL_ROW_MAPPER);
     return new EvidencePage(records, page.nextCursor());

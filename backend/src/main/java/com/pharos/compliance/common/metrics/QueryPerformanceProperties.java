@@ -3,7 +3,7 @@ package com.pharos.compliance.common.metrics;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "pharos.observability.query-performance")
+@ConfigurationProperties(prefix = "compliance.observability.query-performance")
 public record QueryPerformanceProperties(boolean enabled, Duration slowQueryThreshold) {
   private static final Duration DEFAULT_SLOW_QUERY_THRESHOLD = Duration.ofMillis(250);
 

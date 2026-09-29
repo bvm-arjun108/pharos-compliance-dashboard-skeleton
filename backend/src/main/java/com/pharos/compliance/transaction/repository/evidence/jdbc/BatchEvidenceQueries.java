@@ -85,10 +85,7 @@ public class BatchEvidenceQueries {
   private List<SqlFragment> evidenceCtes(int reportGroupId, String batchId, String status) {
     SqlFragment ruleHitMatchesCte = ruleHitMatchesForBatch(reportGroupId, batchId, status).asCte("rule_hit_matches");
 
-    String journeyOutcome = EvidenceSqlSupport.journeyOutcome("status");
-    String rraKeyGuard = EvidenceSqlSupport.matchesDigitsOnly("identifier");
-    String evidenceSql =
-        sql.load(EVIDENCE_FOR_BATCH_SQL).replace("%%JOURNEY_OUTCOME%%", journeyOutcome).replace("%%RRA_KEY_GUARD%%", rraKeyGuard);
+    String evidenceSql = sql.load(EVIDENCE_FOR_BATCH_SQL);
     Map<String, Object> evidenceParams = new HashMap<>();
     evidenceParams.put("reportGroupId", reportGroupId);
     evidenceParams.put("batchId", batchId);

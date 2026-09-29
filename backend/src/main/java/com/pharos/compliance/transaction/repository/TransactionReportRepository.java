@@ -2,7 +2,6 @@ package com.pharos.compliance.transaction.repository;
 
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_EXCLUDED;
 import static com.pharos.compliance.transaction.repository.evidence.EvidenceColumns.VALUE_NOT_REPORTED;
-import com.pharos.compliance.common.jdbc.TransformationFailureQueries;
 import com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
 import com.pharos.compliance.common.jdbc.sql.SqlFragment;
 import com.pharos.compliance.common.jdbc.sql.SqlResourceLoader;
@@ -86,11 +85,10 @@ public class TransactionReportRepository {
     // what record_transformation_journey actually recorded, so "failed" (and SKIPPED, which sums
     // it in) is corrected to the journey-derived count whenever journey has any coverage for this
     // batch, falling back to the raw reconciliation scalar otherwise -- exactly mirroring
-    // BatchExplorerRepository#getBatchDetails. The LATERAL join computes both journeyAvailable and
-    // the journey-derived count once per row; report-context.sql references them as plain column
-    // references, safe to reuse across the CASE and mismatch expressions.
-    SqlFragment journeyStats = TransformationFailureQueries.journeyStatsLateral(sql, "r.rpt_grp_id", "r.batch_id");
-    String body = sql.load(REPORT_CONTEXT_SQL).replace("/*JOURNEY_STATS_LATERAL*/", journeyStats.sql());
+    // BatchExplorerRepository#getBatchDetails. report-context.sql computes both journeyAvailable and
+    // the journey-derived count once per row via its own inline CROSS JOIN LATERAL, then references
+    // them as plain column names, safe to reuse across the CASE and mismatch expressions.
+    String body = sql.load(REPORT_CONTEXT_SQL);
     MapSqlParameterSource params = new MapSqlParameterSource()
       .addValue("reportGroupId", reportGroupId)
       .addValue("batchId", batchId)

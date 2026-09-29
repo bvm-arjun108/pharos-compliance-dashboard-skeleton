@@ -41,9 +41,12 @@ public class DashboardRepository {
   private static final String BATCH_EVIDENCE_SQL = "sql/dashboard/batch-evidence.sql";
   private static final String JOURNEY_ROLL_SQL = "sql/dashboard/journey-roll.sql";
   private static final String GET_TRANSACTION_OVERVIEW_SQL = "sql/dashboard/get-transaction-overview.sql";
-  private static final String REASON_COUNTS_SQL = "sql/dashboard/reason-counts.sql";
-  private static final String RANKED_REASONS_SQL = "sql/dashboard/ranked-reasons.sql";
-  private static final String BUCKETED_REASONS_SQL = "sql/dashboard/bucketed-reasons.sql";
+  private static final String EXCLUSION_REASON_COUNTS_SQL = "sql/dashboard/exclusion-reason-counts.sql";
+  private static final String EXCLUSION_RANKED_REASONS_SQL = "sql/dashboard/exclusion-ranked-reasons.sql";
+  private static final String EXCLUSION_BUCKETED_REASONS_SQL = "sql/dashboard/exclusion-bucketed-reasons.sql";
+  private static final String NOT_REPORTED_REASON_COUNTS_SQL = "sql/dashboard/not-reported-reason-counts.sql";
+  private static final String NOT_REPORTED_RANKED_REASONS_SQL = "sql/dashboard/not-reported-ranked-reasons.sql";
+  private static final String NOT_REPORTED_BUCKETED_REASONS_SQL = "sql/dashboard/not-reported-bucketed-reasons.sql";
   private static final String GET_TRANSACTION_DASHBOARD_SNAPSHOT_SQL = "sql/dashboard/get-transaction-dashboard-snapshot.sql";
   private static final String OVERVIEW_ROW = "OVERVIEW";
   private static final String EXCLUSION_REASON_ROW = "EXCLUSION_REASON";
@@ -147,7 +150,7 @@ public class DashboardRepository {
   }
 
   private SqlFragment scopedBatchMetricsCte(SqlFragment scope) {
-    String body = sql.load(SCOPED_BATCH_METRICS_SQL).replace("/*SCOPE*/", scope.sql());
+    String body = sql.load(SCOPED_BATCH_METRICS_SQL) + scope.sql();
     return SqlFragment.of(body, scope.params()).asCte("scoped_batch_metrics");
   }
 
@@ -265,20 +268,25 @@ public class DashboardRepository {
   }
 
   /**
-   * Adds one independently named top-three-plus-Other reason pipeline over the shared transaction
-   * roll. Every argument is a repository-owned SQL identifier or predicate, never request input.
+   * Top-three-plus-Other reason pipeline for exclusion reasons over the shared transaction roll.
+   * {@code get-transaction-dashboard-snapshot.sql} references {@code exclusion_bucketed_reasons} by
+   * this exact name.
    */
-  private List<SqlFragment> reasonBreakdownCtes(String prefix, String reasonColumn, String filterSql) {
-    String reasonCountsName = prefix + "_reason_counts";
-    String rankedReasonsName = prefix + "_ranked_reasons";
-    String bucketedReasonsName = prefix + "_bucketed_reasons";
-    String reasonCountsSql = sql.load(REASON_COUNTS_SQL).replace("%%REASON_COLUMN%%", reasonColumn).replace("%%FILTER%%", filterSql);
-    String rankedReasonsSql = sql.load(RANKED_REASONS_SQL).replace("%%REASON_COUNTS_CTE%%", reasonCountsName);
-    String bucketedReasonsSql = sql.load(BUCKETED_REASONS_SQL).replace("%%RANKED_REASONS_CTE%%", rankedReasonsName);
-    SqlFragment reasonCountsCte = SqlFragment.of(reasonCountsSql).asCte(reasonCountsName);
-    SqlFragment rankedReasonsCte = SqlFragment.of(rankedReasonsSql).asCte(rankedReasonsName);
-    SqlFragment bucketedReasonsCte = SqlFragment.of(bucketedReasonsSql).asCte(bucketedReasonsName);
-    return List.of(reasonCountsCte, rankedReasonsCte, bucketedReasonsCte);
+  private List<SqlFragment> exclusionReasonBreakdownCtes() {
+    return List.of(SqlFragment.of(sql.load(EXCLUSION_REASON_COUNTS_SQL)).asCte("exclusion_reason_counts"),
+        SqlFragment.of(sql.load(EXCLUSION_RANKED_REASONS_SQL)).asCte("exclusion_ranked_reasons"),
+        SqlFragment.of(sql.load(EXCLUSION_BUCKETED_REASONS_SQL)).asCte("exclusion_bucketed_reasons"));
+  }
+
+  /**
+   * Top-three-plus-Other reason pipeline for not-reported reasons over the shared transaction roll.
+   * {@code get-transaction-dashboard-snapshot.sql} references {@code not_reported_bucketed_reasons}
+   * by this exact name.
+   */
+  private List<SqlFragment> notReportedReasonBreakdownCtes() {
+    return List.of(SqlFragment.of(sql.load(NOT_REPORTED_REASON_COUNTS_SQL)).asCte("not_reported_reason_counts"),
+        SqlFragment.of(sql.load(NOT_REPORTED_RANKED_REASONS_SQL)).asCte("not_reported_ranked_reasons"),
+        SqlFragment.of(sql.load(NOT_REPORTED_BUCKETED_REASONS_SQL)).asCte("not_reported_bucketed_reasons"));
   }
 
   /**
@@ -294,8 +302,8 @@ public class DashboardRepository {
         filterByReportGroup, reportGroupId);
     List<SqlFragment> ctes = new ArrayList<>(transactionRollCtes(scope));
     ctes.add(SqlFragment.of(sql.load(GET_TRANSACTION_OVERVIEW_SQL)).asCte("transaction_overview"));
-    ctes.addAll(reasonBreakdownCtes("exclusion", "exclusion_reason", "ever_excluded and not ever_reported"));
-    ctes.addAll(reasonBreakdownCtes("not_reported", "not_reported_reason", "not ever_reported and not ever_excluded"));
+    ctes.addAll(exclusionReasonBreakdownCtes());
+    ctes.addAll(notReportedReasonBreakdownCtes());
 
     SqlFragment combined = SqlFragment.combine(ctes, SqlFragment.of(sql.load(GET_TRANSACTION_DASHBOARD_SNAPSHOT_SQL)));
     List<TransactionSnapshotRowProjection> rows = jdbc.query(combined.sql(), combined.parameterSource(), TRANSACTION_SNAPSHOT_ROW_MAPPER);

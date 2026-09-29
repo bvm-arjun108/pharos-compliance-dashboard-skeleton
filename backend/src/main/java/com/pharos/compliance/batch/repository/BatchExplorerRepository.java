@@ -33,8 +33,7 @@ public class BatchExplorerRepository {
       (rs, rowNum) -> new BatchSummaryProjection(rs.getLong("allBatches"), rs.getLong("successfulBatches"), rs.getLong("attentionBatches"),
           rs.getLong("activityMissingBatches"), rs.getLong("missingAttemptBatches"), rs.getLong("transformationBatches"),
           rs.getLong("duplicateTransactionBatches"), rs.getLong("exclusionBatches"), rs.getLong("simulatedTransactionBatches"),
-          rs.getLong("softDedupBatches"),
-          rs.getString("reportGroupName"));
+          rs.getLong("softDedupBatches"), rs.getString("reportGroupName"));
   private static final RowMapper<BatchQueueProjection> QUEUE_ROW_MAPPER =
       (rs, rowNum) -> new BatchQueueProjection(rs.getInt("reportGroupId"), rs.getString("reportGroupName"), rs.getString("batchId"),
           rs.getInt("sequenceNumber"), rs.getString("reportingPeriodFrom"), rs.getString("reportingPeriodTo"),
@@ -111,8 +110,7 @@ public class BatchExplorerRepository {
   private List<SqlFragment> enrichedBatchMetricsCtes(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
     SqlFragment scope = reconciliationScope(fromTimestamp, toTimestampExclusive, batchId, reportGroupId, filterByCountry, reportGroupIds);
-    SqlFragment batchMetricsCte =
-        SqlFragment.of(sql.load(BATCH_METRICS_SQL).replace("/*SCOPE*/", scope.sql()), scope.params()).asCte("batch_metrics");
+    SqlFragment batchMetricsCte = SqlFragment.of(sql.load(BATCH_METRICS_SQL) + scope.sql(), scope.params()).asCte("batch_metrics");
     SqlFragment journeyFailuresCte = TransformationFailureQueries.journeyFailuresByBatch(sql, scope).asCte("journey_failures_by_batch");
     SqlFragment enrichedCte = SqlFragment.of(sql.load(ENRICHED_BATCH_METRICS_SQL)).asCte("enriched_batch_metrics");
     return List.of(batchMetricsCte, journeyFailuresCte, enrichedCte);
@@ -170,12 +168,8 @@ public class BatchExplorerRepository {
     }
     orderBy.append("modified_timestamp desc nulls last, created_timestamp desc nulls last, batch_id asc");
 
-    String body = sql
-      .load(BATCH_QUEUE_SQL)
-      .replace("/*STATUS_CONDITION*/", statusCondition)
-      .replace("/*ISSUE_TYPE_CONDITION*/", issueTypeCondition)
-      .replace("/*METRIC_FOCUS_CONDITION*/", metricFocusCondition)
-      .replace("/*ORDER_BY*/", orderBy.toString());
+    String body = sql.load(BATCH_QUEUE_SQL) + statusCondition + issueTypeCondition + metricFocusCondition + "\norder by " + orderBy
+        + "\nlimit :size offset :offset";
     Map<String, Object> bodyParams = new HashMap<>();
     bodyParams.put("size", size);
     bodyParams.put("offset", offset);
@@ -187,12 +181,11 @@ public class BatchExplorerRepository {
   @SqlQueryPurpose("Selected batch > Data Selection, Data Transformation and Reconciliation cards > Load aggregate counters and evidence "
       + "availability")
   public Optional<BatchDetailsProjection> getBatchDetails(int reportGroupId, String batchId, int sequenceNumber) {
-    // A LATERAL join computes journeyAvailable and the journey-derived failure count exactly once
-    // per row -- both are then plain column references, safe to reuse across the CASE and mismatch
-    // expressions without Postgres re-evaluating the underlying journey-table subquery each time
-    // (see TransformationFailureQueries#journeyStatsLateral's Javadoc).
-    SqlFragment journeyStats = TransformationFailureQueries.journeyStatsLateral(sql, "r.rpt_grp_id", "r.batch_id");
-    String body = sql.load(BATCH_DETAILS_SQL).replace("/*JOURNEY_STATS_LATERAL*/", journeyStats.sql());
+    // batch-details.sql's own inline CROSS JOIN LATERAL computes journeyAvailable and the
+    // journey-derived failure count exactly once per row -- both are then plain column references,
+    // safe to reuse across the CASE and mismatch expressions without Postgres re-evaluating the
+    // underlying journey-table subquery each time.
+    String body = sql.load(BATCH_DETAILS_SQL);
     MapSqlParameterSource params = new MapSqlParameterSource()
       .addValue("reportGroupId", reportGroupId)
       .addValue("batchId", batchId)

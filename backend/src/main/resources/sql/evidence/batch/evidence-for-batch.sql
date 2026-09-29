@@ -1,7 +1,4 @@
--- One reconciliation batch's evidence, unioned from its three possible sources. The marked spots
--- are substituted in Java: one is the fixed journeyOutcome CASE expression, the other the fixed
--- digits-only guard before casting identifier to bigint for the RRA join key -- both built from
--- EvidenceSqlSupport, not request-derived text.
+-- One reconciliation batch's evidence, unioned from its three possible sources.
 select
   ('JOURNEY:' || identifier) as record_key,
   identifier as identifier,
@@ -10,7 +7,12 @@ select
   'JOURNEY' as evidence_source,
   stage as stage,
   status as status,
-  %%JOURNEY_OUTCOME%% as outcome,
+  (case
+    when upper(coalesce(status, '')) in ('ERROR', 'FAILED', 'FAILURE') then 'ERROR'
+    when upper(coalesce(status, '')) in ('SUCCESS', 'COMPLETED', 'TRANSFORMED', 'REPORTED') then 'SUCCESS'
+    when upper(coalesce(status, '')) = 'EXCLUDED' then 'EXCLUDED'
+    else 'PENDING'
+  end) as outcome,
   comments as comments,
   skip_reason as skip_reason,
   cast(null as text) as rule_id,
@@ -31,7 +33,7 @@ select
   cast(null as text) as galactic_id,
   cast(null as integer) as bucket_id,
   cast(null as bigint) as attempt_id,
-  (case when %%RRA_KEY_GUARD%% then identifier::bigint else null end) as rra_key
+  (case when identifier ~ '^[0-9]+$' then identifier::bigint else null end) as rra_key
 from pharos.record_transformation_journey
 where rpt_grp_id = :reportGroupId and batch_id = :batchId
 

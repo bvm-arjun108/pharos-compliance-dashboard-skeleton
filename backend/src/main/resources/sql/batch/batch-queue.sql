@@ -23,8 +23,3 @@ select
   count(*) over () as "matchingCount"
 from enriched_batch_metrics
 where 1 = 1
-  /*STATUS_CONDITION*/
-  /*ISSUE_TYPE_CONDITION*/
-  /*METRIC_FOCUS_CONDITION*/
-order by /*ORDER_BY*/
-limit :size offset :offset

@@ -37,11 +37,11 @@ class TransactionDetailLookupTest extends PostgresIntegrationTest {
   @BeforeEach
   void setUp() {
     for (String table : List.of("rule_hit", "rule_hit_exclusion_audit", "record_transformation_journey", "report_batch_info")) {
-      jdbcTemplate.getJdbcOperations().update("delete from pharos." + table + " where rpt_grp_id in (8501, 8502, 8503, 8504)");
+      jdbcTemplate.getJdbcOperations().update("delete from pharos." + table + " where rpt_grp_id in (8501, 8502, 8503, 8504, 8505)");
     }
     jdbcTemplate
       .getJdbcOperations()
-      .update("delete from pharos.report_transformation_reconciliation where rpt_grp_id in (8501, 8502, 8503, 8504)");
+      .update("delete from pharos.report_transformation_reconciliation where rpt_grp_id in (8501, 8502, 8503, 8504, 8505)");
 
     SqlResourceLoader sqlLoader = new SqlResourceLoader(new DefaultResourceLoader());
     repository = new TransactionReportRepository(tracingJdbcTemplate, sqlLoader);
@@ -50,17 +50,25 @@ class TransactionDetailLookupTest extends PostgresIntegrationTest {
   private void insertReconciliation(int groupId, String batchId, int txnSelected, int missingAttempt, int activityMissing,
       int expectedEligible, int actualEligible, int transformed, int transformationFailed, int expectedReportable, int actualReportable,
       int excluded, int simulated, int alreadyReported, int softDedup) {
+    insertReconciliation(groupId, batchId, 1, txnSelected, missingAttempt, activityMissing, expectedEligible, actualEligible, transformed,
+        transformationFailed, expectedReportable, actualReportable, excluded, simulated, alreadyReported, softDedup);
+  }
+
+  private void insertReconciliation(int groupId, String batchId, int seqNo, int txnSelected, int missingAttempt, int activityMissing,
+      int expectedEligible, int actualEligible, int transformed, int transformationFailed, int expectedReportable, int actualReportable,
+      int excluded, int simulated, int alreadyReported, int softDedup) {
     jdbcTemplate.update("insert into pharos.report_transformation_reconciliation (rpt_grp_id, batch_id, seq_no, rpt_grp_name, "
         + "rpt_from_date, rpt_to_date, created_timestamp, txn_selected, txn_missing_attempt_count, activity_missing, "
         + "expected_activity_eligible_for_transformation, actual_activity_eligible_for_transformation, activity_transformed, "
         + "activity_transformation_failed, expected_reportable_txn, actual_reportable_txn, excluded_txn, txn_simulated, "
         + "already_reported_count, soft_dedup_dropped_txn_count) "
-        + "values (:groupId, :batchId, 1, 'Group RC', '2024-01-01', '2024-01-31', now(), :txnSelected, :missingAttempt, :activityMissing, "
-        + ":expectedEligible, :actualEligible, :transformed, :transformationFailed, :expectedReportable, :actualReportable, :excluded, "
-        + ":simulated, :alreadyReported, :softDedup)",
+        + "values (:groupId, :batchId, :seqNo, 'Group RC', '2024-01-01', '2024-01-31', now(), :txnSelected, :missingAttempt, "
+        + ":activityMissing, :expectedEligible, :actualEligible, :transformed, :transformationFailed, :expectedReportable, "
+        + ":actualReportable, :excluded, :simulated, :alreadyReported, :softDedup)",
         new MapSqlParameterSource()
           .addValue("groupId", groupId)
           .addValue("batchId", batchId)
+          .addValue("seqNo", seqNo)
           .addValue("txnSelected", txnSelected)
           .addValue("missingAttempt", missingAttempt)
           .addValue("activityMissing", activityMissing)
@@ -133,6 +141,64 @@ class TransactionDetailLookupTest extends PostgresIntegrationTest {
   @Test
   void findReportContextReturnsEmptyWhenNoMatchingBatchExists() {
     assertTrue(repository.findReportContext(8501, "NO-SUCH-BATCH", 1).isEmpty());
+  }
+
+  @Test
+  void findReportContextReturnsZeroFailuresWhenJourneyExistsButNoneFailed() {
+    // journey_available is count(*) > 0 with no stage/status filter, so rows that succeeded still
+    // make it true -- the journey-derived zero must still win over a nonzero raw scalar, not be
+    // mistaken for "no journey coverage" and fall back to it.
+    insertReconciliation(8501, "RC-3", 20, 0, 0, 18, 18, 18, 5, 18, 18, 0, 0, 0, 0);
+    insertJourney(8501, "RC-3", "S1", "TRANSFORMATION", "SUCCESS", LocalDateTime.now());
+    insertJourney(8501, "RC-3", "S2", "TRANSFORMATION", "SUCCESS", LocalDateTime.now());
+
+    Optional<TransactionReportContextProjection> context = repository.findReportContext(8501, "RC-3", 1);
+
+    assertTrue(context.isPresent());
+    assertEquals(0, context.get().failed(), "journey rows exist but none failed, so the corrected count is a real zero");
+    assertEquals(5, context.get().reportedFailed());
+    assertTrue(context.get().failedMismatch(), "0 (journey) disagrees with 5 (raw scalar)");
+  }
+
+  @Test
+  void findReportContextScopesTheLateralJoinByReportGroupNotJustBatchId() {
+    // Both groups use the exact same batch id -- if the LATERAL join correlated on batch_id alone,
+    // one group's journey rows would leak into the other's result.
+    insertReconciliation(8501, "SHARED-BATCH", 10, 0, 0, 9, 9, 9, 3, 9, 9, 0, 0, 0, 0);
+    insertReconciliation(8505, "SHARED-BATCH", 10, 0, 0, 9, 9, 9, 9, 9, 9, 0, 0, 0, 0);
+    insertJourney(8505, "SHARED-BATCH", "F1", "TRANSFORMATION", "FAILED", LocalDateTime.now());
+    insertJourney(8505, "SHARED-BATCH", "F2", "TRANSFORMATION", "FAILED", LocalDateTime.now());
+
+    Optional<TransactionReportContextProjection> group8501 = repository.findReportContext(8501, "SHARED-BATCH", 1);
+    assertTrue(group8501.isPresent());
+    assertEquals(3, group8501.get().failed(), "group 8501 has no journey rows of its own -- must not see group 8505's");
+    assertFalse(group8501.get().failedMismatch());
+
+    Optional<TransactionReportContextProjection> group8505 = repository.findReportContext(8505, "SHARED-BATCH", 1);
+    assertTrue(group8505.isPresent());
+    assertEquals(2, group8505.get().failed(), "group 8505's own journey-derived count");
+    assertTrue(group8505.get().failedMismatch());
+  }
+
+  @Test
+  void findReportContextJourneyLookupIsSharedAcrossReconciliationSequencesForTheSameBatch() {
+    // record_transformation_journey has no seq_no column -- the journey-derived count must be the
+    // same for every sequence of the same (reportGroupId, batchId), while each sequence's own raw
+    // reconciliation scalar stays independent.
+    insertReconciliation(8501, "RC-4", 1, 15, 0, 0, 12, 12, 12, 4, 12, 12, 0, 0, 0, 0);
+    insertReconciliation(8501, "RC-4", 2, 15, 0, 0, 12, 12, 12, 8, 12, 12, 0, 0, 0, 0);
+    insertJourney(8501, "RC-4", "F1", "TRANSFORMATION", "FAILED", LocalDateTime.now());
+    insertJourney(8501, "RC-4", "F2", "TRANSFORMATION", "FAILED", LocalDateTime.now());
+
+    Optional<TransactionReportContextProjection> sequence1 = repository.findReportContext(8501, "RC-4", 1);
+    assertTrue(sequence1.isPresent());
+    assertEquals(2, sequence1.get().failed(), "journey-derived count, shared across sequences");
+    assertEquals(4, sequence1.get().reportedFailed(), "sequence 1's own raw scalar");
+
+    Optional<TransactionReportContextProjection> sequence2 = repository.findReportContext(8501, "RC-4", 2);
+    assertTrue(sequence2.isPresent());
+    assertEquals(2, sequence2.get().failed(), "same journey-derived count as sequence 1 -- journey has no sequence scope");
+    assertEquals(8, sequence2.get().reportedFailed(), "sequence 2's own, different raw scalar");
   }
 
   @Test

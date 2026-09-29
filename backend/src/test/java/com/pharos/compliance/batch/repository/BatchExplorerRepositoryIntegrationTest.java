@@ -16,11 +16,10 @@ import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 
 /**
- * Executes the Phase 3 JDBC migration of {@link BatchExplorerRepository} (and the {@code
- * journeyFailuresByBatch}/{@code journeyStatsLateral} fragments it shares with the not-yet-migrated
- * {@code DashboardRepository}/{@code TransactionReportRepository}) against a real PostgreSQL
- * instance. Three batches in report group 8001 exercise the journey-derived-correction logic that
- * is this repository's whole reason for existing:
+ * Verifies {@link BatchExplorerRepository} (and the {@code journeyFailuresByBatch} fragment it
+ * shares with {@code DashboardRepository}) against a real PostgreSQL instance. Three batches in
+ * report group 8001 exercise the journey-derived-correction logic that is this repository's whole
+ * reason for existing:
  *
  * <ul>
  *   <li>BATCH-A: reconciliation says 2 transformation failures, but 3 distinct identifiers actually
@@ -33,16 +32,19 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
  */
 class BatchExplorerRepositoryIntegrationTest extends PostgresIntegrationTest {
   private static final int GROUP = 8001;
+  private static final int OTHER_GROUP = 8002;
   private static final LocalDateTime FROM = LocalDateTime.of(2026, 1, 1, 0, 0);
   private static final LocalDateTime TO = LocalDateTime.of(2026, 12, 31, 0, 0);
   private BatchExplorerRepository repository;
 
   @BeforeEach
   void setUp() {
-    jdbcTemplate.getJdbcOperations().update("delete from pharos.report_transformation_reconciliation where rpt_grp_id = " + GROUP);
-    jdbcTemplate.getJdbcOperations().update("delete from pharos.record_transformation_journey where rpt_grp_id = " + GROUP);
-    jdbcTemplate.getJdbcOperations().update("delete from pharos.report_batch_info where rpt_grp_id = " + GROUP);
-    jdbcTemplate.getJdbcOperations().update("delete from pharos.rule_hit_exclusion_audit where rpt_grp_id = " + GROUP);
+    for (int groupId : List.of(GROUP, OTHER_GROUP)) {
+      jdbcTemplate.getJdbcOperations().update("delete from pharos.report_transformation_reconciliation where rpt_grp_id = " + groupId);
+      jdbcTemplate.getJdbcOperations().update("delete from pharos.record_transformation_journey where rpt_grp_id = " + groupId);
+      jdbcTemplate.getJdbcOperations().update("delete from pharos.report_batch_info where rpt_grp_id = " + groupId);
+      jdbcTemplate.getJdbcOperations().update("delete from pharos.rule_hit_exclusion_audit where rpt_grp_id = " + groupId);
+    }
     repository = new BatchExplorerRepository(tracingJdbcTemplate, new SqlResourceLoader(new DefaultResourceLoader()));
 
     insertReconciliation("BATCH-A", 2, 0, 0, 0, 0, 0, 5);
@@ -60,15 +62,22 @@ class BatchExplorerRepositoryIntegrationTest extends PostgresIntegrationTest {
 
   private void insertReconciliation(String batchId, int activityTransformationFailed, int missingAttempts, int activityMissing,
       int excludedTxn, int duplicateTransformation, int softDedup, int actualReportableTxn) {
+    insertReconciliation(GROUP, batchId, 1, activityTransformationFailed, missingAttempts, activityMissing, excludedTxn,
+        duplicateTransformation, softDedup, actualReportableTxn);
+  }
+
+  private void insertReconciliation(int groupId, String batchId, int seqNo, int activityTransformationFailed, int missingAttempts,
+      int activityMissing, int excludedTxn, int duplicateTransformation, int softDedup, int actualReportableTxn) {
     jdbcTemplate.update("insert into pharos.report_transformation_reconciliation (rpt_grp_id, batch_id, seq_no, rpt_grp_name, created_timestamp, "
         + "modified_timestamp, activity_transformation_failed, txn_missing_attempt_count, activity_missing, excluded_txn, "
         + "duplicate_transformation, soft_dedup_dropped_txn_count, actual_reportable_txn, expected_reportable_txn, "
         + "expected_activity_eligible_for_transformation, actual_activity_eligible_for_transformation) "
-        + "values (:groupId, :batchId, 1, 'Test Group 8001', :created, :created, :failed, :missing, :activityMissing, :excluded, "
+        + "values (:groupId, :batchId, :seqNo, 'Test Group 8001', :created, :created, :failed, :missing, :activityMissing, :excluded, "
         + "        :duplicate, :softDedup, :output, :output, 0, 0)",
         new MapSqlParameterSource()
-          .addValue("groupId", GROUP)
+          .addValue("groupId", groupId)
           .addValue("batchId", batchId)
+          .addValue("seqNo", seqNo)
           .addValue("created", FROM.plusDays(1))
           .addValue("failed", activityTransformationFailed)
           .addValue("missing", missingAttempts)
@@ -80,9 +89,18 @@ class BatchExplorerRepositoryIntegrationTest extends PostgresIntegrationTest {
   }
 
   private void insertJourneyFailure(String batchId, String identifier) {
+    insertJourney(GROUP, batchId, identifier, "TRANSFORMATION", "FAILED");
+  }
+
+  private void insertJourney(int groupId, String batchId, String identifier, String stage, String status) {
     jdbcTemplate.update("insert into pharos.record_transformation_journey (rpt_grp_id, batch_id, identifier, stage, status) "
-        + "values (:groupId, :batchId, :identifier, 'TRANSFORMATION', 'FAILED')",
-        new MapSqlParameterSource().addValue("groupId", GROUP).addValue("batchId", batchId).addValue("identifier", identifier));
+        + "values (:groupId, :batchId, :identifier, :stage, :status)",
+        new MapSqlParameterSource()
+          .addValue("groupId", groupId)
+          .addValue("batchId", batchId)
+          .addValue("identifier", identifier)
+          .addValue("stage", stage)
+          .addValue("status", status));
   }
 
   private void insertBatchInfo(String batchId, int selectionVersion, String transformerVersion) {
@@ -204,5 +222,54 @@ class BatchExplorerRepositoryIntegrationTest extends PostgresIntegrationTest {
     assertFalse(details.transformationFailureMismatch());
     assertFalse(details.exclusionsAvailable(), "no exclusion-audit row for this batch");
     assertEquals(null, details.reportSelectionVersionId(), "no report_batch_info row for this batch");
+  }
+
+  @Test
+  void getBatchDetailsReturnsZeroFailuresWhenJourneyExistsButNoneFailed() {
+    // journey_available is count(*) > 0 with no stage/status filter, so successful rows still make
+    // it true -- the journey-derived zero must win over a nonzero raw scalar, not be mistaken for
+    // "no journey coverage" and fall back to it.
+    insertReconciliation("BATCH-D", 5, 0, 0, 0, 0, 0, 18);
+    insertJourney(GROUP, "BATCH-D", "ident-1", "TRANSFORMATION", "SUCCESS");
+    insertJourney(GROUP, "BATCH-D", "ident-2", "TRANSFORMATION", "SUCCESS");
+
+    BatchDetailsProjection details = repository.getBatchDetails(GROUP, "BATCH-D", 1).orElseThrow();
+
+    assertTrue(details.journeyAvailable());
+    assertEquals(0, details.transformationFailures(), "journey rows exist but none failed, so the corrected count is a real zero");
+    assertEquals(5, details.reportedTransformationFailures());
+    assertTrue(details.transformationFailureMismatch(), "0 (journey) disagrees with 5 (raw scalar)");
+  }
+
+  @Test
+  void getBatchDetailsScopesTheLateralJoinByReportGroupNotJustBatchId() {
+    // Reuses "BATCH-A" from setUp, which already has 3 journey failures under GROUP -- if the
+    // LATERAL join correlated on batch_id alone, OTHER_GROUP's query would incorrectly see them.
+    insertReconciliation(OTHER_GROUP, "BATCH-A", 1, 6, 0, 0, 0, 0, 0, 12);
+
+    BatchDetailsProjection details = repository.getBatchDetails(OTHER_GROUP, "BATCH-A", 1).orElseThrow();
+
+    assertFalse(details.journeyAvailable(), "OTHER_GROUP has no journey rows of its own for BATCH-A");
+    assertEquals(6, details.transformationFailures(), "raw scalar, not GROUP's journey-derived count of 3");
+    assertFalse(details.transformationFailureMismatch());
+  }
+
+  @Test
+  void getBatchDetailsJourneyLookupIsSharedAcrossReconciliationSequencesForTheSameBatch() {
+    // record_transformation_journey has no seq_no column -- the journey-derived count must be the
+    // same for every sequence of the same (reportGroupId, batchId), while each sequence's own raw
+    // reconciliation scalar stays independent.
+    insertReconciliation(GROUP, "BATCH-E", 1, 4, 0, 0, 0, 0, 0, 14);
+    insertReconciliation(GROUP, "BATCH-E", 2, 9, 0, 0, 0, 0, 0, 14);
+    insertJourney(GROUP, "BATCH-E", "ident-1", "TRANSFORMATION", "FAILED");
+    insertJourney(GROUP, "BATCH-E", "ident-2", "TRANSFORMATION", "FAILED");
+
+    BatchDetailsProjection sequence1 = repository.getBatchDetails(GROUP, "BATCH-E", 1).orElseThrow();
+    assertEquals(2, sequence1.transformationFailures(), "journey-derived count, shared across sequences");
+    assertEquals(4, sequence1.reportedTransformationFailures(), "sequence 1's own raw scalar");
+
+    BatchDetailsProjection sequence2 = repository.getBatchDetails(GROUP, "BATCH-E", 2).orElseThrow();
+    assertEquals(2, sequence2.transformationFailures(), "same journey-derived count as sequence 1 -- journey has no sequence scope");
+    assertEquals(9, sequence2.reportedTransformationFailures(), "sequence 2's own, different raw scalar");
   }
 }
