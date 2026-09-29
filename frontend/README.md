@@ -39,4 +39,8 @@ Deployable static assets are output to `dist/dashboard/browser/` — publish the
 
 ## Deployment
 
-Built and deployed via GitLab CI/CD. See the deployment runbook for the current hosting model, API routing, and authentication (Okta OIDC) integration — those are environment-owned, not part of this repository.
+```text
+GitLab CI/CD → Amazon S3 (build output) → CloudFront → browser
+```
+
+Served entirely as static assets — no server-side component in production. The SPA authenticates via Okta (OIDC/PKCE) and calls the backend directly over HTTPS with a bearer token, through F5 → API Gateway (Lambda authorizer) → the backend's internal NLB. Since the SPA's origin (CloudFront) differs from the API's origin, the API must allow it via CORS.

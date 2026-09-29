@@ -45,4 +45,14 @@ SQL lives in versioned resource files under `src/main/resources/sql/`, composed 
 
 ## Deployment
 
-Built and deployed via GitLab CI/CD as a container image to ECS. See the deployment runbook for environment configuration, health checks, and the security/authorization integration — those are environment-owned, not part of this repository.
+```text
+GitLab CI/CD → JFrog Artifactory (container image) → ECS service on Fargate
+```
+
+Runtime request path:
+
+```text
+Browser → F5 → API Gateway (Lambda authorizer) → VPC Link → internal NLB → Spring Boot (ECS/Fargate)
+```
+
+Runs in private VPC subnets across multiple AZs, connects to PostgreSQL (Amazon RDS) over JDBC/TLS, and pulls runtime configuration and database credentials from Spring Config and CyberArk. Environment-specific values (hosts, roles, secrets) are owned by the deployment pipeline, not this repository.
