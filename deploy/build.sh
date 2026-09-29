@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
-JAR_NAME="compliance-dashboard-api-1.0.0-SNAPSHOT.jar"
+JAR_NAME="compliance-dashboard-service-1.0.0-SNAPSHOT.jar"
 PID_FILE="$BACKEND_DIR/backend.pid"
 LOG_FILE="$BACKEND_DIR/backend.log"
 

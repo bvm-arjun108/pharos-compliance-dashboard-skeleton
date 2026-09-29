@@ -144,11 +144,11 @@ the list underneath never disagree:
 
 ### Code Flow — Queue and summary
 
-- **API**: `GET /api/v1/batches` — `BatchExplorerApi.getBatches` (`com.pharos.compliance.batch.api.BatchExplorerApi`)
-- **Controller**: `BatchExplorerController` (`com.pharos.compliance.batch.controller.BatchExplorerController`)
-- **Service**: `BatchExplorerServiceImpl.getBatches` (`com.pharos.compliance.batch.service.impl.BatchExplorerServiceImpl`)
-- **Repository**: `BatchExplorerRepository.getBatchSummary` / `getBatchQueue` (`com.pharos.compliance.batch.repository.BatchExplorerRepository`)
-- **Shared helper**: `TransformationFailureQueries.journeyFailuresByBatch` (`com.pharos.compliance.common.jdbc.TransformationFailureQueries`)
+- **API**: `GET /api/v1/batches` — `BatchExplorerApi.getBatches` (`com.wu.compliance.dashboard.batch.api.BatchExplorerApi`)
+- **Controller**: `BatchExplorerController` (`com.wu.compliance.dashboard.batch.controller.BatchExplorerController`)
+- **Service**: `BatchExplorerServiceImpl.getBatches` (`com.wu.compliance.dashboard.batch.service.impl.BatchExplorerServiceImpl`)
+- **Repository**: `BatchExplorerRepository.getBatchSummary` / `getBatchQueue` (`com.wu.compliance.dashboard.batch.repository.BatchExplorerRepository`)
+- **Shared helper**: `TransformationFailureQueries.journeyFailuresByBatch` (`com.wu.compliance.dashboard.common.jdbc.TransformationFailureQueries`)
 
 ## 2. View — Selected batch detail cards (Data Selection / Data Transformation / Skipped Status)
 
@@ -270,12 +270,12 @@ Walking through what a person actually sees on the page:
 
 ### Code Flow — Selected batch detail cards
 
-- **API**: `GET /api/v1/batches/{reportGroupId}/{batchId}/{sequenceNumber}` — `BatchExplorerApi.getBatchDetails` (`com.pharos.compliance.batch.api.BatchExplorerApi`)
-- **Controller**: `BatchExplorerController` (`com.pharos.compliance.batch.controller.BatchExplorerController`)
-- **Service**: `BatchExplorerServiceImpl.getBatchDetails` (`com.pharos.compliance.batch.service.impl.BatchExplorerServiceImpl`)
-- **Repository**: `BatchExplorerRepository.getBatchDetails` (`com.pharos.compliance.batch.repository.BatchExplorerRepository`)
-- **Shared helper**: `TransformationFailureQueries.journeyStatsLateral` (`com.pharos.compliance.common.jdbc.TransformationFailureQueries`)
-- **DTO**: `BatchDetailsResponse` (`com.pharos.compliance.batch.dto.BatchDetailsResponse`)
+- **API**: `GET /api/v1/batches/{reportGroupId}/{batchId}/{sequenceNumber}` — `BatchExplorerApi.getBatchDetails` (`com.wu.compliance.dashboard.batch.api.BatchExplorerApi`)
+- **Controller**: `BatchExplorerController` (`com.wu.compliance.dashboard.batch.controller.BatchExplorerController`)
+- **Service**: `BatchExplorerServiceImpl.getBatchDetails` (`com.wu.compliance.dashboard.batch.service.impl.BatchExplorerServiceImpl`)
+- **Repository**: `BatchExplorerRepository.getBatchDetails` (`com.wu.compliance.dashboard.batch.repository.BatchExplorerRepository`)
+- **Shared helper**: `TransformationFailureQueries.journeyStatsLateral` (`com.wu.compliance.dashboard.common.jdbc.TransformationFailureQueries`)
+- **DTO**: `BatchDetailsResponse` (`com.wu.compliance.dashboard.batch.dto.BatchDetailsResponse`)
 
 Every "View transactions →" / "View report →" link on these cards navigates to the Transaction
 Report evidence explorer, scoped to this one batch and one metric — see `TransactionReport.md`.

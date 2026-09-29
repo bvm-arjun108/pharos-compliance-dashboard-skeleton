@@ -118,10 +118,10 @@ callout in `Dashboard.md`.
 
 ### Code Flow — Selected / Expected / Excluded / Not Reported
 
-- **API**: `GET /dashboardDetails/transaction-view` — `DashboardApi.getTransactionDashboard` (`com.pharos.compliance.dashboard.api.DashboardApi`)
-- **Controller**: `DashboardController` (`com.pharos.compliance.dashboard.controller.DashboardController`)
-- **Service**: `DashboardServiceImpl.getTransactionDashboard` (`com.pharos.compliance.dashboard.service.impl.DashboardServiceImpl`)
-- **Repository**: `DashboardRepository.getTransactionOverview` (`com.pharos.compliance.dashboard.repository.DashboardRepository`)
+- **API**: `GET /dashboardDetails/transaction-view` — `DashboardApi.getTransactionDashboard` (`com.wu.compliance.dashboard.dashboard.api.DashboardApi`)
+- **Controller**: `DashboardController` (`com.wu.compliance.dashboard.dashboard.controller.DashboardController`)
+- **Service**: `DashboardServiceImpl.getTransactionDashboard` (`com.wu.compliance.dashboard.dashboard.service.impl.DashboardServiceImpl`)
+- **Repository**: `DashboardRepository.getTransactionOverview` (`com.wu.compliance.dashboard.dashboard.repository.DashboardRepository`)
 - **DTO**: `TransactionOverviewProjection` → `TransactionDashboardResponse`
 
 ## 2. View — Top Exclusion Reasons / Not Reported Breakdown
@@ -203,7 +203,7 @@ rare, one-off reasons doesn't turn into a dozen tiny, unreadable legend rows.
 
 - **API**: same `GET /dashboardDetails/transaction-view` response as the KPI cards (one combined payload)
 - **Service**: `DashboardServiceImpl.getTransactionDashboard` → `toExclusionReasonsResponse` / `toNotReportedReasonsResponse`
-- **Repository**: `DashboardRepository.getTopExclusionReasons` / `getNotReportedReasons` (`com.pharos.compliance.dashboard.repository.DashboardRepository`)
+- **Repository**: `DashboardRepository.getTopExclusionReasons` / `getNotReportedReasons` (`com.wu.compliance.dashboard.dashboard.repository.DashboardRepository`)
 
 Clicking a KPI card or a legend row navigates to the Transaction Report evidence explorer, filtered
 to that exact bucket (and reason, for legend rows) — see `TransactionReport.md`'s "Overview

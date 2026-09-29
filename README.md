@@ -82,7 +82,7 @@ Spring MVC handles requests on Java 21 virtual threads. Database access remains 
 The Java packages use feature-first organization:
 
 ```text
-com.pharos.compliance
+com.wu.compliance.dashboard
 ├── common
 │   ├── error          Structured API errors and global exception handling
 │   ├── exception      Application exceptions

@@ -156,12 +156,12 @@ the page, computed once so the page doesn't have to fetch every row just to know
 
 ### Code Flow — Batch-scoped evidence
 
-- **API**: `GET /api/v1/transactions/report` — `TransactionReportApi.getTransactionReport` (`com.pharos.compliance.transaction.api.TransactionReportApi`)
-- **Controller**: `TransactionReportController` (`com.pharos.compliance.transaction.controller.TransactionReportController`)
-- **Repository**: `BatchEvidenceQueries.evidenceForBatch` → `filteredEvidenceForBatch` → `findEvidenceRecords` / `countEvidenceRecords` (`com.pharos.compliance.transaction.repository.evidence.BatchEvidenceQueries`)
+- **API**: `GET /api/v1/transactions/report` — `TransactionReportApi.getTransactionReport` (`com.wu.compliance.dashboard.transaction.api.TransactionReportApi`)
+- **Controller**: `TransactionReportController` (`com.wu.compliance.dashboard.transaction.controller.TransactionReportController`)
+- **Repository**: `BatchEvidenceQueries.evidenceForBatch` → `filteredEvidenceForBatch` → `findEvidenceRecords` / `countEvidenceRecords` (`com.wu.compliance.dashboard.transaction.repository.evidence.BatchEvidenceQueries`)
 - **Shared helpers**: `RuleHitMatcher.ruleHitMatches` (the external-key/MTCN join), `EvidencePaginator.pageEvidence` (the ranking + merge + two-pass pagination engine every pipeline on this page reuses)
-- **Facade**: `TransactionReportRepository` (`com.pharos.compliance.transaction.repository.TransactionReportRepository`) — thin delegation layer wiring all evidence pipelines together
-- **Service**: `TransactionReportServiceImpl` (`com.pharos.compliance.transaction.service.impl.TransactionReportServiceImpl`)
+- **Facade**: `TransactionReportRepository` (`com.wu.compliance.dashboard.transaction.repository.TransactionReportRepository`) — thin delegation layer wiring all evidence pipelines together
+- **Service**: `TransactionReportServiceImpl` (`com.wu.compliance.dashboard.transaction.service.impl.TransactionReportServiceImpl`)
 - **Frontend**: `transaction-report.component.ts` (`batchId` set, `overviewOnly` false)
 
 ## 2. Period-scoped evidence — every status except Excluded/Not Reported
@@ -241,8 +241,8 @@ output" vs "Reported") is a real, separate product question this fix does not de
 
 ### Code Flow — Period-scoped evidence
 
-- **API**: `GET /api/v1/transactions/period-report` — `TransactionReportApi.getPeriodTransactionReport` (`com.pharos.compliance.transaction.api.TransactionReportApi`)
-- **Repository**: `PeriodEvidenceQueries.evidenceForPeriod` → `filteredEvidenceForPeriod` → `findEvidenceRecords` / `countEvidenceRecords` (`com.pharos.compliance.transaction.repository.evidence.PeriodEvidenceQueries`)
+- **API**: `GET /api/v1/transactions/period-report` — `TransactionReportApi.getPeriodTransactionReport` (`com.wu.compliance.dashboard.transaction.api.TransactionReportApi`)
+- **Repository**: `PeriodEvidenceQueries.evidenceForPeriod` → `filteredEvidenceForPeriod` → `findEvidenceRecords` / `countEvidenceRecords` (`com.wu.compliance.dashboard.transaction.repository.evidence.PeriodEvidenceQueries`)
 - **Frontend**: `transaction-report.component.ts` (`batchId` empty, `overviewOnly` false)
 
 ## On-demand detail — `GET /api/v1/transactions/detail`
@@ -406,6 +406,6 @@ matching count, exactly like every other status.
 
 - **API**: same `GET /api/v1/transactions/period-report`, with `status=EXCLUDED` or `status=NOT_REPORTED`
 - **Routing**: `TransactionReportRepository.findPeriodEvidenceRecords` routes these two status values to `OverviewEvidenceQueries` instead of `PeriodEvidenceQueries`
-- **Repository**: `OverviewEvidenceQueries.reportingRoll` → `reportingTarget` → `findOverviewEvidenceRecords` / `countOverviewEvidenceRecords` (`com.pharos.compliance.transaction.repository.evidence.OverviewEvidenceQueries`)
+- **Repository**: `OverviewEvidenceQueries.reportingRoll` → `reportingTarget` → `findOverviewEvidenceRecords` / `countOverviewEvidenceRecords` (`com.wu.compliance.dashboard.transaction.repository.evidence.OverviewEvidenceQueries`)
 - **Exception**: `batchScopedExcluded=true` (used only by the Report Groups Requiring Attention table's own "Excluded" column) routes Excluded back to a simple, batch-scoped journey query instead — see `PeriodEvidenceQueries.filteredExcludedEvidenceForBatchTotal`, which matches `SUM(excluded_txn)` exactly rather than the distinct-transaction rollup
 - **Frontend**: `transaction-report.component.ts` (`overviewOnly` true, or `batchScopedExcluded` true for the Report Groups Requiring Attention case)

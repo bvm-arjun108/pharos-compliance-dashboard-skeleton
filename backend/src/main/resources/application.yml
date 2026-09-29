@@ -53,7 +53,7 @@ springdoc:
 logging:
   include-application-name: false
   level:
-    com.pharos.compliance: INFO
+    com.wu.compliance.dashboard: INFO
     # DEBUG includes SQL, inlined bind values, and complete fetched database rows as pretty JSON --
     # that row dump carries real party names, dates of birth, phone numbers and ID numbers, and it
     # is written on every page load whether or not anyone expands a row. Wherever logs are shipped
@@ -62,7 +62,7 @@ logging:
     # SQL_LOG_LEVEL=DEBUG for local debugging only, never as a deployed default.
     # Turning it off does not blind you operationally -- QueryPerformanceSummaryLogger still reports
     # which queries ran, how long each took, and which crossed the slow threshold, with no row data.
-    com.pharos.compliance.common.jdbc.logging.TracingNamedParameterJdbcTemplate: ${SQL_LOG_LEVEL:OFF}
+    com.wu.compliance.dashboard.common.jdbc.logging.TracingNamedParameterJdbcTemplate: ${SQL_LOG_LEVEL:OFF}
     com.zaxxer.hikari: WARN
     org.apache.catalina: WARN
     org.springframework.boot.actuate.endpoint.web.EndpointLinksResolver: WARN

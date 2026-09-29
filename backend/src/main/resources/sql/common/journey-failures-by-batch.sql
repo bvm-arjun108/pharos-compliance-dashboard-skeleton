@@ -1,6 +1,6 @@
 -- Per-batch grouped journey-derived transformation-failure count, used by every caller that needs
 -- to LEFT JOIN it on (rpt_grp_id, batch_id) and coalesce to 0 for batches with no failures. See
--- com.pharos.compliance.common.jdbc.TransformationFailureQueries#journeyFailuresByBatch. The
+-- com.wu.compliance.dashboard.common.jdbc.TransformationFailureQueries#journeyFailuresByBatch. The
 -- caller's own reconciliation scope conditions (the exact same ones applied to the caller's own
 -- reconciliation query) are appended directly after "where 1 = 1" below via
 -- journey-failures-by-batch-tail.sql, so this aggregate is bounded to only the batches actually in

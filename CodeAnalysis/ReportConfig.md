@@ -59,11 +59,11 @@ matches, at the same version grain as everything else in this row (20 + 24 = 44,
 
 ### Code Flow — Summary tiles
 
-- **API**: `GET /api/v1/report-configs` — `ReportConfigApi.getReportConfigs` (`com.pharos.compliance.reportgroup.api.ReportConfigApi`)
-- **Controller**: `ReportConfigController` (`com.pharos.compliance.reportgroup.controller.ReportConfigController`)
-- **Service**: `ReportConfigServiceImpl` (`com.pharos.compliance.reportgroup.service.impl.ReportConfigServiceImpl`)
-- **Repository**: `ReportGroupConfigRepository` (`com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository`) — the "Summarize report-group configurations matching the selected filters" query, alongside "Load report-group configurations matching the selected filters" (the list below) and "Load the configured regulatory report types" (the Report Type filter dropdown's options)
-- **DTO**: `ReportConfigSummaryResponse` (`com.pharos.compliance.reportgroup.dto.ReportConfigSummaryResponse`)
+- **API**: `GET /api/v1/report-configs` — `ReportConfigApi.getReportConfigs` (`com.wu.compliance.dashboard.reportgroup.api.ReportConfigApi`)
+- **Controller**: `ReportConfigController` (`com.wu.compliance.dashboard.reportgroup.controller.ReportConfigController`)
+- **Service**: `ReportConfigServiceImpl` (`com.wu.compliance.dashboard.reportgroup.service.impl.ReportConfigServiceImpl`)
+- **Repository**: `ReportGroupConfigRepository` (`com.wu.compliance.dashboard.reportgroup.repository.ReportGroupConfigRepository`) — the "Summarize report-group configurations matching the selected filters" query, alongside "Load report-group configurations matching the selected filters" (the list below) and "Load the configured regulatory report types" (the Report Type filter dropdown's options)
+- **DTO**: `ReportConfigSummaryResponse` (`com.wu.compliance.dashboard.reportgroup.dto.ReportConfigSummaryResponse`)
 - **Frontend**: `report-config.component.ts`
 
 ## 2. View — Configuration list and detail panel
@@ -154,9 +154,9 @@ edge-case report groups.
 
 ### Code Flow — List and detail
 
-- **API**: `GET /api/v1/report-configs` (`getReportConfigs`), `GET /api/v1/report-configs/{reportGroupId}/{reportSelectionVersionId}/{transformerVersionId}` (`getReportConfigDetails`), `GET /api/v1/report-configs/report-groups` (`getReportGroupOptions`), `GET /api/v1/report-configs/filter-options` (`getReportConfigFilterOptions`) — all on `ReportConfigApi` (`com.pharos.compliance.reportgroup.api.ReportConfigApi`)
-- **Controller**: `ReportConfigController` (`com.pharos.compliance.reportgroup.controller.ReportConfigController`)
-- **Service**: `ReportConfigServiceImpl` (`com.pharos.compliance.reportgroup.service.impl.ReportConfigServiceImpl`)
-- **Repository**: `ReportGroupConfigRepository` (`com.pharos.compliance.reportgroup.repository.ReportGroupConfigRepository`)
-- **DTOs**: `ReportConfigListItemResponse`, `ReportConfigDetailsResponse`, `ReportConfigExplorerResponse`, `ReportConfigCountryOptionResponse` (`com.pharos.compliance.reportgroup.dto`)
+- **API**: `GET /api/v1/report-configs` (`getReportConfigs`), `GET /api/v1/report-configs/{reportGroupId}/{reportSelectionVersionId}/{transformerVersionId}` (`getReportConfigDetails`), `GET /api/v1/report-configs/report-groups` (`getReportGroupOptions`), `GET /api/v1/report-configs/filter-options` (`getReportConfigFilterOptions`) — all on `ReportConfigApi` (`com.wu.compliance.dashboard.reportgroup.api.ReportConfigApi`)
+- **Controller**: `ReportConfigController` (`com.wu.compliance.dashboard.reportgroup.controller.ReportConfigController`)
+- **Service**: `ReportConfigServiceImpl` (`com.wu.compliance.dashboard.reportgroup.service.impl.ReportConfigServiceImpl`)
+- **Repository**: `ReportGroupConfigRepository` (`com.wu.compliance.dashboard.reportgroup.repository.ReportGroupConfigRepository`)
+- **DTOs**: `ReportConfigListItemResponse`, `ReportConfigDetailsResponse`, `ReportConfigExplorerResponse`, `ReportConfigCountryOptionResponse` (`com.wu.compliance.dashboard.reportgroup.dto`)
 - **Frontend**: `report-config.component.ts` — also the source of the `ReportGroupOption`/`filter-options` calls reused by Batch Explorer's and Transactions Overview's own Country/Report Group dropdowns

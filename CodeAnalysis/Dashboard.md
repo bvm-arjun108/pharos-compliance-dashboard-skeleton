@@ -117,10 +117,10 @@ issue," and a separate heads-up for "how many are still being worked on."
 
 ### Code Flow
 
-- **API**: `GET /dashboardDetails/batch-view` — `DashboardApi.getBatchDashboard` (`com.pharos.compliance.dashboard.api.DashboardApi`)
-- **Controller**: `DashboardController` (`com.pharos.compliance.dashboard.controller.DashboardController`)
-- **Service**: `DashboardServiceImpl.getBatchDashboard` (`com.pharos.compliance.dashboard.service.impl.DashboardServiceImpl`)
-- **Repository**: `DashboardRepository.getDashboardCounts` (`com.pharos.compliance.dashboard.repository.DashboardRepository`)
+- **API**: `GET /dashboardDetails/batch-view` — `DashboardApi.getBatchDashboard` (`com.wu.compliance.dashboard.dashboard.api.DashboardApi`)
+- **Controller**: `DashboardController` (`com.wu.compliance.dashboard.dashboard.controller.DashboardController`)
+- **Service**: `DashboardServiceImpl.getBatchDashboard` (`com.wu.compliance.dashboard.dashboard.service.impl.DashboardServiceImpl`)
+- **Repository**: `DashboardRepository.getDashboardCounts` (`com.wu.compliance.dashboard.dashboard.repository.DashboardRepository`)
 
 ## 2. View
 
@@ -172,11 +172,11 @@ omit weeks with nothing in them.
 
 ### Code Flow — Daily Batch Health
 
-- **API**: `GET /dashboardDetails/batch-view` — `DashboardApi.getBatchDashboard` (`com.pharos.compliance.dashboard.api.DashboardApi`)
-- **Controller**: `DashboardController` (`com.pharos.compliance.dashboard.controller.DashboardController`)
-- **Service**: `DashboardServiceImpl.getBatchDashboard` → `toBatchHealthTrendResponse` (`com.pharos.compliance.dashboard.service.impl.DashboardServiceImpl`)
-- **Repository**: `DashboardRepository.getBatchHealthTrend` (`com.pharos.compliance.dashboard.repository.DashboardRepository`)
-- **DTO**: `BatchHealthTrendResponse` (`com.pharos.compliance.dashboard.dto.BatchHealthTrendResponse`)
+- **API**: `GET /dashboardDetails/batch-view` — `DashboardApi.getBatchDashboard` (`com.wu.compliance.dashboard.dashboard.api.DashboardApi`)
+- **Controller**: `DashboardController` (`com.wu.compliance.dashboard.dashboard.controller.DashboardController`)
+- **Service**: `DashboardServiceImpl.getBatchDashboard` → `toBatchHealthTrendResponse` (`com.wu.compliance.dashboard.dashboard.service.impl.DashboardServiceImpl`)
+- **Repository**: `DashboardRepository.getBatchHealthTrend` (`com.wu.compliance.dashboard.dashboard.repository.DashboardRepository`)
+- **DTO**: `BatchHealthTrendResponse` (`com.wu.compliance.dashboard.dashboard.dto.BatchHealthTrendResponse`)
 
 ### Query — Transactions Overview trend (heatmap/line charts)
 
@@ -276,8 +276,8 @@ the KPI cards above are the "is anything on fire at all" view.
 
 ### Code Flow — Report Groups Requiring Attention
 
-- **API**: `GET /dashboardDetails/batch-view` — `DashboardApi.getBatchDashboard` (`com.pharos.compliance.dashboard.api.DashboardApi`)
-- **Controller**: `DashboardController` (`com.pharos.compliance.dashboard.controller.DashboardController`)
-- **Service**: `DashboardServiceImpl.getBatchDashboard` → `toReportGroupResponse` (`com.pharos.compliance.dashboard.service.impl.DashboardServiceImpl`)
-- **Repository**: `DashboardRepository.getReportGroupsRequiringAttention` (`com.pharos.compliance.dashboard.repository.DashboardRepository`)
+- **API**: `GET /dashboardDetails/batch-view` — `DashboardApi.getBatchDashboard` (`com.wu.compliance.dashboard.dashboard.api.DashboardApi`)
+- **Controller**: `DashboardController` (`com.wu.compliance.dashboard.dashboard.controller.DashboardController`)
+- **Service**: `DashboardServiceImpl.getBatchDashboard` → `toReportGroupResponse` (`com.wu.compliance.dashboard.dashboard.service.impl.DashboardServiceImpl`)
+- **Repository**: `DashboardRepository.getReportGroupsRequiringAttention` (`com.wu.compliance.dashboard.dashboard.repository.DashboardRepository`)
 
