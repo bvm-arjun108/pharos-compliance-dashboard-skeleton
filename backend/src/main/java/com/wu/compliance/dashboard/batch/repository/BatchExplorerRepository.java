@@ -3,7 +3,6 @@ package com.wu.compliance.dashboard.batch.repository;
 import com.wu.compliance.dashboard.batch.repository.projection.BatchDetailsProjection;
 import com.wu.compliance.dashboard.batch.repository.projection.BatchQueueProjection;
 import com.wu.compliance.dashboard.batch.repository.projection.BatchSummaryProjection;
-import com.wu.compliance.dashboard.common.jdbc.TransformationFailureQueries;
 import com.wu.compliance.dashboard.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
 import com.wu.compliance.dashboard.common.jdbc.sql.SqlFragment;
 import com.wu.compliance.dashboard.common.jdbc.sql.SqlResourceLoader;
@@ -64,12 +63,9 @@ public class BatchExplorerRepository {
   }
 
   /**
-   * The date-range/batchId-search/reportGroupId/country filters shared by {@link
-   * #enrichedBatchMetricsCtes}' {@code batch_metrics} CTE and (via {@link
-   * TransformationFailureQueries#journeyFailuresByBatch}) its {@code journey_failures_by_batch}
-   * sibling -- the same scope condition text/params reused in both places, exactly as the jOOQ
-   * version reused one {@code Condition} object. Rendered as bare {@code and ...} lines (no leading
-   * {@code where}) so both consumers can append them after their own {@code where 1 = 1}.
+   * The date-range/batchId-search/reportGroupId/country filters applied by {@link
+   * #enrichedBatchMetricsCtes}' {@code batch_metrics} CTE. Rendered as bare {@code and ...} lines
+   * (no leading {@code where}) so they can be appended after that CTE's own {@code where 1 = 1}.
    */
   private SqlFragment reconciliationScope(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
@@ -103,17 +99,17 @@ public class BatchExplorerRepository {
   }
 
   /**
-   * The three CTEs ({@code batch_metrics}, {@code journey_failures_by_batch}, {@code
-   * enriched_batch_metrics}) shared by {@link #getBatchSummary} and {@link #getBatchQueue} --
-   * each combines these with its own final SELECT via {@link SqlFragment#combine}.
+   * The two CTEs ({@code batch_metrics}, {@code enriched_batch_metrics}) shared by {@link
+   * #getBatchSummary} and {@link #getBatchQueue} -- each combines these with its own final SELECT
+   * via {@link SqlFragment#combine}. {@code enriched_batch_metrics} looks up each in-scope batch's
+   * journey-derived failure count itself (see enriched-batch-metrics.sql).
    */
   private List<SqlFragment> enrichedBatchMetricsCtes(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, String batchId,
       Integer reportGroupId, boolean filterByCountry, List<Integer> reportGroupIds) {
     SqlFragment scope = reconciliationScope(fromTimestamp, toTimestampExclusive, batchId, reportGroupId, filterByCountry, reportGroupIds);
     SqlFragment batchMetricsCte = SqlFragment.of(sql.load(BATCH_METRICS_SQL) + scope.sql(), scope.params()).asCte("batch_metrics");
-    SqlFragment journeyFailuresCte = TransformationFailureQueries.journeyFailuresByBatch(sql, scope).asCte("journey_failures_by_batch");
     SqlFragment enrichedCte = SqlFragment.of(sql.load(ENRICHED_BATCH_METRICS_SQL)).asCte("enriched_batch_metrics");
-    return List.of(batchMetricsCte, journeyFailuresCte, enrichedCte);
+    return List.of(batchMetricsCte, enrichedCte);
   }
 
   @SqlQueryPurpose("Summarize batches matching the Batch Explorer filters")

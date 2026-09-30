@@ -4,6 +4,7 @@ import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angula
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, ParamMap, Router } from '@angular/router';
+import { EMPTY, Observable, Subject, catchError, switchMap, tap } from 'rxjs';
 
 type BatchStatus = 'ALL' | 'SUCCESSFUL' | 'ATTENTION';
 type BatchIssueType =
@@ -215,12 +216,30 @@ export class BatchExplorerComponent implements OnInit {
   readonly page = signal(0);
   readonly size = signal(50);
 
+  /** Batch selections to load details for; {@code null} cancels without starting a new load. */
+  private readonly detailRequests = new Subject<BatchQueueItem | null>();
+
   ngOnInit(): void {
     this.loadFilterOptions();
-    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(params => {
-      this.readRouteState(params);
-      this.loadBatches();
-    });
+
+    // switchMap unsubscribes the previous in-flight request whenever a new one starts, so a slow
+    // earlier response can never reach these handlers and overwrite a newer one.
+    this.detailRequests
+      .pipe(
+        switchMap(batch => (batch ? this.fetchBatchDetails(batch) : EMPTY)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe();
+    this.route.queryParamMap
+      .pipe(
+        tap(params => {
+          this.readRouteState(params);
+          this.beginQueueLoad();
+        }),
+        switchMap(() => this.fetchQueue()),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe();
   }
 
   setBatchId(event: Event): void {
@@ -517,13 +536,20 @@ export class BatchExplorerComponent implements OnInit {
     });
   }
 
-  private loadBatches(): void {
+  /** Clears everything tied to the previous queue and cancels its in-flight details/report-config
+   *  load. Their loading flags are reset here because a cancelled request never clears them. */
+  private beginQueueLoad(): void {
+    this.detailRequests.next(null);
     this.queueLoading.set(true);
     this.queueError.set(null);
     this.selectedBatch.set(null);
     this.selectedDetails.set(null);
     this.reportConfigSummary.set(null);
+    this.detailLoading.set(false);
+    this.reportConfigLoading.set(false);
+  }
 
+  private fetchQueue(): Observable<BatchExplorerResponse> {
     let params = new HttpParams()
       .set('fromDate', this.fromDate())
       .set('toDate', this.toDate())
@@ -538,8 +564,8 @@ export class BatchExplorerComponent implements OnInit {
       params = params.set('reportGroupId', this.reportGroupId()!);
     }
 
-    this.http.get<BatchExplorerResponse>('/api/v1/batches', { params }).subscribe({
-      next: response => {
+    return this.http.get<BatchExplorerResponse>('/api/v1/batches', { params }).pipe(
+      tap(response => {
         this.response.set(response);
         this.queueLoading.set(false);
         const requestedKey =
@@ -556,13 +582,14 @@ export class BatchExplorerComponent implements OnInit {
         if (targetBatch) {
           this.loadBatchDetails(targetBatch);
         }
-      },
-      error: () => {
+      }),
+      catchError(() => {
         this.response.set(null);
         this.queueLoading.set(false);
         this.queueError.set('The batch work queue could not be loaded.');
-      }
-    });
+        return EMPTY;
+      })
+    );
   }
 
   private loadBatchDetails(batch: BatchQueueItem): void {
@@ -570,60 +597,69 @@ export class BatchExplorerComponent implements OnInit {
     this.detailError.set(null);
     this.selectedDetails.set(null);
     this.reportConfigSummary.set(null);
-    const batchId = encodeURIComponent(batch.batchId);
-    const url = `/api/v1/batches/${batch.reportGroupId}/${batchId}/${batch.sequenceNumber}`;
-    this.http.get<BatchDetailsResponse>(url).subscribe({
-      next: details => {
-        if (this.batchKey(this.selectedBatch()) === this.batchKey(batch)) {
-          this.selectedDetails.set(details);
-          this.detailLoading.set(false);
-          // Uses this batch's own report_group_config version (from its report_batch_info row),
-          // not whatever the report group's current/latest version happens to be -- a config
-          // change since this batch ran would otherwise show the wrong report type, mapping
-          // service, or active status for what actually processed it.
-          this.loadReportConfigSummary(batch.reportGroupId, details.reportSelectionVersionId, details.transformerVersionId);
-        }
-      },
-      error: () => {
-        this.detailLoading.set(false);
-        this.detailError.set('The selected batch preview could not be loaded.');
-      }
-    });
+    this.reportConfigLoading.set(false);
+    this.detailRequests.next(batch);
   }
 
-  private loadReportConfigSummary(reportGroupId: number, reportSelectionVersionId: number | null, transformerVersionId: string | null): void {
+  private fetchBatchDetails(batch: BatchQueueItem): Observable<unknown> {
+    const batchId = encodeURIComponent(batch.batchId);
+    const url = `/api/v1/batches/${batch.reportGroupId}/${batchId}/${batch.sequenceNumber}`;
+    return this.http.get<BatchDetailsResponse>(url).pipe(
+      tap(details => {
+        this.selectedDetails.set(details);
+        this.detailLoading.set(false);
+      }),
+      // Uses this batch's own report_group_config version (from its report_batch_info row),
+      // not whatever the report group's current/latest version happens to be -- a config
+      // change since this batch ran would otherwise show the wrong report type, mapping
+      // service, or active status for what actually processed it.
+      switchMap(details =>
+        this.fetchReportConfigSummary(batch.reportGroupId, details.reportSelectionVersionId, details.transformerVersionId)
+      ),
+      catchError(() => {
+        this.detailLoading.set(false);
+        this.detailError.set('The selected batch preview could not be loaded.');
+        return EMPTY;
+      })
+    );
+  }
+
+  private fetchReportConfigSummary(
+    reportGroupId: number,
+    reportSelectionVersionId: number | null,
+    transformerVersionId: string | null
+  ): Observable<unknown> {
     if (reportSelectionVersionId === null || transformerVersionId === null) {
       // No report_batch_info row for this batch -- there's no version to look up, so fall
       // straight to the "no record found" empty state rather than guessing.
       this.reportConfigSummary.set(null);
-      return;
+      return EMPTY;
     }
     this.reportConfigLoading.set(true);
     this.reportConfigSummary.set(null);
     const path = `/api/v1/report-configs/${reportGroupId}/${reportSelectionVersionId}/${encodeURIComponent(transformerVersionId)}`;
-    this.http.get<ReportConfigDetailsResponse>(path).subscribe({
-      next: response => {
-        if (this.selectedBatch()?.reportGroupId === reportGroupId) {
-          this.reportConfigSummary.set({
-            reportGroupId: response.identity.reportGroupId,
-            reportGroupName: response.identity.reportGroupName,
-            reportSelectionVersionId: response.versioning.reportSelectionVersionId,
-            transformerVersionId: response.versioning.transformerVersionId,
-            countryCode: response.identity.countryCode,
-            countryName: response.identity.countryName,
-            reportType: response.identity.reportType,
-            active: response.identity.active,
-            mappingServiceName: response.mapping.serviceName,
-            modifiedAt: response.versioning.modifiedAt
-          });
-          this.reportConfigLoading.set(false);
-        }
-      },
-      error: () => {
+    return this.http.get<ReportConfigDetailsResponse>(path).pipe(
+      tap(response => {
+        this.reportConfigSummary.set({
+          reportGroupId: response.identity.reportGroupId,
+          reportGroupName: response.identity.reportGroupName,
+          reportSelectionVersionId: response.versioning.reportSelectionVersionId,
+          transformerVersionId: response.versioning.transformerVersionId,
+          countryCode: response.identity.countryCode,
+          countryName: response.identity.countryName,
+          reportType: response.identity.reportType,
+          active: response.identity.active,
+          mappingServiceName: response.mapping.serviceName,
+          modifiedAt: response.versioning.modifiedAt
+        });
+        this.reportConfigLoading.set(false);
+      }),
+      catchError(() => {
         this.reportConfigLoading.set(false);
         this.reportConfigSummary.set(null);
-      }
-    });
+        return EMPTY;
+      })
+    );
   }
 
   private readRouteState(params: ParamMap): void {

@@ -37,13 +37,23 @@ select
 from pharos.report_transformation_reconciliation r
 cross join lateral (
   select
-    count(*) > 0 as journey_available,
-    (count(distinct identifier) filter (
-      where upper(stage) = 'TRANSFORMATION' and upper(status) in ('ERROR', 'FAILED', 'FAILURE')
-    ))::bigint as journey_transformation_failures
-  from pharos.record_transformation_journey
-  where rpt_grp_id = r.rpt_grp_id
-    and batch_id = r.batch_id
+    -- Probes the primary key for one row instead of reading every journey row of the batch.
+    exists (
+      select 1
+      from pharos.record_transformation_journey
+      where rpt_grp_id = r.rpt_grp_id
+        and batch_id = r.batch_id
+    ) as journey_available,
+    -- Index-only over idx_journey_transformation_failure (failure rows only). count(*) equals
+    -- count(distinct identifier) because (rpt_grp_id, batch_id, identifier) is the primary key.
+    (
+      select count(*)
+      from pharos.record_transformation_journey
+      where rpt_grp_id = r.rpt_grp_id
+        and batch_id = r.batch_id
+        and upper(stage) = 'TRANSFORMATION'
+        and upper(status) in ('ERROR', 'FAILED', 'FAILURE')
+    )::bigint as journey_transformation_failures
 ) journey_stats
 where r.rpt_grp_id = :reportGroupId
   and r.batch_id = :batchId

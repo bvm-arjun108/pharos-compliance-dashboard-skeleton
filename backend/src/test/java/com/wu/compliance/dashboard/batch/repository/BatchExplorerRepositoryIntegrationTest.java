@@ -272,4 +272,50 @@ class BatchExplorerRepositoryIntegrationTest extends PostgresIntegrationTest {
     assertEquals(2, sequence2.transformationFailures(), "same journey-derived count as sequence 1 -- journey has no sequence scope");
     assertEquals(9, sequence2.reportedTransformationFailures(), "sequence 2's own, different raw scalar");
   }
+
+  @Test
+  void getBatchQueueFallsBackToTheReportedCountWhenNoJourneyFailureRowsExist() {
+    // Unlike getBatchDetails (which keys off "any journey row exists"), the list/aggregate path treats
+    // "no TRANSFORMATION-stage failure rows" as "no journey evidence for this fact" and keeps the raw
+    // reconciliation scalar -- even when the batch does have other, successful journey rows.
+    insertReconciliation("BATCH-F", 3, 0, 0, 0, 0, 0, 12);
+    insertJourney(GROUP, "BATCH-F", "ident-1", "TRANSFORMATION", "SUCCESS");
+    insertJourney(GROUP, "BATCH-F", "ident-2", "TRANSFORMATION", "SUCCESS");
+
+    BatchQueueProjection batch =
+        repository.getBatchQueue(FROM, TO, "BATCH-F", GROUP, false, List.of(), "ALL", "ALL", "DEFAULT", 50, 0).getFirst();
+
+    assertEquals(3, batch.transformationFailures(), "no failure rows, so the raw scalar is kept");
+    assertEquals(3, batch.reportedTransformationFailures());
+    assertFalse(batch.transformationFailureMismatch());
+  }
+
+  @Test
+  void getBatchQueueCountsOnlyTransformationStageFailureStatusesCaseInsensitively() {
+    insertReconciliation("BATCH-G", 0, 0, 0, 0, 0, 0, 12);
+    insertJourney(GROUP, "BATCH-G", "ident-1", "TRANSFORMATION", "failed");
+    insertJourney(GROUP, "BATCH-G", "ident-2", "transformation", "Error");
+    insertJourney(GROUP, "BATCH-G", "ident-3", "FILTRATION", "FAILED");
+    insertJourney(GROUP, "BATCH-G", "ident-4", "TRANSFORMATION", "SUCCESS");
+
+    BatchQueueProjection batch =
+        repository.getBatchQueue(FROM, TO, "BATCH-G", GROUP, false, List.of(), "ALL", "ALL", "DEFAULT", 50, 0).getFirst();
+
+    assertEquals(2, batch.transformationFailures(), "stage/status compare case-insensitively; a FILTRATION-stage failure is not counted");
+    assertEquals(0, batch.reportedTransformationFailures());
+    assertTrue(batch.transformationFailureMismatch());
+  }
+
+  @Test
+  void getBatchDetailsTreatsJourneyRowsInOtherStagesAsAvailableButNotAsFailures() {
+    insertReconciliation("BATCH-H", 4, 0, 0, 0, 0, 0, 12);
+    insertJourney(GROUP, "BATCH-H", "ident-1", "FILTRATION", "FAILED");
+
+    BatchDetailsProjection details = repository.getBatchDetails(GROUP, "BATCH-H", 1).orElseThrow();
+
+    assertTrue(details.journeyAvailable(), "any journey row for the batch makes journey evidence available");
+    assertEquals(0, details.transformationFailures(), "but only TRANSFORMATION-stage failures are counted");
+    assertEquals(4, details.reportedTransformationFailures());
+    assertTrue(details.transformationFailureMismatch());
+  }
 }

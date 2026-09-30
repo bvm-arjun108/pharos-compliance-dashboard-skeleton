@@ -202,6 +202,35 @@ class TransactionDetailLookupTest extends PostgresIntegrationTest {
   }
 
   @Test
+  void findReportContextCountsOnlyTransformationStageFailureStatusesCaseInsensitively() {
+    insertReconciliation(8501, "RC-5", 20, 0, 0, 18, 18, 18, 5, 18, 18, 0, 0, 0, 0);
+    insertJourney(8501, "RC-5", "F1", "TRANSFORMATION", "failed", LocalDateTime.now());
+    insertJourney(8501, "RC-5", "F2", "transformation", "Error", LocalDateTime.now());
+    insertJourney(8501, "RC-5", "X1", "FILTRATION", "FAILED", LocalDateTime.now());
+    insertJourney(8501, "RC-5", "S1", "TRANSFORMATION", "SUCCESS", LocalDateTime.now());
+
+    Optional<TransactionReportContextProjection> context = repository.findReportContext(8501, "RC-5", 1);
+
+    assertTrue(context.isPresent());
+    assertEquals(2, context.get().failed(), "stage/status compare case-insensitively; a FILTRATION-stage failure is not counted");
+    assertEquals(5, context.get().reportedFailed());
+    assertTrue(context.get().failedMismatch());
+  }
+
+  @Test
+  void findReportContextTreatsJourneyRowsInOtherStagesAsAvailableButNotAsFailures() {
+    insertReconciliation(8501, "RC-6", 20, 0, 0, 18, 18, 18, 4, 18, 18, 0, 0, 0, 0);
+    insertJourney(8501, "RC-6", "X1", "FILTRATION", "FAILED", LocalDateTime.now());
+
+    Optional<TransactionReportContextProjection> context = repository.findReportContext(8501, "RC-6", 1);
+
+    assertTrue(context.isPresent());
+    assertEquals(0, context.get().failed(), "journey exists (so no scalar fallback) but has no TRANSFORMATION-stage failures");
+    assertEquals(4, context.get().reportedFailed());
+    assertTrue(context.get().failedMismatch());
+  }
+
+  @Test
   void batchDetailUsesExactIdentityNotSubstringSearchForAWildcardLikeIdentifier() {
     // "12%_" contains SQL LIKE metacharacters; if the exact-match path ever degraded to substring
     // search, it would also match "1299X" below ('12' + anything + one more character).

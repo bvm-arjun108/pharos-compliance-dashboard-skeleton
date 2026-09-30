@@ -1,8 +1,10 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { EMPTY, Observable, Subject, catchError, switchMap, tap } from 'rxjs';
 import { DashboardFilterStateService, DashboardReportPeriod } from './dashboard-filter-state.service';
 
 interface CountryOption {
@@ -586,7 +588,20 @@ export class HomeComponent implements OnInit {
     private readonly route: ActivatedRoute
   ) {}
 
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Dashboard requests to run; {@code null} cancels the in-flight one without starting another.
+   *  switchMap unsubscribes the previous request whenever a new one starts, so a slow earlier
+   *  response can never overwrite a newer one. */
+  private readonly dashboardRequests = new Subject<HttpParams | null>();
+
   ngOnInit(): void {
+    this.dashboardRequests
+      .pipe(
+        switchMap(params => (params ? this.fetchDashboardDetails(params) : EMPTY)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe();
     this.restoreRouteFilters();
     this.http.get<BatchFilterOptionsResponse>('/api/v1/batches/filter-options').subscribe({
       next: options => this.countryOptions.set(options.countries),
@@ -926,6 +941,9 @@ export class HomeComponent implements OnInit {
   private loadDashboardDetails(): void {
     const period = this.resolvePeriod();
     if (!period) {
+      // Cancel any in-flight request so its late response cannot overwrite this state.
+      this.dashboardRequests.next(null);
+      this.dashboardLoading.set(false);
       this.dashboardDetails.set(null);
       this.dashboardError.set('Select both custom dates.');
       return;
@@ -942,18 +960,23 @@ export class HomeComponent implements OnInit {
       params = params.set('reportGroupId', this.reportGroupId());
     }
 
-    this.http.get<BatchDashboardResponse>('/dashboardDetails/batch-view', { params }).subscribe({
-      next: details => {
+    this.dashboardRequests.next(params);
+  }
+
+  private fetchDashboardDetails(params: HttpParams): Observable<BatchDashboardResponse> {
+    return this.http.get<BatchDashboardResponse>('/dashboardDetails/batch-view', { params }).pipe(
+      tap(details => {
         this.attentionPage.set(0);
         this.dashboardDetails.set(details);
         this.dashboardLoading.set(false);
-      },
-      error: () => {
+      }),
+      catchError(() => {
         this.dashboardDetails.set(null);
         this.dashboardLoading.set(false);
         this.dashboardError.set('Dashboard data could not be loaded.');
-      }
-    });
+        return EMPTY;
+      })
+    );
   }
 
   private resolvePeriod(): { fromDate: string; toDate: string } | null {

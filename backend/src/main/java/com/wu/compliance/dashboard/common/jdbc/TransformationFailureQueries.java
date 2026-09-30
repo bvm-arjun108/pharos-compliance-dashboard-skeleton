@@ -15,11 +15,12 @@ import com.wu.compliance.dashboard.common.jdbc.sql.SqlResourceLoader;
  * journey row is overwritten by the SUCCESS upsert, so journey can also undercount relative to
  * reconciliation -- the raw column is worth keeping visible precisely because journey isn't
  * strictly a superset of it.) {@link #journeyFailuresByBatch} computes the corrected,
- * journey-derived count ({@code COUNT(DISTINCT identifier)} at the TRANSFORMATION stage with an
- * ERROR/FAILED/FAILURE status) as a per-batch grouped subquery for list/aggregate queries, falling
- * back to the raw reconciliation column only for a batch with no journey rows at all. Single-batch
- * lookups ({@code report-context.sql}, {@code batch-details.sql}) apply the identical fallback rule
- * via their own inline {@code CROSS JOIN LATERAL}.
+ * journey-derived count (TRANSFORMATION stage with an ERROR/FAILED/FAILURE status, one per
+ * identifier) as a per-batch grouped subquery for the Batch View dashboard's aggregations, falling
+ * back to the raw reconciliation column only for a batch with no failure rows. The Batch Explorer
+ * list ({@code enriched-batch-metrics.sql}) and the single-batch lookups ({@code
+ * report-context.sql}, {@code batch-details.sql}) apply the same fallback rule with their own
+ * per-batch lateral probes into the same partial index.
  */
 public final class TransformationFailureQueries {
   private static final String JOURNEY_FAILURES_BY_BATCH_SQL = "sql/common/journey-failures-by-batch.sql";
