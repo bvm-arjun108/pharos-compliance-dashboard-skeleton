@@ -7,10 +7,6 @@ spring:
   threads:
     virtual:
       enabled: true
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
 common:
   postgres:
     url: ${DB_URL:jdbc:postgresql://localhost:5439/pharosRBT}
@@ -70,4 +66,4 @@ logging:
     org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext: WARN
     org.springframework.web.servlet.DispatcherServlet: WARN
   pattern:
-    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%-5level) %clr(%replace([trace=%X{traceId} span=%X{spanId}] ){'\\[trace= span=\\] ',''}){faint}%clr(%logger{0}){cyan} %clr(—){faint} %msg%n%wEx"
+    console: "%clr{%d{HH:mm:ss.SSS}}{faint} %clr{%-5level} %clr{%replace{[trace=%X{traceId} span=%X{spanId}] }{\\[trace= span=\\] }{}}{faint}%clr{%logger{0}}{cyan} %clr{—}{faint} %msg%n%wEx"

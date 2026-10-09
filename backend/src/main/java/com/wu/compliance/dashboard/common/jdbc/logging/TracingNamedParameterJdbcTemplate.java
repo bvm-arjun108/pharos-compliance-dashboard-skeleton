@@ -1,8 +1,7 @@
 package com.wu.compliance.dashboard.common.jdbc.logging;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectWriter;
 import com.wu.compliance.dashboard.common.metrics.QueryPerformanceTracker;
 import java.util.List;
 import java.util.Optional;
@@ -37,13 +36,13 @@ public class TracingNamedParameterJdbcTemplate {
   private static final Pattern NAMED_PARAM = Pattern.compile(":(\\w+)");
   private final NamedParameterJdbcTemplate delegate;
   private final QueryPerformanceTracker queryPerformanceTracker;
-  private final ObjectMapper objectMapper;
+  private final ObjectWriter resultWriter;
 
   public TracingNamedParameterJdbcTemplate(NamedParameterJdbcTemplate delegate, QueryPerformanceTracker queryPerformanceTracker,
       ObjectMapper objectMapper) {
     this.delegate = delegate;
     this.queryPerformanceTracker = queryPerformanceTracker;
-    this.objectMapper = objectMapper.copy().enable(SerializationFeature.INDENT_OUTPUT);
+    this.resultWriter = objectMapper.writerWithDefaultPrettyPrinter();
   }
 
   /**
@@ -133,10 +132,10 @@ public class TracingNamedParameterJdbcTemplate {
       return;
     }
     try {
-      String json = objectMapper.writeValueAsString(result);
+      String json = resultWriter.writeValueAsString(result);
       LOGGER.debug("SQL result | uiSection={} | purpose={} | queryId={} | returnedRows={} | format=JSON\n{}", uiSection, purpose, queryId,
           returnedRows, json);
-    } catch (RuntimeException | JsonProcessingException e) {
+    } catch (RuntimeException e) {
       // Diagnostic serialization must not change a successful database response.
       LOGGER.debug("SQL result could not be formatted | uiSection={} | queryId={}", uiSection, queryId);
     }

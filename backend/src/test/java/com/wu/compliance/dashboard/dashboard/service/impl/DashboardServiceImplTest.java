@@ -10,7 +10,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.wu.compliance.dashboard.common.exception.InvalidDateRangeException;
 import com.wu.compliance.dashboard.common.exception.InvalidRequestException;
 import com.wu.compliance.dashboard.dashboard.dto.BatchDashboardResponse;
@@ -52,9 +52,9 @@ class DashboardServiceImplTest {
 
   @BeforeEach
   void setUp() throws IOException {
-    fixture = new ObjectMapper()
-      .findAndRegisterModules()
-      .readValue(getClass().getResource("/fixtures/dashboard-service.json"), DashboardFixture.class);
+    try (var fixtureStream = getClass().getResourceAsStream("/fixtures/dashboard-service.json")) {
+      fixture = new ObjectMapper().readValue(fixtureStream, DashboardFixture.class);
+    }
     when(countryCatalog.getSnapshot()).thenReturn(new CountryCatalogSnapshot(fixture.countries()));
     dashboardService = new DashboardServiceImpl(dashboardRepository, countryCatalog);
   }

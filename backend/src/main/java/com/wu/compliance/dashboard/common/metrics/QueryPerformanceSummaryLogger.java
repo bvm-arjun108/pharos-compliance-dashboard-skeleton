@@ -1,7 +1,7 @@
 package com.wu.compliance.dashboard.common.metrics;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -21,7 +21,7 @@ public class QueryPerformanceSummaryLogger {
   public void log(QueryPerformanceSummary summary) {
     try {
       LOGGER.info("{}", objectMapper.writeValueAsString(summary));
-    } catch (JsonProcessingException exception) {
+    } catch (JacksonException exception) {
       LOGGER.warn("Database query performance summary could not be serialized | view={} | endpoint={} | queryCount={}", summary.view(),
           summary.endpoint(), summary.queryCount(), exception);
     }

@@ -3,20 +3,23 @@ package com.wu.compliance.dashboard.common.jdbc.logging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.wu.compliance.dashboard.common.jdbc.sql.SqlResourceLoader;
 import com.wu.compliance.dashboard.common.metrics.QueryPerformanceProperties;
 import com.wu.compliance.dashboard.common.metrics.QueryPerformanceTracker;
 import com.wu.compliance.dashboard.testsupport.PostgresIntegrationTest;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -31,21 +34,22 @@ class TracingNamedParameterJdbcTemplateIntegrationTest extends PostgresIntegrati
   private static final SqlResourceLoader SQL_RESOURCES = new SqlResourceLoader(new DefaultResourceLoader());
   private Logger tracingLogger;
   private Level originalLevel;
-  private ListAppender<ILoggingEvent> appender;
+  private InMemoryAppender appender;
 
   @BeforeEach
   void attachLogAppender() {
-    tracingLogger = (Logger) LoggerFactory.getLogger(TracingNamedParameterJdbcTemplate.class);
+    tracingLogger = (Logger) LogManager.getLogger(TracingNamedParameterJdbcTemplate.class);
     originalLevel = tracingLogger.getLevel();
-    appender = new ListAppender<>();
+    appender = new InMemoryAppender();
     appender.start();
     tracingLogger.addAppender(appender);
   }
 
   @AfterEach
   void restoreLogging() {
-    tracingLogger.detachAppender(appender);
+    tracingLogger.removeAppender(appender);
     tracingLogger.setLevel(originalLevel);
+    appender.stop();
   }
 
   @Test
@@ -91,9 +95,9 @@ class TracingNamedParameterJdbcTemplateIntegrationTest extends PostgresIntegrati
       .addValue("id", 999), (rs, rowNum) -> rs.getString("rpt_grp_name"));
 
     assertEquals(List.of("Debug Test Group"), names);
-    String logged = appender.list
+    String logged = appender.events
       .stream()
-      .map(ILoggingEvent::getFormattedMessage)
+      .map(event -> event.getMessage().getFormattedMessage())
       .reduce("", (a, b) -> a + "\n" + b);
     assertTrue(logged.contains("SQL query starting"), "should log the starting event: " + logged);
     assertTrue(logged.contains("999"), "bind value should be inlined into the logged SQL: " + logged);
@@ -119,5 +123,18 @@ class TracingNamedParameterJdbcTemplateIntegrationTest extends PostgresIntegrati
         new MapSqlParameterSource("id", -1), Long.class);
 
     assertEquals(0L, count);
+  }
+
+  private static final class InMemoryAppender extends AbstractAppender {
+    private final List<LogEvent> events = new CopyOnWriteArrayList<>();
+
+    private InMemoryAppender() {
+      super("tracing-test", null, PatternLayout.createDefaultLayout(), false, Property.EMPTY_ARRAY);
+    }
+
+    @Override
+    public void append(LogEvent event) {
+      events.add(event.toImmutable());
+    }
   }
 }

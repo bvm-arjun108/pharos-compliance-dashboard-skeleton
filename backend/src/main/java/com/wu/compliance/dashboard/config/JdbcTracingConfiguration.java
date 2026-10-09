@@ -1,6 +1,6 @@
 package com.wu.compliance.dashboard.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.wu.compliance.dashboard.common.jdbc.logging.TracingNamedParameterJdbcTemplate;
 import com.wu.compliance.dashboard.common.metrics.QueryPerformanceProperties;
 import com.wu.compliance.dashboard.common.metrics.QueryPerformanceTracker;
