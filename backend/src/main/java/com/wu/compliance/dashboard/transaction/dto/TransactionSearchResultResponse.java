@@ -14,4 +14,6 @@ public record TransactionSearchResultResponse(@Schema(example = "1000000007") in
     + "since the caller now picks it up front", example = "mtcn") String matchedOn, String occurredAt,
     @Schema(description = "This row's actual MTCN, regardless of which field the search query matched on -- "
     + "used to jump straight to the transaction report's own identifier/MTCN search, which doesn't understand external "
-    + "transaction keys", example = "9000000000217510") String mtcn) {}
+    + "transaction keys", example = "9000000000217510") String mtcn,
+    @Schema(description = "This row's transaction key -- journey's identifier, or rule_hit/exclusion-audit's external_txn_key "
+    + "(null when that row has none)", example = "8000000000000144017") String identifier) {}

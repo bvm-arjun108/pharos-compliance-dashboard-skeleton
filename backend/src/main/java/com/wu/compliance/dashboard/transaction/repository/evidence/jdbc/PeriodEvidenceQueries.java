@@ -56,6 +56,16 @@ public class PeriodEvidenceQueries {
    */
   public SqlFragment batchScope(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
       List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId) {
+    return batchScopeFragment(fromTimestamp, toTimestampExclusive, filterByCountry, reportGroupIds, filterByReportGroup, reportGroupId,
+        batchId);
+  }
+
+  /**
+   * {@link #batchScope}'s SQL, static so callers outside the evidence pipelines (transaction search)
+   * apply the page's date/country/report-group scope by exactly the same rules.
+   */
+  public static SqlFragment batchScopeFragment(LocalDateTime fromTimestamp, LocalDateTime toTimestampExclusive, boolean filterByCountry,
+      List<Integer> reportGroupIds, boolean filterByReportGroup, int reportGroupId, String batchId) {
     StringBuilder sqlText = new StringBuilder("select rpt_grp_id, batch_id, rpt_grp_name, excluded_txn\n")
       .append("from ")
       .append(EvidenceTables.RECONCILIATION)

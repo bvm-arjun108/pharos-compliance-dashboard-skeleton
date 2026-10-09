@@ -7,4 +7,5 @@ package com.wu.compliance.dashboard.transaction.repository.projection;
  *  contradictory outcomes across report groups or rule sides.
  */
 public record TransactionSearchResultProjection(int reportGroupId, String reportGroupName, String countryCode, String countryName,
-    String batchId, String evidenceSource, String stage, String status, String comments, String matchedOn, String occurredAt, String mtcn) {}
+    String batchId, String evidenceSource, String stage, String status, String comments, String matchedOn, String occurredAt, String mtcn,
+    String identifier) {}

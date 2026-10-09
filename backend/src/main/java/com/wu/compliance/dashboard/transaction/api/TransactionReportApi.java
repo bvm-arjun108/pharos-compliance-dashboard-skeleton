@@ -160,7 +160,10 @@ public interface TransactionReportApi {
       @Parameter(description = "Exact report group ID", example = "1573742369") @RequestParam(value = "reportGroupId", required = false) Integer reportGroupId);
 
   @Operation(operationId = "searchTransactions", summary = "Find every evidence row matching one MTCN or external transaction key, across"
-      + " every report group", description = "No date range, report group, or country required -- for when the caller knows a transaction's "
+      + " every report group", description = "When fromDate/toDate are supplied (both or neither), only batches in that period -- and in the "
+      + "optional country/report group -- are searched, by the same rules as the period report; rows lacking the searched key are also "
+      + "matched through the transaction's other key in reg_reportable_activity. Without a period, every report group is searched for "
+      + "when the caller knows a transaction's "
       + "MTCN or external transaction key but not which country or report group it belongs to. Returns every matching row from "
       + "journey, exclusion-audit, and rule_hit unmerged, since the same real transaction can be evaluated more than "
       + "once (once per report group or rule side) with genuinely different outcomes in each. `field` picks the single "
@@ -168,11 +171,18 @@ public interface TransactionReportApi {
       + "falling back to a different field.")
   @ApiResponses({@ApiResponse(responseCode = "200", description = "Search completed successfully (possibly with zero results)", headers = {@Header(name = "X"
       + "-Trace-Id", description = TRACE_ID_DESCRIPTION), @Header(name = SPAN_ID_HEADER, description = SPAN_ID_DESCRIPTION)}, content = @Content(schema = @Schema(implementation = TransactionSearchResponse.class))),
-      @ApiResponse(responseCode = "400", description = "Blank search query", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+      @ApiResponse(responseCode = "400", description = "Blank search query, only one of fromDate/toDate, an inverted period, or an "
+      + "unsupported country", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
       @ApiResponse(responseCode = "503", description = "Compliance database unavailable", content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))})
   @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
   TransactionSearchResponse searchTransactions(
       @Parameter(description = "Which field to match query against", required = true, example = "MTCN") @RequestParam("field") TransactionSearchField field,
       @Parameter(description = "MTCN or external transaction key to search for", required = true, example = "9000000000217510") @RequestParam("q"
-      + "uery") @NotBlank String query);
+      + "uery") @NotBlank String query,
+      @Parameter(description = "Inclusive period start (requires toDate)", example = "2026-08-01") @RequestParam(value = "fromDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+      @Parameter(description = "Inclusive period end (requires fromDate)", example = "2026-08-31") @RequestParam(value = "toDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+      @Parameter(description = "Active report_group_config country code or ALL; applies only with a period", example = "PT") @RequestParam(value = "c"
+      + "ountry", defaultValue = "ALL") String country,
+      @Parameter(description = "Exact report group ID; applies only with a period", example = "1573742369") @RequestParam(value = "report"
+      + "GroupId", required = false) Integer reportGroupId);
 }

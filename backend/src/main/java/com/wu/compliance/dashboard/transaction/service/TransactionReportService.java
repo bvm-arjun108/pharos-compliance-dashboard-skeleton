@@ -31,5 +31,9 @@ public interface TransactionReportService {
       TransactionStage stage, TransactionOutcome outcome, TransactionStatus status, String reason, boolean batchScopedExcluded,
       String batchIdFilter, String recordKey);
 
-  TransactionSearchResponse searchTransactions(TransactionSearchField field, String query);
+  /**
+   * {@code fromDate}/{@code toDate} both null searches every report group, as before.
+   */
+  TransactionSearchResponse searchTransactions(TransactionSearchField field, String query, LocalDate fromDate, LocalDate toDate,
+      String country, Integer reportGroupId);
 }

@@ -50,8 +50,9 @@ public class TransactionReportController implements TransactionReportApi {
   }
 
   @Override
-  public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query) {
-    return transactionReportService.searchTransactions(field, query);
+  public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query, LocalDate fromDate, LocalDate toDate,
+      String country, Integer reportGroupId) {
+    return transactionReportService.searchTransactions(field, query, fromDate, toDate, country, reportGroupId);
   }
 
   @Override

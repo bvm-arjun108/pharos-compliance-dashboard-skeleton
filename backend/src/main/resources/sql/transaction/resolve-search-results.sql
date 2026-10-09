@@ -32,6 +32,7 @@ select
   m.comments as "comments",
   :matchedOnLabel as "matchedOn",
   m.occurred_at as "occurredAt",
-  m.mtcn_value as "mtcn"
+  m.mtcn_value as "mtcn",
+  m.identifier_value as "identifier"
 from matches m
 order by m.occurred_at desc nulls last

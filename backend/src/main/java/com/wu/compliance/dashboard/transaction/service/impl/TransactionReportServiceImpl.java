@@ -276,23 +276,44 @@ public class TransactionReportServiceImpl implements TransactionReportService {
    *  not a defect to hide.
    */
   @Override
-  public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query) {
+  public TransactionSearchResponse searchTransactions(TransactionSearchField field, String query, LocalDate fromDate, LocalDate toDate,
+      String country, Integer reportGroupId) {
+    if ((fromDate == null) != (toDate == null)) {
+      throw new InvalidRequestException("fromDate and toDate must be supplied together");
+    }
+    if (fromDate != null && fromDate.isAfter(toDate)) {
+      throw new InvalidDateRangeException("fromDate must be on or before toDate");
+    }
+    TransactionSearchRepository.SearchScope scope = fromDate == null ? null : searchScope(fromDate, toDate, country, reportGroupId);
     return logOperation("Transaction search",
-        () -> LOGGER.debug("Transaction search scope resolved | field={} | queryLength={}", field, query.length()),
+        () -> LOGGER.debug("Transaction search scope resolved | field={} | queryLength={} | period={} | country={} | reportGroupId={}",
+            field, query.length(), fromDate == null ? "ALL" : fromDate + ".." + toDate, normalizeCountryCode(country),
+            reportGroupId == null ? "ALL" : reportGroupId),
         () -> {
           String normalizedQuery = query.trim();
           if (normalizedQuery.isEmpty()) {
             throw new InvalidRequestException("Search query must not be blank");
           }
-          List<TransactionSearchResultProjection> searchMatches = transactionSearchRepository.search(field, normalizedQuery);
+          List<TransactionSearchResultProjection> searchMatches = scope == null
+          ? transactionSearchRepository.search(field, normalizedQuery)
+          : transactionSearchRepository.search(field, normalizedQuery, scope);
           return new TransactionSearchResponse(normalizedQuery,
               searchMatches
                 .stream()
                 .map(match -> new TransactionSearchResultResponse(match.reportGroupId(), match.reportGroupName(), match.countryCode(),
                     match.countryName(), match.batchId(), match.evidenceSource(), match.stage(), match.status(), match.comments(),
-                    match.matchedOn(), match.occurredAt(), match.mtcn()))
+                    match.matchedOn(), match.occurredAt(), match.mtcn(), match.identifier()))
                 .toList());
         }, transactionSearchResponse -> "resultCount=" + transactionSearchResponse.results().size());
+  }
+
+  /**
+   * Same country/report-group resolution as {@link #getPeriodTransactionReport}.
+   */
+  private TransactionSearchRepository.SearchScope searchScope(LocalDate fromDate, LocalDate toDate, String country, Integer reportGroupId) {
+    CountryFilter countryFilter = resolvePeriodCountryFilter(countryCatalog.getSnapshot(), normalizeCountryCode(country), reportGroupId);
+    return new TransactionSearchRepository.SearchScope(fromDate.atStartOfDay(), toDate.plusDays(1).atStartOfDay(), countryFilter.enabled(),
+        countryFilter.reportGroupIds(), reportGroupId != null, reportGroupId == null ? -1 : reportGroupId);
   }
 
   private CountryFilter resolvePeriodCountryFilter(CountryCatalogSnapshot countryCatalogSnapshot, String countryCode, Integer reportGroupId) {

@@ -20,11 +20,12 @@ interface ReportGroupOption {
   countryCode: string;
 }
 
-// Only the field this page actually reads -- the transaction report page's own search box only
-// understands identifier/mtcn, so every result's resolved mtcn is what gets carried into that
-// redirect, regardless of whether the search matched on MTCN or external transaction key.
+// Only the fields this page actually reads -- the transaction report page's own search box only
+// understands identifier/mtcn, so a result's mtcn (or, when no result carries one, its identifier)
+// is what gets carried into that redirect, whichever field the search matched on.
 interface TransactionSearchResult {
   mtcn: string | null;
+  identifier: string | null;
 }
 
 type TransactionSearchField = 'MTCN' | 'EXTERNAL_TXN_ID';
@@ -92,8 +93,9 @@ type ReportPeriod = DashboardReportPeriod;
 
       <form class="filter-form" (submit)="applyFilters($event)">
         <!-- Unscoped lookup, in the same row as the filters below (same slot Batch View's Batch ID
-             field takes there) -- resolves an identifier/MTCN/external transaction key via
-             TransactionSearchRepository (no date/country/report-group needed) and jumps straight
+             field takes there) -- resolves an MTCN/external transaction key via
+             TransactionSearchRepository within this row's report period (and Country / Report
+             Group when selected) and jumps straight
              to the detailed transaction report on Enter, rather than applying this row's own
              filters. Its own (keydown.enter) handler prevents that keypress from also submitting
              this form as an Apply-filters action. -->
@@ -704,14 +706,13 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
     this.searchField.set((event.target as HTMLSelectElement).value as TransactionSearchField);
   }
 
-  /** Deliberately unscoped -- no date range, country, or report group required, since the whole
-   *  point is finding a transaction when none of those are known yet. Resolves via
+  /** Scoped to this page's report period (mandatory) plus Country / Report Group when selected,
+   *  so only the batches those filters cover are searched. Resolves via
    *  TransactionSearchRepository, scoped to exactly the field the dropdown picked (MTCN or
    *  external transaction key -- no more guessing which field an ambiguous value was meant to
-   *  match), then redirects straight to the transaction report's own detailed view instead of
-   *  rendering a second results table here -- redirecting on the resolved mtcn rather than the
-   *  raw typed text, since that page's own search only matches identifier/mtcn and wouldn't find
-   *  anything if the user had searched by external transaction key. Never logs the query value
+   *  match), then redirects straight to the transaction report's own detailed view, in the same
+   *  scope, instead of rendering a second results table here -- redirecting on the resolved mtcn
+   *  when there is one, otherwise on the searched external transaction key. Never logs the query value
    *  itself (only its length, server-side), matching the app's convention for search terms over
    *  customer transaction data.
    *
@@ -727,22 +728,46 @@ export class TransactionOverviewComponent implements OnInit, AfterViewInit, OnDe
     if (!query) {
       return;
     }
+    // The report period is mandatory: search only looks in the batches this page's filters cover
+    // (plus Country / Report Group when selected), and the redirect keeps that same scope.
+    const period = this.resolvePeriod();
+    if (!period) {
+      this.searchError.set('Select both custom dates.');
+      return;
+    }
+    const field = this.searchField();
+    let params = new HttpParams()
+      .set('field', field)
+      .set('query', query)
+      .set('fromDate', period.fromDate)
+      .set('toDate', period.toDate);
+    const scope: Record<string, string> = { fromDate: period.fromDate, toDate: period.toDate };
+    if (this.country() !== 'ALL') {
+      params = params.set('country', this.country());
+      scope['country'] = this.country();
+    }
+    if (this.reportGroupId() !== 'ALL') {
+      params = params.set('reportGroupId', this.reportGroupId());
+      scope['reportGroupId'] = this.reportGroupId();
+    }
     this.searchLoading.set(true);
     this.searchError.set(null);
     this.http
-      .get<TransactionSearchResponse>('/api/v1/transactions/search', {
-        params: new HttpParams().set('field', this.searchField()).set('query', query)
-      })
+      .get<TransactionSearchResponse>('/api/v1/transactions/search', { params })
       .subscribe({
         next: response => {
           this.searchLoading.set(false);
+          // A match may carry no MTCN (e.g. found by External Txn ID, or by MTCN only through
+          // reg_reportable_activity); the report page's search also matches identifiers, so redirect
+          // on the match's identifier then, rather than reporting no evidence.
           const mtcn = response.results.find(result => result.mtcn)?.mtcn;
-          if (!mtcn) {
-            this.searchError.set(`No evidence found for "${query}".`);
+          const redirectSearch = mtcn ?? response.results.find(result => result.identifier)?.identifier ?? null;
+          if (!redirectSearch) {
+            this.searchError.set(`No evidence found for "${query}" in the selected filters (${period.fromDate} to ${period.toDate}).`);
             return;
           }
           void this.router.navigate(['/transactions'], {
-            queryParams: { fromDate: '2000-01-01', toDate: '2099-12-31', search: mtcn }
+            queryParams: { ...scope, search: redirectSearch }
           });
         },
         error: () => {
