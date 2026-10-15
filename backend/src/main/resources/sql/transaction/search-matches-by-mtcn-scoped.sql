@@ -25,6 +25,21 @@ where j.mtcn is null
   and j.identifier ~ '^[0-9]+$'
   and j.identifier::bigint in (select txn_sur_key from pharos.reg_reportable_activity where mtcn = :mtcn)
 union all
+-- Same, for identifiers carrying a payside suffix (<key>_P / <key>_S): exact primary-key lookups.
+select j.rpt_grp_id as report_group_id, cast(null as text) as report_group_name, j.batch_id, 'JOURNEY' as evidence_source,
+  j.stage, j.status, j.comments, j.modified_timestamp::text as occurred_at, j.mtcn as mtcn_value, j.identifier as identifier_value
+from search_batches b
+join pharos.record_transformation_journey j
+  on j.rpt_grp_id = b.rpt_grp_id
+  and j.batch_id = b.batch_id
+where j.mtcn is null
+  and j.identifier in (
+    select r.txn_sur_key::text || s.suffix
+    from pharos.reg_reportable_activity r
+    cross join (values ('_P'), ('_S')) s(suffix)
+    where r.mtcn = :mtcn
+  )
+union all
 select ea.rpt_grp_id as report_group_id, ea.rpt_grp_name as report_group_name, ea.processing_batch_id as batch_id,
   'EXCLUSION_AUDIT' as evidence_source, 'EXCLUSION' as stage, 'EXCLUDED' as status, ea.exclusion_reason_id as comments,
   ea.modified_timestamp::text as occurred_at, ea.mtcn as mtcn_value, ea.external_txn_key::text as identifier_value

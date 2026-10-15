@@ -74,8 +74,16 @@ public class OverviewEvidenceQueries {
         + "    or (j.stage = 'TRANSFORMATION' and upper(coalesce(j.status, '')) = 'SUCCESS' and rbe.batch_generated is true)"
         + ") as ever_reported,\n"
         + "  max(case when upper(coalesce(j.status, '')) in ('EXCLUDED', 'EXCLUDED_SOFT_DEDUP') then coalesce(j.comments, j.skip_reason) "
-        + "end) as reason,\n" + "  max(coalesce(j.comments, j.skip_reason)) as not_reported_reason\n" + "from " + EvidenceTables.JOURNEY
-        + " j\n" + "join reporting_batch_evidence rbe on rbe.rpt_grp_id = j.rpt_grp_id and rbe.batch_id = j.batch_id\n"
+        + "end) as reason,\n"
+        + "  max(coalesce(j.comments, j.skip_reason)) as not_reported_reason,\n"
+        // The batches this transaction appears in within scope -- one entry per batch, since the
+    // journey primary key is (rpt_grp_id, batch_id, identifier). latest-journey-for-target.sql uses
+    // them for exact primary-key lookups instead of re-scanning every in-scope batch.
+    + "  array_agg(j.batch_id) as batch_ids\n"
+        + "from "
+        + EvidenceTables.JOURNEY
+        + " j\n"
+        + "join reporting_batch_evidence rbe on rbe.rpt_grp_id = j.rpt_grp_id and rbe.batch_id = j.batch_id\n"
         + "group by j.rpt_grp_id, j.identifier";
     return SqlFragment.of(sqlText);
   }
@@ -95,7 +103,8 @@ public class OverviewEvidenceQueries {
         : "ever_reported is false and ever_excluded is false";
 
     Map<String, Object> params = new HashMap<>();
-    StringBuilder sqlText = new StringBuilder("select rpt_grp_id, identifier from reporting_roll where ").append(bucketCondition);
+    StringBuilder sqlText = new StringBuilder("select rpt_grp_id, identifier, batch_ids from reporting_roll where ")
+      .append(bucketCondition);
 
     if (reason != null && !reason.isEmpty() && (VALUE_EXCLUDED.equals(status) || VALUE_NOT_REPORTED.equals(status))) {
       String reasonColumn = VALUE_EXCLUDED.equals(status) ? "reason" : "not_reported_reason";

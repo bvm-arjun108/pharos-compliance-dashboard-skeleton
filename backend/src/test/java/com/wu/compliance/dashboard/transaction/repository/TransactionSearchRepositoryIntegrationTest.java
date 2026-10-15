@@ -263,4 +263,40 @@ class TransactionSearchRepositoryIntegrationTest extends PostgresIntegrationTest
     assertEquals("555003", repository.search(TransactionSearchField.MTCN, "MTCN-E-1").get(0).identifier(),
         "exclusion_audit external_txn_key");
   }
+
+  private List<String> identifiersFound(String query, TransactionSearchRepository.SearchScope scope) {
+    List<TransactionSearchResultProjection> results = scope == null
+        ? repository.search(TransactionSearchField.EXTERNAL_TXN_ID, query)
+        : repository.search(TransactionSearchField.EXTERNAL_TXN_ID, query, scope);
+    return results.stream().map(TransactionSearchResultProjection::identifier).sorted().toList();
+  }
+
+  @Test
+  void externalTxnIdSearchAlsoFindsJourneyIdentifiersWithAPaysideSuffix() {
+    insertReconciliation(GROUP, "BATCH-PS", 1, MARCH_START.plusDays(6));
+    insertJourney(GROUP, "BATCH-PS", "777201_P", "MTCN-PS-P");
+    insertJourney(GROUP, "BATCH-PS", "777201_S", "MTCN-PS-S");
+    insertJourney(GROUP, "BATCH-PS", "7772010_P", "MTCN-OTHER-KEY");
+    insertJourney(GROUP, "BATCH-PS", "777201_X", "MTCN-UNKNOWN-SUFFIX");
+
+    List<String> bothSides = List.of("777201_P", "777201_S");
+    assertEquals(bothSides, identifiersFound("777201", null), "unscoped: both paysides, never another key or an unknown suffix");
+    assertEquals(bothSides, identifiersFound("777201", march()), "scoped: same");
+    assertEquals(bothSides, identifiersFound("777201_P", march()), "a suffixed query searches the whole transaction");
+    assertEquals(bothSides, identifiersFound("777201_s", null), "the suffix is accepted in either case");
+    assertTrue(identifiersFound("777201_X", march()).isEmpty(), "only _P / _S are payside suffixes");
+    assertTrue(identifiersFound("_P", march()).isEmpty());
+  }
+
+  @Test
+  void scopedMtcnSearchFindsAPaysideSuffixedJourneyRowWithNoMtcnThroughRegReportableActivity() {
+    insertReconciliation(GROUP, "BATCH-PS", 1, MARCH_START.plusDays(6));
+    insertJourney(GROUP, "BATCH-PS", "777202_P", null);
+    insertRra(777202, "MTCN-PS-1");
+
+    List<TransactionSearchResultProjection> results = repository.search(TransactionSearchField.MTCN, "MTCN-PS-1", march());
+
+    assertEquals(1, results.size());
+    assertEquals("777202_P", results.get(0).identifier());
+  }
 }

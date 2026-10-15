@@ -6,7 +6,8 @@
 -- a transaction reprocessed across N batches would surface as N separate rows there, none of them
 -- collapsing. Ranking by identifier alone and taking the top row sidesteps that grain entirely.
 --
--- Assumes `batch_scope` and `reporting_target` are already CTEs earlier in the same WITH clause.
+-- Assumes `batch_scope` and `reporting_target` (with its `batch_ids`) are already CTEs earlier in the
+-- same WITH clause.
 -- `source_rank` is deliberately left in the output (rather than projected away) -- it passes
 -- through as harmless leftover baggage into filtered_evidence/ranked_evidence, distinct from
 -- ranked-evidence.sql's own unrelated merge_source_rank column, exactly as the jOOQ version's own
@@ -47,11 +48,18 @@ select * from (
     cast(null as text) as galactic_id,
     ea.bucket_id as bucket_id,
     ea.attempt_id as attempt_id,
-    (case when j.identifier ~ '^[0-9]+$' then j.identifier::bigint else null end) as rra_key,
+    (case when j.identifier ~ '^[0-9]+(_[PS])?$' then split_part(j.identifier, '_', 1)::bigint else null end) as rra_key,
     row_number() over (partition by j.rpt_grp_id, j.identifier order by j.modified_timestamp desc nulls last) as source_rank
-  from pharos.record_transformation_journey j
-  join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id
-  join reporting_target tgt on tgt.rpt_grp_id = j.rpt_grp_id and tgt.identifier = j.identifier
+  -- Exact primary-key lookups: each target transaction carries the in-scope batches it appears in
+  -- (reporting_roll.batch_ids). Joining on (rpt_grp_id, identifier) alone instead made the planner
+  -- pair every target transaction with every batch of its report group and re-scan each of those
+  -- batches for that one identifier -- quadratic, and hours on a large batch.
+  from reporting_target tgt
+  cross join lateral unnest(tgt.batch_ids) as tb(batch_id)
+  join pharos.record_transformation_journey j
+    on j.rpt_grp_id = tgt.rpt_grp_id
+    and j.batch_id = tb.batch_id
+    and j.identifier = tgt.identifier
   left join (
     -- A transaction can have several audit rows in one batch. Select the latest one before the
     -- join so audit enrichment cannot multiply the journey rows returned to the UI.

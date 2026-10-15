@@ -33,7 +33,7 @@ select
   cast(null as text) as galactic_id,
   cast(null as integer) as bucket_id,
   cast(null as bigint) as attempt_id,
-  (case when identifier ~ '^[0-9]+$' then identifier::bigint else null end) as rra_key
+  (case when identifier ~ '^[0-9]+(_[PS])?$' then split_part(identifier, '_', 1)::bigint else null end) as rra_key
 from pharos.record_transformation_journey
 where rpt_grp_id = :reportGroupId and batch_id = :batchId
 

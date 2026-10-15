@@ -123,6 +123,12 @@ public class EvidencePaginator {
         params.put("mergeIdentifier" + i, pageKeys.get(i).identifier());
       }
       select.append(")");
+      // Redundant with the tuple condition above, but unlike it this one names only identifier --
+      // the partition column of the window functions upstream (e.g. latest-journey-for-target.sql's
+      // per-transaction ranking) -- so Postgres can push it below them and build just the page's
+      // transactions instead of every transaction in scope before filtering.
+      select.append("\n  and identifier in (:mergeIdentifiers)");
+      params.put("mergeIdentifiers", pageKeys.stream().map(PageKey::identifier).distinct().toList());
     }
     select.append("\ngroup by evidence_batch_id, identifier");
     return SqlFragment.of(select.toString(), params).asCte("merged");

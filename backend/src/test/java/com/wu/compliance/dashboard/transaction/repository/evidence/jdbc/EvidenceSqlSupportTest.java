@@ -6,8 +6,9 @@ import org.junit.jupiter.api.Test;
 
 class EvidenceSqlSupportTest {
   @Test
-  void matchesDigitsOnlyInlinesTheFixedRegexAgainstTheGivenColumn() {
-    assertEquals("j.identifier ~ '^[0-9]+$'", EvidenceSqlSupport.matchesDigitsOnly("j.identifier"));
+  void transactionKeyTakesTheDigitsOfAPlainOrPaysideSuffixedIdentifier() {
+    assertEquals("(case when j.identifier ~ '^[0-9]+(_[PS])?$' then split_part(j.identifier, '_', 1)::bigint else null end)",
+        EvidenceSqlSupport.transactionKey("j.identifier"));
   }
 
   @Test
@@ -20,8 +21,16 @@ class EvidenceSqlSupportTest {
   @Test
   void searchScopeBindsTheLowercasedWildcardPatternRatherThanInliningIt() {
     var fragment = EvidenceSqlSupport.searchScope("MTCN-1", "j.identifier", "j.mtcn");
-    assertEquals("(lower(j.identifier) like :searchPattern or lower(coalesce(j.mtcn, '')) like :searchPattern)", fragment.sql());
+    assertEquals("(lower(j.identifier) like :searchPattern escape '\\' or lower(coalesce(j.mtcn, '')) like :searchPattern escape '\\')",
+        fragment.sql());
     assertEquals("%mtcn-1%", fragment.params().get("searchPattern"));
+  }
+
+  @Test
+  void searchScopeEscapesLikeMetacharactersSoTheyMatchLiterally() {
+    assertEquals("%12345\\_pay%", EvidenceSqlSupport.searchScope("12345_PAY", "i", "m").params().get("searchPattern"));
+    assertEquals("%50\\%%", EvidenceSqlSupport.searchScope("50%", "i", "m").params().get("searchPattern"));
+    assertEquals("%a\\\\b%", EvidenceSqlSupport.searchScope("a\\b", "i", "m").params().get("searchPattern"));
   }
 
   @Test

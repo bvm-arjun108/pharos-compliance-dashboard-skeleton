@@ -62,9 +62,8 @@ public class BatchEvidenceQueries {
   }
 
   private SqlFragment ruleHitBridge(int reportGroupId, String batchId, String journeyRestrictionSql, Map<String, Object> restrictionParams) {
-    String journeyScopedSql = "select identifier as identifier, mtcn as mtcn,\n  (case when "
-        + EvidenceSqlSupport.matchesDigitsOnly("identifier") + " then identifier::bigint else null end) as identifier_bigint\n"
-        + "from pharos.record_transformation_journey\n"
+    String journeyScopedSql = "select identifier as identifier, mtcn as mtcn,\n  " + EvidenceSqlSupport.transactionKey("identifier")
+        + " as identifier_bigint\n" + "from pharos.record_transformation_journey\n"
         + "where rpt_grp_id = :ruleHitBridgeGroupId and batch_id = :ruleHitBridgeBatchId and " + journeyRestrictionSql;
     Map<String, Object> journeyParams = new HashMap<>(restrictionParams);
     journeyParams.put("ruleHitBridgeGroupId", reportGroupId);

@@ -162,8 +162,7 @@ public class PeriodEvidenceQueries {
    */
   public SqlFragment ruleHitMatchesForPeriodEnrichment(Collection<String> pageIdentifiers) {
     String journeyScopedSql = "select j.rpt_grp_id as rpt_grp_id, j.batch_id as batch_id, j.identifier as identifier, j.mtcn as mtcn,\n"
-        + "  (case when " + EvidenceSqlSupport.matchesDigitsOnly("j.identifier") + " then j.identifier::bigint else null end) as "
-        + "identifier_bigint\n" + "from " + EvidenceTables.JOURNEY + " j\n"
+        + "  " + EvidenceSqlSupport.transactionKey("j.identifier") + " as identifier_bigint\n" + "from " + EvidenceTables.JOURNEY + " j\n"
         + "join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id\n"
         + "where j.identifier in (:enrichmentIdentifiers)";
     SqlFragment journeyScoped = SqlFragment.of(journeyScopedSql, Map.of("enrichmentIdentifiers", pageIdentifiers));
@@ -182,9 +181,9 @@ public class PeriodEvidenceQueries {
    * batch_scope} resolves, never on the report group as a whole.
    */
   private SqlFragment ruleHitBridge() {
-    String journeyScopedSql = "select j.identifier as identifier, j.mtcn as mtcn,\n" + "  (case when "
-        + EvidenceSqlSupport.matchesDigitsOnly("j.identifier") + " then j.identifier::bigint else null end) as identifier_bigint\n"
-        + "from " + EvidenceTables.JOURNEY + " j\n" + "join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id";
+    String journeyScopedSql = "select j.identifier as identifier, j.mtcn as mtcn,\n" + "  "
+        + EvidenceSqlSupport.transactionKey("j.identifier") + " as identifier_bigint\n" + "from " + EvidenceTables.JOURNEY + " j\n"
+        + "join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id";
     SqlFragment journeyScoped = SqlFragment.of(journeyScopedSql);
     SqlFragment ruleHitScope = SqlFragment.of("(rh.rpt_grp_id, rh.efile_batch_id) in (select rpt_grp_id, batch_id from batch_scope)");
     return ruleHitMatcher.ruleHitMatches(ruleHitScope, journeyScoped);

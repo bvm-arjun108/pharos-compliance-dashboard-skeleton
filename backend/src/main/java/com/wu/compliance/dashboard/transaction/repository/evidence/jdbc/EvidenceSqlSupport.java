@@ -15,27 +15,35 @@ public final class EvidenceSqlSupport {
   }
 
   /**
-   * A fixed regex literal with no bind parameter -- {@code columnRef} is a caller-supplied column
-   * reference, not user input, so inlining it into the condition text is exactly as safe as jOOQ's
-   * own {@code DSL.condition("{0} ~ '^[0-9]+$'", field)} template.
+   * The transaction key (rule_hit/exclusion-audit {@code external_txn_key}, RRA {@code txn_sur_key})
+   * a journey identifier carries: the whole identifier when it is all digits, or the digits before
+   * the payside some countries append ({@code <key>_P}, {@code <key>_S}); null for any other shape.
+   * {@code columnRef} is a caller-supplied column reference, never user input.
    */
-  public static String matchesDigitsOnly(String columnRef) {
-    return columnRef + " ~ '^[0-9]+$'";
+  public static String transactionKey(String columnRef) {
+    return "(case when " + columnRef + " ~ '^[0-9]+(_[PS])?$' then split_part(" + columnRef + ", '_', 1)::bigint else null end)";
   }
 
   /**
    * {@code search} is the one genuinely user-supplied value here, so it only ever reaches the
    * query as a bound parameter (never concatenated into the SQL text) -- an empty search returns
    * an always-true fragment with no parameters, matching jOOQ's own {@code DSL.trueCondition()}.
+   * The text is matched literally: {@code %}, {@code _} and {@code \} are escaped, since real
+   * identifiers contain {@code _} (e.g. {@code <digits>_<payside>}) and would otherwise act as
+   * a single-character wildcard.
    */
   public static SqlFragment searchScope(String search, String identifierColumnRef, String mtcnColumnRef) {
     if (search.isEmpty()) {
       return SqlFragment.of("true");
     }
-    String pattern = "%" + search.toLowerCase(Locale.ROOT) + "%";
-    String sql =
-        "(lower(" + identifierColumnRef + ") like :searchPattern or lower(coalesce(" + mtcnColumnRef + ", '')) like :searchPattern)";
+    String pattern = "%" + escapeLikePattern(search.toLowerCase(Locale.ROOT)) + "%";
+    String sql = "(lower(" + identifierColumnRef + ") like :searchPattern escape '\\' or lower(coalesce(" + mtcnColumnRef
+        + ", '')) like :searchPattern escape '\\')";
     return SqlFragment.of(sql, Map.of("searchPattern", pattern));
+  }
+
+  static String escapeLikePattern(String value) {
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
   }
 
   /**

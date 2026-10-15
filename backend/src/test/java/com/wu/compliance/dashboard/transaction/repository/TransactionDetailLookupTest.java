@@ -296,4 +296,23 @@ class TransactionDetailLookupTest extends PostgresIntegrationTest {
     assertEquals(1, overviewCount,
         "602 was also reported, so the overview rollup's ever-excluded-and-never-reported definition " + "must drop it, leaving only 601");
   }
+
+  @Test
+  void batchDetailForAPaysideSuffixedIdentifierGetsItsRuleHitAndPartyDetailsThroughTheTransactionKey() {
+    jdbcTemplate.getJdbcOperations().update("delete from pharos.reg_reportable_activity where txn_sur_key = 777301");
+    insertJourney(8505, "PS-BATCH", "777301_P", "TRANSFORMATION", "SUCCESS", LocalDateTime.now());
+    jdbcTemplate.update("insert into pharos.rule_hit (rpt_grp_id, bucket_id, rule_id, attempt_id, efile_batch_id, mtcn, external_txn_key, is_reported) "
+        + "values (8505, 1, 'R-PS', 1, 'PS-BATCH', null, 777301, false)", new MapSqlParameterSource());
+    jdbcTemplate.update("insert into pharos.reg_reportable_activity (txn_sur_key, s_party_name) values (777301, 'Sender PS')",
+        new MapSqlParameterSource());
+
+    Optional<TransactionEvidenceProjection> detail =
+        repository.findBatchEvidenceDetail(8505, "PS-BATCH", "777301_P", "ALL", "ALL", "ALL", "ALL", "ALL", "RULE_HIT:1:R-PS:1");
+    // A journey row merged with its rule hit carries the rule hit's record key -- and that record only
+    // exists at all if the rule hit resolved to identifier 777301_P.
+    assertTrue(detail.isPresent(), "the rule hit must merge into the 777301_P journey row");
+    assertEquals("777301_P", detail.get().identifier());
+    assertEquals("Sender PS", detail.get().senderName(), "RRA joined through the digits before _P");
+    assertTrue(detail.get().ruleHitsJson().contains("R-PS"), "the rule hit has no MTCN, so it can only match through external_txn_key");
+  }
 }

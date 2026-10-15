@@ -40,7 +40,7 @@ select
   cast(null as text) as galactic_id,
   cast(null as integer) as bucket_id,
   cast(null as bigint) as attempt_id,
-  (case when j.identifier ~ '^[0-9]+$' then j.identifier::bigint else null end) as rra_key
+  (case when j.identifier ~ '^[0-9]+(_[PS])?$' then split_part(j.identifier, '_', 1)::bigint else null end) as rra_key
 from pharos.record_transformation_journey j
 join batch_scope bs on bs.rpt_grp_id = j.rpt_grp_id and bs.batch_id = j.batch_id
 
