@@ -1,4 +1,4 @@
-# compliance-dashboard-spa
+# Compliance-Dashboard-SPA
 
 Angular frontend for Pharos Compliance Operations. Provides the Batch View, Transaction View, and Report Config workspaces, with drill-down screens for batches and transaction evidence.
 
@@ -26,6 +26,20 @@ npm run build
 ```
 
 Deployable static assets are output to `dist/dashboard/browser/` — publish the contents of that directory, not the whole repository.
+
+## Quality checks
+
+```bash
+npm run lint
+npm test
+npm run test:coverage
+```
+
+Coverage is written to `coverage/dashboard/`, and Jest writes the Sonar-compatible test execution report to `reports/test-reporter.xml`. The corporate GitLab shared pipeline consumes these paths for code-quality analysis.
+
+## CI/CD
+
+The repository uses the corporate `continuous-devops/git_shared_library_trunk` `zipandUpload` template. Select `dev`, `qa`, `uat`, or `prod` through `TARGET_ENV`; the pipeline builds the Angular application and packages `dist/dashboard/browser/` as `compliance_dashboard_spa`.
 
 ## Application routes
 

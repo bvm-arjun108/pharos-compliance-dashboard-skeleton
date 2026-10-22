@@ -1,0 +1,48 @@
+variables:
+  TARGET_ENV:
+    value: 'dev'
+    options:
+      - 'dev'
+      - 'qa'
+      - 'uat'
+      - 'prod'
+    description: 'Choose environment for the build'
+
+default:
+  tags:
+    - kubernetes-prod-dockershim
+
+stages:
+  - initialization
+  - checkmarx
+  - package
+  - codequality
+  - zipandupload
+  - postdeploy
+
+include:
+  project: 'continuous-devops/git_shared_library_trunk'
+  file: 'templates/zipandUpload.yml'
+  ref: master
+  inputs:
+    sonar_quality_gate: 'WU-Custom-QualityGate-70'
+    node: 'pod-build-tools-node22.22.3-fe'
+    artifactory_server: 'artifactory-prod'
+    build_tools_container_image: 'artifactory.wureachprod.awswuintcanet.net/hub-docker-prod-local/hub/ubuntu/24/pod-templates/build-tools-openjdk17-node22:latest'
+    docker_creds: 'artifactory-cmp-cicd'
+    base_artifact_name: 'compliance-cmp1'
+    app_group: 'Pharos'
+    app_name: 'compliance-dashboard-spa-${TARGET_ENV}'
+    stage_build_with: 'nodejs'
+    stage_build_timeout: '2100'
+    stage_checkmarx_timeout: '1800'
+    stage_npm_command_beforeinstall: "sed -i 's|_auth|//artifactory.wureachprod.awswuintcanet.net/artifactory/api/npm/:_auth|g' ~/.npmrc"
+    stage_npm_buildcommand: 'build'
+    stage_npm_command_afterbuild: 'pwd && ls -lcth && cd dist/dashboard/browser/ && pwd && ls -lcth'
+    stage_npm_installcommand: '--verbose'
+    stage_npm_publishcommand: ''
+    mail_to: 'Pharos-DevOps@westernunion.com'
+    approver_mail_to: 'Pharos-DevOps@westernunion.com'
+    zip_folder_path: 'dist/dashboard/browser/'
+    zip_file: 'compliance_dashboard_spa'
+    exclude_folders: '*test*,*lib*,*docs*,*swagger*,*angular*,*node_modules*,*bootstrap*,*modernizr*,*yui*,*dojo*,*xjs*,*react*,*plugins*,*3rd*,*build*,*nuget*,*e2e*,*reports*,*coverage*,*dist*,*ofuser*,*environment*'

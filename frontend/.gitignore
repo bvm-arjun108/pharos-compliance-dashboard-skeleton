@@ -1,0 +1,8 @@
+/.angular/
+/coverage/
+/dist/
+/node_modules/
+/out-tsc/
+/reports/
+
+.DS_Store
