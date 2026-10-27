@@ -7,7 +7,7 @@ This monorepo contains the Phase 1 compliance operations dashboard: an Angular f
 ```text
 pharos-compliance-dashboard/
 ├── backend/       Java 21, Maven, Spring Boot 3
-├── frontend/      Angular 22
+├── frontend/      Angular 21
 ├── docker-compose.yml
 └── pom.xml        IntelliJ-friendly Maven aggregator
 ```
@@ -16,7 +16,7 @@ pharos-compliance-dashboard/
 
 - JDK 21
 - Maven 3.8+
-- Node.js 22.22.3+ (Node.js 24 LTS recommended)
+- Node.js 22.22.3+
 - npm 10+
 - Docker Desktop (optional, for local PostgreSQL)
 

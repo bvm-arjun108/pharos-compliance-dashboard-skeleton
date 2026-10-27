@@ -4,7 +4,7 @@
 # containerized, with nginx replacing the reverse-proxy role a host-installed nginx would play in
 # the non-Docker deployment (see deploy/nginx/pharos-dashboard.conf).
 
-FROM node:24-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /build
 
 # Dependency install in its own layer -- only re-runs when the lockfile changes, not on every
