@@ -4,11 +4,15 @@
 module.exports = {
   cache: false,
   preset: 'jest-preset-angular',
-  roots: ['<rootDir>/src/'],
+  roots: ['<rootDir>/test/'],
   testMatch: ['**/+(*.)+(spec).+(ts)'],
-  setupFilesAfterEnv: ['<rootDir>/src/jest.setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
+  collectCoverageFrom: ['src/app/**/*.ts'],
+  coverageThreshold: {
+    global: { statements: 90, branches: 90, functions: 90, lines: 90 }
+  },
   coverageDirectory: 'coverage/dashboard',
   coverageReporters: ['html', 'lcov', 'text-summary'],
-  modulePaths: ['<rootDir>/src/'],
+  modulePaths: ['<rootDir>/src/', '<rootDir>/test/'],
   testResultsProcessor: 'jest-sonar-reporter'
 };
