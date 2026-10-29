@@ -38,4 +38,19 @@ class EvidenceCursorTest {
     assertNull(decoded.sortTs());
     assertEquals("record-2", decoded.recordKey());
   }
+
+  @Test
+  void blankTokenMeansFirstPage() {
+    assertNull(EvidenceCursor.decode(null));
+    assertNull(EvidenceCursor.decode("  "));
+  }
+
+  @Test
+  void malformedTokensAreRejected() {
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> EvidenceCursor.decode("!!not base64!!"));
+    String noDelimiter = Base64.getUrlEncoder().withoutPadding().encodeToString("nodelimiter".getBytes(StandardCharsets.UTF_8));
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> EvidenceCursor.decode(noDelimiter));
+    String badTimestamp = Base64.getUrlEncoder().withoutPadding().encodeToString("not-a-time|k".getBytes(StandardCharsets.UTF_8));
+    org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> EvidenceCursor.decode(badTimestamp));
+  }
 }

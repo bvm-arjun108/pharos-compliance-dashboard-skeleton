@@ -95,4 +95,12 @@ class TracingNamedParameterJdbcTemplateTest {
     assertThatThrownBy(() -> template.queryForOptional("q", new MapSqlParameterSource(), MAPPER))
       .isInstanceOf(IncorrectResultSizeDataAccessException.class);
   }
+
+  @Test
+  void aMissingCapturedResultIsNotLogged() throws Exception {
+    var logResult = TracingNamedParameterJdbcTemplate.class
+      .getDeclaredMethod("logResult", String.class, String.class, String.class, int.class, Object.class);
+    logResult.setAccessible(true);
+    logResult.invoke(template, "section", "purpose", "id", 0, null);
+  }
 }

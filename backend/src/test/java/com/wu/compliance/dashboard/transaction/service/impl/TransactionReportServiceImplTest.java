@@ -456,9 +456,21 @@ class TransactionReportServiceImplTest {
           TransactionStatus.ALL, token);
       service.getPeriodTransactionReport(FROM, TO, "ALL", 1, "B", "term", TransactionOutcome.ALL, TransactionStatus.ALL, "reason", false,
           TransactionSortDirection.ASC, 0, 25, token);
+      service.getPeriodTransactionReport(FROM, TO, null, null, null, null, TransactionOutcome.ALL, TransactionStatus.ALL, null, false,
+          TransactionSortDirection.ASC, 0, 25, null);
       when(searchRepository.search(TransactionSearchField.MTCN, "1")).thenReturn(List.of());
       assertThat(service.searchTransactions(TransactionSearchField.MTCN, "1", null, null, null, null).results()).isEmpty();
       assertThat(service.searchTransactions(TransactionSearchField.MTCN, "1", FROM, TO, "US", 1).results()).isEmpty();
     }
+  }
+
+  @Test
+  void anOperationWithoutAResponseIsNotSummarised() throws Exception {
+    var logOperation = TransactionReportServiceImpl.class
+      .getDeclaredMethod("logOperation", String.class, Runnable.class, java.util.function.Supplier.class, java.util.function.Function.class);
+    logOperation.setAccessible(true);
+    assertThat(logOperation.invoke(service, "op", (Runnable) () -> {}, (java.util.function.Supplier<Object>) () -> null,
+        (java.util.function.Function<Object, String>) Object::toString))
+      .isNull();
   }
 }

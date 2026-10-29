@@ -72,6 +72,13 @@ class ReportConfigServiceImplTest {
   }
 
   @Test
+  void aBlankCountryMeansAllCountries() {
+    when(repository.getSummary("ALL", "ALL", "ALL", null)).thenReturn(new ReportConfigSummaryProjection(0, 0, 0, 0, 0));
+    when(repository.findReportConfigs("ALL", "ALL", "ALL", null)).thenReturn(List.of());
+    assertThat(service.getReportConfigs("   ", ReportConfigStatus.ALL, null, null).country()).isEqualTo("ALL");
+  }
+
+  @Test
   void reportConfigsForAKnownCountry() {
     when(repository.getSummary("US", "ACTIVE", "CTR", 1)).thenReturn(new ReportConfigSummaryProjection(1, 1, 1, 1, 0));
     when(repository.findReportConfigs("US", "ACTIVE", "CTR", 1)).thenReturn(List.of());

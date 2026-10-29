@@ -70,4 +70,13 @@ class MetricsEdgeCasesTest {
     new QueryPerformanceSummaryLogger(mapper).log(summary);
     new QueryPerformanceSummaryLogger(new ObjectMapper()).log(summary);
   }
+
+  @Test
+  void percentageOfAnEmptyTotalIsZero() throws Exception {
+    QueryPerformanceTracker tracker = new QueryPerformanceTracker(new QueryPerformanceProperties(true, null));
+    var percentage = QueryPerformanceTracker.class.getDeclaredMethod("percentage", long.class, long.class);
+    percentage.setAccessible(true);
+    assertThat(percentage.invoke(tracker, 5L, 0L)).isEqualTo(0.0);
+    assertThat(percentage.invoke(tracker, 1L, 4L)).isEqualTo(25.0);
+  }
 }

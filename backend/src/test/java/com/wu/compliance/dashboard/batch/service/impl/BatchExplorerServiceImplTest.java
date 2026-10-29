@@ -59,6 +59,11 @@ class BatchExplorerServiceImplTest {
         1, totalIssues, matching);
   }
 
+  private static BatchDetailsProjection detailsWithoutStart(LocalDateTime completedAt) {
+    return new BatchDetailsProjection(1, "RG1", "B1", 1, "f", "t", null, completedAt, 0, 0, false, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, true, true, 7, "tv");
+  }
+
   private static BatchDetailsProjection details(LocalDateTime completedAt, long failures, long missing, long activityMissing, long attempts,
       long transformed) {
     return new BatchDetailsProjection(1, "RG1", "B1", 1, "f", "t", START, completedAt, failures, failures, false, missing, activityMissing,
@@ -138,6 +143,12 @@ class BatchExplorerServiceImplTest {
     assertThat(response.durationSeconds()).isZero();
     assertThat(response.transformationBalanced()).isFalse();
     assertThat(response.totalIssues()).isEqualTo(3);
+  }
+
+  @Test
+  void aBatchWithoutAStartTimeHasNoDuration() {
+    when(repository.getBatchDetails(1, "B1", 1)).thenReturn(Optional.of(detailsWithoutStart(START)));
+    assertThat(service.getBatchDetails(1, "B1", 1).durationSeconds()).isZero();
   }
 
   @Test
